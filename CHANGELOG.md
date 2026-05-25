@@ -5,6 +5,9 @@
 ## [Unreleased]
 
 ### Added
+- Добавлены доменные модели Stage 1: `Book`, `BookVersion`, `Chapter`, `AudioTrack`, `PlaybackSession`, `PlaybackProgress`, `DownloadTask`, `Bookmark` и `AppSettings`.
+- Добавлена Drift/SQLite схема версии 1 с обязательными таблицами для книг, источников, воспроизведения, загрузок, закладок, истории поиска, настроек, proxy profiles и source settings.
+- Добавлены тесты Stage 1 для доменных моделей и in-memory Drift database.
 - Описана схема release signing для Android и Windows: хранение ключей вне Git, будущие GitHub Secrets, временное восстановление ключей в CI и правила компрометации.
 - Добавлен безопасный шаблон `android/key.properties.example` для будущей Android release-подписи.
 - GitHub Actions CI теперь собирает Android debug APK и Windows debug bundle, публикуя их как временные Actions artifacts.

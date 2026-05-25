@@ -65,11 +65,53 @@ License: BSD-3-Clause
 URL: https://pub.dev/packages/intl
 Purpose: Internationalization utilities.
 
+Package: drift
+Version: 2.31.0
+License: MIT
+URL: https://pub.dev/packages/drift
+Purpose: SQLite persistence layer and typed database access.
+
+Package: sqlite3
+Version: 2.9.4
+License: MIT
+URL: https://pub.dev/packages/sqlite3
+Purpose: Native SQLite bindings used transitively by Drift on Flutter platforms.
+
+Package: sqlite3_flutter_libs
+Version: 0.5.40
+License: MIT
+URL: https://pub.dev/packages/sqlite3_flutter_libs
+Purpose: Bundled SQLite native libraries for Android, iOS, macOS, Linux, and Windows Flutter builds.
+
+Package: path
+Version: 1.9.1
+License: BSD-3-Clause
+URL: https://pub.dev/packages/path
+Purpose: Cross-platform file path construction for local database files.
+
+Package: path_provider
+Version: 2.1.5
+License: BSD-3-Clause
+URL: https://pub.dev/packages/path_provider
+Purpose: Locate platform-specific application support directories.
+
 Package: flutter_lints
 Version: 6.0.0
 License: BSD-3-Clause
 URL: https://pub.dev/packages/flutter_lints
 Purpose: Static analysis lint rules for Flutter code.
+
+Package: build_runner
+Version: 2.15.0
+License: BSD-3-Clause
+URL: https://pub.dev/packages/build_runner
+Purpose: Dart code generation runner for generated database code.
+
+Package: drift_dev
+Version: 2.31.0
+License: MIT
+URL: https://pub.dev/packages/drift_dev
+Purpose: Drift schema/code generation for typed SQLite tables.
 ```
 
 ## 3. Icons
