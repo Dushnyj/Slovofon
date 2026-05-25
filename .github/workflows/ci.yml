@@ -19,7 +19,7 @@ concurrency:
 jobs:
   flutter-checks:
     name: Flutter checks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
 
     steps:
@@ -50,3 +50,93 @@ jobs:
 
       - name: Test
         run: flutter test
+
+  android-build:
+    name: Android debug build
+    runs-on: ubuntu-24.04
+    needs: flutter-checks
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.44.0"
+          channel: stable
+          cache: true
+          pub-cache: true
+
+      - name: Install dependencies
+        run: flutter pub get --enforce-lockfile
+
+      - name: Build Android debug APK
+        run: flutter build apk --debug
+
+      - name: Prepare Android artifact
+        id: android_artifact
+        shell: bash
+        run: |
+          version="$(tr -d '\r\n' < VERSION)"
+          artifact_name="Slovofon-v${version}-android-universal-debug"
+          mkdir -p artifacts/ci
+          cp build/app/outputs/flutter-apk/app-debug.apk "artifacts/ci/${artifact_name}.apk"
+          echo "name=${artifact_name}" >> "$GITHUB_OUTPUT"
+          echo "path=artifacts/ci/${artifact_name}.apk" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Android debug APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.android_artifact.outputs.name }}
+          path: ${{ steps.android_artifact.outputs.path }}
+          if-no-files-found: error
+          retention-days: 7
+
+  windows-build:
+    name: Windows debug build
+    runs-on: windows-2022
+    needs: flutter-checks
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.44.0"
+          channel: stable
+          cache: true
+          pub-cache: true
+
+      - name: Install dependencies
+        run: flutter pub get --enforce-lockfile
+
+      - name: Build Windows debug bundle
+        run: flutter build windows --debug
+
+      - name: Prepare Windows artifact
+        id: windows_artifact
+        shell: pwsh
+        run: |
+          $version = (Get-Content -Raw VERSION).Trim()
+          $artifactName = "Slovofon-v$version-windows-x64-debug"
+          "name=$artifactName" >> $env:GITHUB_OUTPUT
+          "path=build/windows/x64/runner/Debug" >> $env:GITHUB_OUTPUT
+
+      - name: Upload Windows debug bundle
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.windows_artifact.outputs.name }}
+          path: ${{ steps.windows_artifact.outputs.path }}
+          if-no-files-found: error
+          retention-days: 7

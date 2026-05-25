@@ -17,7 +17,7 @@
 
 ## Статус
 
-Проект находится на раннем этапе разработки: уже подготовлен Flutter-каркас, базовая архитектура, Android/Windows scaffolding, тема, mock data, единый PowerShell-скрипт обслуживания проекта и GitHub Actions CI.
+Проект находится на раннем этапе разработки: уже подготовлен Flutter-каркас, базовая архитектура, Android/Windows scaffolding, тема, mock data, единый PowerShell-скрипт обслуживания проекта и GitHub Actions CI с debug-сборками Android и Windows.
 
 Публичная версия: **0.0.1**.<br>
 Русское название приложения: **Словофон**.<br>

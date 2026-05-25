@@ -159,9 +159,20 @@ flutter pub get --enforce-lockfile
 dart format --output=none --set-exit-if-changed .
 flutter analyze
 flutter test
+flutter build apk --debug
+flutter build windows --debug
 ```
 
 Workflow использует Flutter `3.44.0` stable и минимальные права `contents: read`.
+
+Debug-сборки публикуются как временные GitHub Actions artifacts:
+
+```text
+Slovofon-v<version>-android-universal-debug.apk
+Slovofon-v<version>-windows-x64-debug
+```
+
+Эти artifacts не являются release-сборкой, не подписываются, не создают Git tag и не публикуются в GitHub Release.
 
 ---
 
