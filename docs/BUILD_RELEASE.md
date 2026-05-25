@@ -142,6 +142,27 @@ https://github.com/Dushnyj/Slovofon.git
 
 Codex не должен молча создавать публичный репозиторий. Для создания нужен подтверждённый `public`/`private`.
 
+### 5.1 GitHub Actions CI
+
+Основной workflow:
+
+```text
+.github/workflows/ci.yml
+```
+
+CI запускается на `push` и `pull_request` для `main`, а также вручную через `workflow_dispatch`.
+
+Проверки:
+
+```text
+flutter pub get --enforce-lockfile
+dart format --output=none --set-exit-if-changed .
+flutter analyze
+flutter test
+```
+
+Workflow использует Flutter `3.44.0` stable и минимальные права `contents: read`.
+
 ---
 
 ## 6. Имена артефактов

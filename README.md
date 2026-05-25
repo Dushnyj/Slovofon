@@ -5,6 +5,7 @@
 [![version](https://img.shields.io/badge/version-0.0.1-0969da?style=flat-square)](VERSION)
 [![status](https://img.shields.io/badge/status-early%20development-f59e0b?style=flat-square)](#статус)
 [![platform](https://img.shields.io/badge/platform-Android%20%7C%20Android%20TV%20%7C%20Windows-2ea44f?style=flat-square)](#платформы)
+[![ci](https://img.shields.io/github/actions/workflow/status/Dushnyj/Slovofon/ci.yml?branch=main&label=ci&style=flat-square)](https://github.com/Dushnyj/Slovofon/actions/workflows/ci.yml)
 [![code size](https://img.shields.io/github/languages/code-size/Dushnyj/Slovofon?style=flat-square)](https://github.com/Dushnyj/Slovofon)
 [![license](https://img.shields.io/github/license/Dushnyj/Slovofon?style=flat-square)](LICENSE)
 
@@ -16,7 +17,7 @@
 
 ## Статус
 
-Проект находится на раннем этапе разработки: уже подготовлен Flutter-каркас, базовая архитектура, Android/Windows scaffolding, тема, mock data и единый PowerShell-скрипт обслуживания проекта.
+Проект находится на раннем этапе разработки: уже подготовлен Flutter-каркас, базовая архитектура, Android/Windows scaffolding, тема, mock data, единый PowerShell-скрипт обслуживания проекта и GitHub Actions CI.
 
 Публичная версия: **0.0.1**.<br>
 Русское название приложения: **Словофон**.<br>
