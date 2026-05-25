@@ -35,4 +35,10 @@ flutter:
   assets:
     - assets/app/
     - assets/icons/
+    - assets/icons/book/
+    - assets/icons/downloads/
+    - assets/icons/nav/
+    - assets/icons/player/
+    - assets/icons/source/
+    - assets/icons/system/
     - assets/l10n/

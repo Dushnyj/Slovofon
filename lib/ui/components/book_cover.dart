@@ -9,6 +9,7 @@ class BookCover extends StatelessWidget {
     this.progress = 0,
     this.width = 76,
     this.height = 104,
+    this.showProgressPercent = true,
     super.key,
   });
 
@@ -16,6 +17,7 @@ class BookCover extends StatelessWidget {
   final double progress;
   final double width;
   final double height;
+  final bool showProgressPercent;
 
   @override
   Widget build(BuildContext context) {
@@ -57,14 +59,36 @@ class BookCover extends StatelessWidget {
                 ),
               ),
               Center(
-                child: Text(
-                  initials,
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    color: colorScheme.onPrimaryContainer,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
+                child: boundedProgress > 0 && showProgressPercent
+                    ? DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: colorScheme.scrim.withValues(alpha: 0.42),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          child: Text(
+                            '${(boundedProgress * 100).round()}%',
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context).textTheme.labelLarge
+                                ?.copyWith(
+                                  color: colorScheme.onPrimary,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                          ),
+                        ),
+                      )
+                    : Text(
+                        initials,
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          color: colorScheme.onPrimaryContainer,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
               ),
               if (boundedProgress > 0)
                 Align(

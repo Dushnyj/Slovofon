@@ -6,6 +6,6 @@ void main() {
     await tester.pumpWidget(const SlovofonApp());
     await tester.pumpAndSettle();
 
-    expect(find.text('Slovofon'), findsOneWidget);
+    expect(find.text('Continue listening'), findsOneWidget);
   });
 }

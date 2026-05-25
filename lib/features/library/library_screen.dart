@@ -5,6 +5,7 @@ import '../../app/localization/app_strings.dart';
 import '../../data/mock/stage3_mock_data.dart';
 import '../../ui/components/book_card.dart';
 import '../../ui/components/section_header.dart';
+import '../shared/mock_book_card_state.dart';
 
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({super.key});
@@ -49,6 +50,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
               padding: const EdgeInsets.only(bottom: 12),
               child: BookCard(
                 book: book.toAudioBook(),
+                yearLabel: '${book.year}',
+                isFavorite: book.isFavorite,
+                downloadState: mockDownloadStateFor(book.downloadStatus),
+                downloadProgress: book.progress,
+                onPlay: () => context.go('/player'),
                 onTap: () => context.go('/book/${book.id}'),
               ),
             ),

@@ -61,23 +61,25 @@ class BookDetailsScreen extends StatelessWidget {
             spacing: 8,
             runSpacing: 8,
             children: [
-              FilledButton.icon(
+              IconButton.filled(
+                tooltip: book.progress > 0
+                    ? strings.continuePlayback
+                    : strings.play,
                 onPressed: () => context.go('/player'),
                 icon: const AppIcon(AppIconAssets.playerPlay),
-                label: Text(book.progress > 0 ? 'Continue' : strings.play),
               ),
-              OutlinedButton.icon(
+              IconButton.outlined(
+                tooltip: strings.download,
                 onPressed: () {},
                 icon: const AppIcon(AppIconAssets.download),
-                label: Text(strings.download),
               ),
-              OutlinedButton.icon(
+              IconButton.outlined(
+                tooltip: strings.bookmarks,
                 onPressed: () {},
                 icon: const AppIcon(AppIconAssets.playerBookmark),
-                label: Text(strings.bookmarks),
               ),
-              IconButton(
-                tooltip: 'Share',
+              IconButton.outlined(
+                tooltip: strings.share,
                 onPressed: () {},
                 icon: const AppIcon(AppIconAssets.systemShare),
               ),

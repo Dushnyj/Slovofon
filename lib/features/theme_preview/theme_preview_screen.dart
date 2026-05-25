@@ -132,7 +132,10 @@ class ThemePreviewScreen extends StatelessWidget {
           const SizedBox(height: 12),
           TextField(
             decoration: InputDecoration(
-              prefixIcon: const AppIcon(AppIconAssets.navSearch),
+              prefixIcon: const Padding(
+                padding: EdgeInsets.all(14),
+                child: AppIcon(AppIconAssets.navSearch, size: 22),
+              ),
               hintText: strings.searchHint,
             ),
           ),

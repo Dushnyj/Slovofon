@@ -12,6 +12,6 @@
   stroke-linecap="round"
   stroke-linejoin="round"
 >
-  <circle cx="12" cy="12" r="10" />
-  <path d="m9 12 2 2 4-4" />
+  <circle stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" cx="12" cy="12" r="10" />
+  <path stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="m9 12 2 2 4-4" />
 </svg>

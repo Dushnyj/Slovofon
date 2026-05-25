@@ -39,11 +39,24 @@
 - Зафиксированы правила версионности, сборки, релизов, источников, безопасности, прокси, тем и ассетов.
 
 ### Changed
+- Главная, поиск и библиотека получили более плотные book cards: процент прослушивания поверх обложки, прогресс под обложкой, metadata с иконками и icon-only действия для избранного, загрузки, запуска и информации.
+- Карточка "Продолжить прослушивание" переработана с крупной обложкой, процентом прогресса, metadata и быстрыми icon-only действиями.
+- Мини-плеер снизу стал компактнее и информативнее: тонкая полоса прогресса, обложка, глава, позиция и процент прослушивания.
+- Полный плеер переработан под мобильный сценарий: вкладки заменены на dots, controls собраны в одну строку, добавлены chapter count, download book action, sleep timer и единая нижняя панель прогресса.
+- Карточки загрузок получили обложки, автора, чтеца, год и компактные иконки для download/downloading/cancel/delete/resume/retry состояний.
+- Chapter tile в полном плеере теперь показывает icon-only действие скачивания или удаления скачанной главы.
 - `SlovofonShell` получил adaptive layout: bottom navigation для компактных экранов и navigation rail для широких окон.
 - Пользовательский UI переведён с временных `Icons.*` glyphs Material на локальные Lucide SVG assets.
 - Заменены временные одинаковые download-state SVG на осмысленную Lucide-карту: download, loader, queued, checked, trash, retry, error, pause и resume.
 - Логическое имя технического ТЗ изменено с `auralib_technical_spec_ru.md` на `docs/SLOVOFON_TECHNICAL_SPEC_RU.md`.
 - Убрано рабочее имя `Auralib` из технического ТЗ.
+
+### Fixed
+- Исправлен размер SVG search icon внутри `TextField`, чтобы prefix icon не растягивался на Android.
+- Исправлена отрисовка Lucide SVG icons в Flutter UI через явный `ColorFilter`.
+- Исправлено подключение SVG icons из подпапок `assets/icons/*` в `pubspec.yaml`.
+- Lucide stroke/fill параметры продублированы на shape-элементы SVG для стабильного Android-рендера.
+- Основные action-кнопки mock UI заменены на icon-only controls с tooltip вместо громоздких текстовых кнопок.
 
 ### Security
 - Расширены правила для signing secrets: Android `.jks`, Windows `.pfx`, GitHub Secrets и CI cleanup.

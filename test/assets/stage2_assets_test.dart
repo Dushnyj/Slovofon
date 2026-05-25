@@ -116,6 +116,7 @@ const _expectedLucideIcons = {
   'assets/icons/book/language.svg': 'languages',
   'assets/icons/book/full.svg': 'book-check',
   'assets/icons/book/fragment.svg': 'book-dashed',
+  'assets/icons/book/favorite.svg': 'heart',
   'assets/icons/book/paid.svg': 'credit-card',
   'assets/icons/book/free.svg': 'unlock',
   'assets/icons/book/subscription.svg': 'ticket-check',

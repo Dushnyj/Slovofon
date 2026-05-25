@@ -21,6 +21,7 @@ abstract final class AppIconAssets {
   static const bookLanguage = 'assets/icons/book/language.svg';
   static const bookFull = 'assets/icons/book/full.svg';
   static const bookFragment = 'assets/icons/book/fragment.svg';
+  static const bookFavorite = 'assets/icons/book/favorite.svg';
   static const bookPaid = 'assets/icons/book/paid.svg';
   static const bookFree = 'assets/icons/book/free.svg';
   static const bookSubscription = 'assets/icons/book/subscription.svg';
@@ -109,6 +110,7 @@ class AppIcon extends StatelessWidget {
       height: effectiveSize,
       matchTextDirection: matchTextDirection,
       theme: SvgTheme(currentColor: effectiveColor),
+      colorFilter: ColorFilter.mode(effectiveColor, BlendMode.srcIn),
       semanticsLabel: semanticsLabel,
       excludeFromSemantics: semanticsLabel == null,
     );

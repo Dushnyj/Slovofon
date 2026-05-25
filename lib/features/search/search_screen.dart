@@ -6,6 +6,7 @@ import '../../data/mock/stage3_mock_data.dart';
 import '../../ui/components/book_card.dart';
 import '../../ui/components/section_header.dart';
 import '../../ui/icons/app_icons.dart';
+import '../shared/mock_book_card_state.dart';
 
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key});
@@ -40,7 +41,10 @@ class _SearchScreenState extends State<SearchScreen> {
               TextField(
                 onChanged: (value) => setState(() => _query = value),
                 decoration: InputDecoration(
-                  prefixIcon: const AppIcon(AppIconAssets.navSearch),
+                  prefixIcon: const Padding(
+                    padding: EdgeInsets.all(14),
+                    child: AppIcon(AppIconAssets.navSearch, size: 22),
+                  ),
                   hintText: strings.searchHint,
                 ),
               ),
@@ -81,6 +85,11 @@ class _SearchScreenState extends State<SearchScreen> {
                   padding: const EdgeInsets.only(bottom: 12),
                   child: BookCard(
                     book: book.toAudioBook(),
+                    yearLabel: '${book.year}',
+                    isFavorite: book.isFavorite,
+                    downloadState: mockDownloadStateFor(book.downloadStatus),
+                    downloadProgress: book.progress,
+                    onPlay: () => context.go('/player'),
                     onTap: () => context.go('/book/${book.id}'),
                   ),
                 ),

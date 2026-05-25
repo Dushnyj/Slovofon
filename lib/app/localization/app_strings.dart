@@ -60,8 +60,20 @@ class AppStrings {
   String get free => _isRu ? 'Бесплатно' : 'Free';
   String get play => _isRu ? 'Слушать' : 'Play';
   String get pause => _isRu ? 'Пауза' : 'Pause';
+  String get resume => _isRu ? 'Продолжить' : 'Resume';
+  String get cancel => _isRu ? 'Отменить' : 'Cancel';
+  String get continuePlayback => _isRu ? 'Продолжить' : 'Continue';
+  String get previousChapter => _isRu ? 'Предыдущая глава' : 'Previous chapter';
+  String get rewind15 => _isRu ? 'Назад на 15 секунд' : 'Rewind 15 seconds';
+  String get forward15 => _isRu ? 'Вперёд на 15 секунд' : 'Forward 15 seconds';
   String get nextChapter => _isRu ? 'Следующая глава' : 'Next chapter';
   String get download => _isRu ? 'Скачать' : 'Download';
+  String get downloadBook => _isRu ? 'Скачать книгу' : 'Download book';
+  String get pauseDownload =>
+      _isRu ? 'Поставить загрузку на паузу' : 'Pause download';
+  String get resumeDownload =>
+      _isRu ? 'Продолжить загрузку' : 'Resume download';
+  String get cancelDownload => _isRu ? 'Отменить загрузку' : 'Cancel download';
   String get details => _isRu ? 'Подробнее' : 'Details';
   String get bookDetails => _isRu ? 'Карточка книги' : 'Book details';
   String get chapters => _isRu ? 'Главы' : 'Chapters';
@@ -86,6 +98,11 @@ class AppStrings {
   String get history => _isRu ? 'История' : 'History';
   String get language => _isRu ? 'Язык' : 'Language';
   String get diagnostics => _isRu ? 'Диагностика' : 'Diagnostics';
+  String get retry => _isRu ? 'Повторить' : 'Retry';
+  String get share => _isRu ? 'Поделиться' : 'Share';
+  String get addFavorite => _isRu ? 'В избранное' : 'Add to favorites';
+  String get removeFavorite =>
+      _isRu ? 'Убрать из избранного' : 'Remove from favorites';
   String get deleteDownloaded =>
       _isRu ? 'Удалить скачанное' : 'Delete downloaded';
   String get mockDataNotice => _isRu

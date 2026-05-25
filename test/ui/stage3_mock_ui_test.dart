@@ -33,12 +33,16 @@ void main() {
     await tester.tap(find.byTooltip('Open full player'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Full player'), findsOneWidget);
-    expect(find.text('Now playing'), findsOneWidget);
-    expect(find.text('Chapters'), findsWidgets);
-    expect(find.text('Bookmarks'), findsWidgets);
-    expect(find.text('Information'), findsOneWidget);
-    expect(find.text('Sleep timer'), findsOneWidget);
+    expect(find.text('Мастер и Маргарита'), findsOneWidget);
+    expect(find.text('1:30:00'), findsOneWidget);
+    expect(find.byTooltip('Sleep timer'), findsOneWidget);
+    expect(find.byTooltip('Rewind 15 seconds'), findsOneWidget);
+
+    await tester.drag(find.byType(TabBarView), const Offset(-360, 0));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Chapters'), findsOneWidget);
+    expect(find.byTooltip('Download'), findsWidgets);
   });
 
   testWidgets('search shows filters and navigable mock results', (
@@ -83,11 +87,12 @@ void main() {
     await tester.tap(find.text('Downloads'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Downloading'), findsOneWidget);
-    expect(find.text('Queued'), findsOneWidget);
-    await tester.scrollUntilVisible(find.text('Failed'), 260);
-    expect(find.text('Failed'), findsOneWidget);
-    expect(find.text('Delete downloaded'), findsWidgets);
+    expect(find.text('Метро 2033'), findsOneWidget);
+    expect(find.text('Пикник на обочине'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('451 градус по Фаренгейту'), 260);
+    expect(find.text('451 градус по Фаренгейту'), findsOneWidget);
+    expect(find.byTooltip('Cancel download'), findsWidgets);
+    expect(find.byTooltip('Delete downloaded'), findsWidgets);
 
     await tester.tap(find.text('Settings'));
     await tester.pumpAndSettle();

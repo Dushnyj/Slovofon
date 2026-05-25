@@ -67,7 +67,7 @@ void main() {
     expect(find.text('Глава 1'), findsOneWidget);
     expect(find.text('12 мин'), findsOneWidget);
     expect(find.byType(LinearProgressIndicator), findsOneWidget);
-    expect(find.byTooltip('Downloaded'), findsOneWidget);
+    expect(find.byTooltip('Delete downloaded'), findsOneWidget);
   });
 
   testWidgets('state placeholders expose loading, empty and error variants', (

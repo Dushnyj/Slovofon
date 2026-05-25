@@ -25,22 +25,23 @@ class MiniPlayerBar extends StatelessWidget {
           child: SafeArea(
             top: false,
             child: SizedBox(
-              height: 76,
+              height: 62,
               child: Column(
                 children: [
-                  LinearProgressIndicator(value: book.progress, minHeight: 3),
+                  LinearProgressIndicator(value: book.progress, minHeight: 2.5),
                   Expanded(
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
                       child: Row(
                         children: [
                           BookCover(
                             title: book.title,
                             progress: book.progress,
-                            width: 42,
-                            height: 54,
+                            showProgressPercent: false,
+                            width: 38,
+                            height: 48,
                           ),
-                          const SizedBox(width: 12),
+                          const SizedBox(width: 10),
                           Expanded(
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
@@ -62,6 +63,17 @@ class MiniPlayerBar extends StatelessWidget {
                                       ?.copyWith(
                                         color: tokens.onPlayerSurface
                                             .withValues(alpha: 0.76),
+                                      ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  '${book.positionLabel} · ${(book.progress * 100).round()}%',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(context).textTheme.labelSmall
+                                      ?.copyWith(
+                                        color: tokens.onPlayerSurface
+                                            .withValues(alpha: 0.66),
                                       ),
                                 ),
                               ],
