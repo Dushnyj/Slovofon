@@ -5,6 +5,7 @@
 ## [Unreleased]
 
 ### Added
+- Добавлены `LICENSE` с Apache License 2.0 и `NOTICE` для обязательного attribution notice проекта.
 - Инициализирован стартовый Flutter/Dart-каркас проекта `slovofon` с версией `0.0.1+1`.
 - Добавлены `pubspec.yaml`, `analysis_options.yaml`, `.gitignore`, базовая структура `lib/`, стартовый widget test.
 - Добавлены базовые слои приложения: bootstrap, router, локализация, тема, semantic color tokens, mock data и shell-навигация.

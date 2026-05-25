@@ -1,6 +1,8 @@
 name: slovofon
 description: A cross-platform audiobook app for Android, Android TV, and Windows.
 publish_to: "none"
+repository: https://github.com/Dushnyj/Slovofon
+issue_tracker: https://github.com/Dushnyj/Slovofon/issues
 version: 0.0.1+1
 
 environment:
@@ -24,4 +26,3 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   generate: true
-

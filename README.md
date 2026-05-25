@@ -33,3 +33,9 @@ Codex и любые ИИ-агенты обязаны сначала читать
 ```text
 https://github.com/Dushnyj/Slovofon.git
 ```
+
+## Лицензия
+
+Slovofon распространяется по лицензии Apache License 2.0.
+
+При использовании, изменении или распространении кода необходимо сохранять `LICENSE`, copyright notice и содержимое `NOTICE` в соответствии с условиями Apache-2.0.
