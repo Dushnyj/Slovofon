@@ -20,4 +20,3 @@ class DownloadsScreen extends StatelessWidget {
     );
   }
 }
-

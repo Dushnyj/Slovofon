@@ -1,9 +1,4 @@
-enum BookAccess {
-  free,
-  paid,
-  subscription,
-  unknown,
-}
+enum BookAccess { free, paid, subscription, unknown }
 
 class AudioBook {
   const AudioBook({
@@ -30,4 +25,3 @@ class AudioBook {
   final double progress;
   final BookAccess access;
 }
-

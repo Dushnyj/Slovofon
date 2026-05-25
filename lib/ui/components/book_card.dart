@@ -4,10 +4,7 @@ import '../../app/localization/app_strings.dart';
 import '../../domain/models/audio_book.dart';
 
 class BookCard extends StatelessWidget {
-  const BookCard({
-    required this.book,
-    super.key,
-  });
+  const BookCard({required this.book, super.key});
 
   final AudioBook book;
 
@@ -116,10 +113,7 @@ class BookCard extends StatelessWidget {
 }
 
 class _InfoChip extends StatelessWidget {
-  const _InfoChip({
-    required this.icon,
-    required this.label,
-  });
+  const _InfoChip({required this.icon, required this.label});
 
   final IconData icon;
   final String label;
@@ -129,17 +123,9 @@ class _InfoChip extends StatelessWidget {
     final colorScheme = Theme.of(context).colorScheme;
 
     return Chip(
-      avatar: Icon(
-        icon,
-        size: 16,
-        color: colorScheme.onSurfaceVariant,
-      ),
-      label: Text(
-        label,
-        overflow: TextOverflow.ellipsis,
-      ),
+      avatar: Icon(icon, size: 16, color: colorScheme.onSurfaceVariant),
+      label: Text(label, overflow: TextOverflow.ellipsis),
       visualDensity: VisualDensity.compact,
     );
   }
 }
-

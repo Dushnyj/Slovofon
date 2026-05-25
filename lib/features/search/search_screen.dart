@@ -13,10 +13,7 @@ class SearchScreen extends StatelessWidget {
 
     return CustomScrollView(
       slivers: [
-        SliverAppBar(
-          floating: true,
-          title: Text(strings.search),
-        ),
+        SliverAppBar(floating: true, title: Text(strings.search)),
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
           sliver: SliverList.separated(
@@ -40,4 +37,3 @@ class SearchScreen extends StatelessWidget {
     );
   }
 }
-

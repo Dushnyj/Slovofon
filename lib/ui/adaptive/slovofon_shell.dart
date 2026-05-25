@@ -5,10 +5,7 @@ import '../../app/localization/app_strings.dart';
 import '../components/mini_player_bar.dart';
 
 class SlovofonShell extends StatelessWidget {
-  const SlovofonShell({
-    required this.navigationShell,
-    super.key,
-  });
+  const SlovofonShell({required this.navigationShell, super.key});
 
   final StatefulNavigationShell navigationShell;
 
@@ -17,9 +14,7 @@ class SlovofonShell extends StatelessWidget {
     final strings = context.strings;
 
     return Scaffold(
-      body: SafeArea(
-        child: navigationShell,
-      ),
+      body: SafeArea(child: navigationShell),
       bottomNavigationBar: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -65,4 +60,3 @@ class SlovofonShell extends StatelessWidget {
     );
   }
 }
-

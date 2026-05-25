@@ -70,4 +70,3 @@ class AppColorTokens extends ThemeExtension<AppColorTokens> {
     );
   }
 }
-

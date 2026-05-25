@@ -38,8 +38,7 @@ class AppStrings {
       _isRu ? 'Название, автор или исполнитель' : 'Title, author, or narrator';
   String get emptyLibrary =>
       _isRu ? 'Библиотека пока пуста' : 'Your library is empty';
-  String get emptyDownloads =>
-      _isRu ? 'Загрузок пока нет' : 'No downloads yet';
+  String get emptyDownloads => _isRu ? 'Загрузок пока нет' : 'No downloads yet';
   String get appearance => _isRu ? 'Внешний вид' : 'Appearance';
   String get sources => _isRu ? 'Источники' : 'Sources';
   String get player => _isRu ? 'Плеер' : 'Player';

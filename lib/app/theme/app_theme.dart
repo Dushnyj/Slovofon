@@ -92,9 +92,7 @@ class AppTheme {
         color: colorScheme.surfaceContainer,
         surfaceTintColor: colorScheme.surfaceTint,
         margin: EdgeInsets.zero,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
       chipTheme: base.chipTheme.copyWith(
         backgroundColor: colorScheme.surfaceContainerHighest,
@@ -128,9 +126,7 @@ class AppTheme {
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: colorScheme.surfaceContainerHighest,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-        ),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
       ),
       tooltipTheme: TooltipThemeData(
         decoration: BoxDecoration(
@@ -142,4 +138,3 @@ class AppTheme {
     );
   }
 }
-

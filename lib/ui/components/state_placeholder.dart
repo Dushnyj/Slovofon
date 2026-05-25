@@ -24,11 +24,7 @@ class StatePlaceholder extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(
-                icon,
-                size: 48,
-                color: colorScheme.primary,
-              ),
+              Icon(icon, size: 48, color: colorScheme.primary),
               const SizedBox(height: 16),
               Text(
                 title,
@@ -52,4 +48,3 @@ class StatePlaceholder extends StatelessWidget {
     );
   }
 }
-

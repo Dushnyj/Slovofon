@@ -13,10 +13,7 @@ class HomeScreen extends StatelessWidget {
 
     return CustomScrollView(
       slivers: [
-        SliverAppBar(
-          floating: true,
-          title: Text(strings.appTitle),
-        ),
+        SliverAppBar(floating: true, title: Text(strings.appTitle)),
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
           sliver: SliverList.separated(
@@ -40,10 +37,7 @@ class HomeScreen extends StatelessWidget {
 }
 
 class _HomeHeader extends StatelessWidget {
-  const _HomeHeader({
-    required this.title,
-    required this.subtitle,
-  });
+  const _HomeHeader({required this.title, required this.subtitle});
 
   final String title;
   final String subtitle;
@@ -57,10 +51,7 @@ class _HomeHeader extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            title,
-            style: Theme.of(context).textTheme.headlineSmall,
-          ),
+          Text(title, style: Theme.of(context).textTheme.headlineSmall),
           const SizedBox(height: 6),
           Text(
             subtitle,
@@ -73,4 +64,3 @@ class _HomeHeader extends StatelessWidget {
     );
   }
 }
-

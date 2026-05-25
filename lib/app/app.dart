@@ -27,4 +27,3 @@ class SlovofonApp extends StatelessWidget {
     );
   }
 }
-

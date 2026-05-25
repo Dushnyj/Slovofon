@@ -126,9 +126,9 @@ class ThemePreviewScreen extends StatelessWidget {
       floatingActionButton: FloatingActionButton(
         tooltip: strings.snackbarPreview,
         onPressed: () {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(strings.mockDataNotice)),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(strings.mockDataNotice)));
         },
         child: const Icon(Icons.notifications_rounded),
       ),
@@ -158,9 +158,9 @@ class _StateBadge extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         child: Text(
           label,
-          style: Theme.of(context).textTheme.labelLarge?.copyWith(
-            color: foreground,
-          ),
+          style: Theme.of(
+            context,
+          ).textTheme.labelLarge?.copyWith(color: foreground),
         ),
       ),
     );

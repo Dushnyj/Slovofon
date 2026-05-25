@@ -23,10 +23,7 @@ class MiniPlayerBar extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Row(
               children: [
-                Icon(
-                  Icons.graphic_eq_rounded,
-                  color: tokens.onPlayerSurface,
-                ),
+                Icon(Icons.graphic_eq_rounded, color: tokens.onPlayerSurface),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(

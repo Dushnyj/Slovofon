@@ -6,10 +6,5 @@ import 'app.dart';
 Future<void> bootstrap() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  runApp(
-    const ProviderScope(
-      child: SlovofonApp(),
-    ),
-  );
+  runApp(const ProviderScope(child: SlovofonApp()));
 }
-

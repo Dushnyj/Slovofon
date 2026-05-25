@@ -21,6 +21,38 @@ $ErrorActionPreference = 'Stop'
 $Script:Root = Resolve-Path (Join-Path $PSScriptRoot '..')
 $Script:Failures = New-Object System.Collections.Generic.List[string]
 
+function Initialize-ProcessEnvironment {
+    $pathParts = New-Object System.Collections.Generic.List[string]
+    foreach ($scope in @('Process', 'Machine', 'User')) {
+        $pathValue = [Environment]::GetEnvironmentVariable('Path', $scope)
+        if ([string]::IsNullOrWhiteSpace($pathValue)) {
+            continue
+        }
+
+        foreach ($part in ($pathValue -split ';')) {
+            if ([string]::IsNullOrWhiteSpace($part)) {
+                continue
+            }
+
+            if (-not $pathParts.Contains($part)) {
+                $pathParts.Add($part) | Out-Null
+            }
+        }
+    }
+
+    $env:Path = $pathParts -join ';'
+
+    foreach ($name in @('JAVA_HOME', 'ANDROID_HOME', 'ANDROID_SDK_ROOT')) {
+        foreach ($scope in @('User', 'Machine')) {
+            $value = [Environment]::GetEnvironmentVariable($name, $scope)
+            if (-not [string]::IsNullOrWhiteSpace($value)) {
+                Set-Item -Path "Env:$name" -Value $value
+                break
+            }
+        }
+    }
+}
+
 function Write-Info {
     param([string]$Message)
     Write-Host "[slovofon] $Message"
@@ -285,6 +317,8 @@ function Invoke-Clean {
 
 Push-Location $Script:Root
 try {
+    Initialize-ProcessEnvironment
+
     switch ($Command) {
         'bootstrap' { Invoke-Bootstrap }
         'check' { Test-Environment }
