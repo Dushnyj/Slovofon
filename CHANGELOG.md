@@ -13,6 +13,7 @@
 - Инициализирован стартовый Flutter/Dart-каркас проекта `slovofon` с версией `0.0.1+1`.
 - Добавлены `pubspec.yaml`, `analysis_options.yaml`, `.gitignore`, базовая структура `lib/`, стартовый widget test.
 - Добавлены базовые слои приложения: bootstrap, router, локализация, тема, semantic color tokens, mock data и shell-навигация.
+- Добавлена стартовая структура `assets/` для app assets, icons и l10n, подключённая в `pubspec.yaml`.
 - Добавлен внутренний `ThemePreviewScreen` для проверки базовых кнопок, chips, карточек, input, progress и state colors.
 - Добавлен главный PowerShell-скрипт `tools/slovofon.ps1` с командами `bootstrap`, `check`, `doctor`, `get`, `format`, `analyze`, `test`, `build`, `version`, `release`, `clean`.
 - Сгенерированы стартовые Android и Windows платформенные файлы Flutter.
