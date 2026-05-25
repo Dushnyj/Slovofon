@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/localization/app_strings.dart';
 import '../../ui/components/state_placeholder.dart';
+import '../../ui/icons/app_icons.dart';
 
 class DownloadsScreen extends StatelessWidget {
   const DownloadsScreen({super.key});
@@ -13,7 +14,7 @@ class DownloadsScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: Text(strings.downloads)),
       body: StatePlaceholder(
-        icon: Icons.download_for_offline_rounded,
+        iconAsset: AppIconAssets.download,
         title: strings.emptyDownloads,
         message: strings.mockDataNotice,
       ),

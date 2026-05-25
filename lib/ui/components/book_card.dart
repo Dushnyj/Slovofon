@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/localization/app_strings.dart';
 import '../../domain/models/audio_book.dart';
+import '../icons/app_icons.dart';
 
 class BookCard extends StatelessWidget {
   const BookCard({required this.book, super.key});
@@ -32,8 +33,9 @@ class BookCard extends StatelessWidget {
                       color: colorScheme.primaryContainer,
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: Icon(
-                      Icons.menu_book_rounded,
+                    child: AppIcon(
+                      AppIconAssets.bookFull,
+                      size: 28,
                       color: colorScheme.onPrimaryContainer,
                     ),
                   ),
@@ -62,15 +64,15 @@ class BookCard extends StatelessWidget {
                           runSpacing: 8,
                           children: [
                             _InfoChip(
-                              icon: Icons.record_voice_over_rounded,
+                              iconAsset: AppIconAssets.bookNarrator,
                               label: book.narrator,
                             ),
                             _InfoChip(
-                              icon: Icons.schedule_rounded,
+                              iconAsset: AppIconAssets.bookDuration,
                               label: book.durationLabel,
                             ),
                             _InfoChip(
-                              icon: Icons.source_rounded,
+                              iconAsset: AppIconAssets.bookSource,
                               label: book.sourceName,
                             ),
                           ],
@@ -93,13 +95,13 @@ class BookCard extends StatelessWidget {
                 children: [
                   FilledButton.icon(
                     onPressed: () {},
-                    icon: const Icon(Icons.play_arrow_rounded),
+                    icon: const AppIcon(AppIconAssets.playerPlay),
                     label: Text(strings.play),
                   ),
                   const SizedBox(width: 8),
                   OutlinedButton.icon(
                     onPressed: () {},
-                    icon: const Icon(Icons.info_outline_rounded),
+                    icon: const AppIcon(AppIconAssets.systemInfo),
                     label: Text(strings.details),
                   ),
                 ],
@@ -113,9 +115,9 @@ class BookCard extends StatelessWidget {
 }
 
 class _InfoChip extends StatelessWidget {
-  const _InfoChip({required this.icon, required this.label});
+  const _InfoChip({required this.iconAsset, required this.label});
 
-  final IconData icon;
+  final String iconAsset;
   final String label;
 
   @override
@@ -123,7 +125,7 @@ class _InfoChip extends StatelessWidget {
     final colorScheme = Theme.of(context).colorScheme;
 
     return Chip(
-      avatar: Icon(icon, size: 16, color: colorScheme.onSurfaceVariant),
+      avatar: AppIcon(iconAsset, size: 16, color: colorScheme.onSurfaceVariant),
       label: Text(label, overflow: TextOverflow.ellipsis),
       visualDensity: VisualDensity.compact,
     );

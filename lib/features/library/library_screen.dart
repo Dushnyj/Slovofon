@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/localization/app_strings.dart';
 import '../../ui/components/state_placeholder.dart';
+import '../../ui/icons/app_icons.dart';
 
 class LibraryScreen extends StatelessWidget {
   const LibraryScreen({super.key});
@@ -13,7 +14,7 @@ class LibraryScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: Text(strings.library)),
       body: StatePlaceholder(
-        icon: Icons.library_books_rounded,
+        iconAsset: AppIconAssets.navLibrary,
         title: strings.emptyLibrary,
         message: strings.mockDataNotice,
       ),

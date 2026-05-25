@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../app/localization/app_strings.dart';
 import '../../data/mock/mock_books.dart';
 import '../../ui/components/book_card.dart';
+import '../../ui/icons/app_icons.dart';
 
 class SearchScreen extends StatelessWidget {
   const SearchScreen({super.key});
@@ -23,7 +24,7 @@ class SearchScreen extends StatelessWidget {
               if (index == 0) {
                 return TextField(
                   decoration: InputDecoration(
-                    prefixIcon: const Icon(Icons.search_rounded),
+                    prefixIcon: const AppIcon(AppIconAssets.navSearch),
                     hintText: strings.searchHint,
                   ),
                 );

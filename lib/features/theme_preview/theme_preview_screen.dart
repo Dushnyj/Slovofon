@@ -3,7 +3,12 @@ import 'package:flutter/material.dart';
 import '../../app/localization/app_strings.dart';
 import '../../app/theme/app_color_tokens.dart';
 import '../../data/mock/mock_books.dart';
+import '../../ui/components/app_buttons.dart';
+import '../../ui/components/app_chips.dart';
 import '../../ui/components/book_card.dart';
+import '../../ui/components/chapter_tile.dart';
+import '../../ui/components/state_placeholder.dart';
+import '../../ui/icons/app_icons.dart';
 
 class ThemePreviewScreen extends StatelessWidget {
   const ThemePreviewScreen({super.key});
@@ -29,23 +34,38 @@ class ThemePreviewScreen extends StatelessWidget {
             children: [
               FilledButton.icon(
                 onPressed: () {},
-                icon: const Icon(Icons.play_arrow_rounded),
+                icon: const AppIcon(AppIconAssets.playerPlay),
                 label: Text(strings.play),
+              ),
+              AppPrimaryButton(
+                iconAsset: AppIconAssets.playerBookmark,
+                label: 'Primary',
+                onPressed: () {},
+              ),
+              AppSecondaryButton(
+                iconAsset: AppIconAssets.systemFilter,
+                label: 'Secondary',
+                onPressed: () {},
+              ),
+              AppQuietButton(
+                iconAsset: AppIconAssets.systemMore,
+                label: 'Quiet',
+                onPressed: () {},
               ),
               OutlinedButton.icon(
                 onPressed: () {},
-                icon: const Icon(Icons.download_rounded),
+                icon: const AppIcon(AppIconAssets.download),
                 label: Text(strings.download),
               ),
               TextButton.icon(
                 onPressed: () {},
-                icon: const Icon(Icons.info_outline_rounded),
+                icon: const AppIcon(AppIconAssets.systemInfo),
                 label: Text(strings.details),
               ),
               IconButton.filled(
                 tooltip: strings.pause,
                 onPressed: () {},
-                icon: const Icon(Icons.pause_rounded),
+                icon: const AppIcon(AppIconAssets.playerPause),
               ),
             ],
           ),
@@ -62,6 +82,12 @@ class ThemePreviewScreen extends StatelessWidget {
               const Chip(label: Text('Yakniga')),
               const Chip(label: Text('Izib')),
               const Chip(label: Text('Akniga')),
+              const SourceChip(label: 'Akniga', color: Color(0xFF2F6FED)),
+              const SourceChip(label: 'Yakniga', color: Color(0xFF1F7A4D)),
+              const AccessChip(
+                label: 'Subscription',
+                iconAsset: AppIconAssets.bookSubscription,
+              ),
               FilterChip(
                 selected: true,
                 label: Text(strings.free),
@@ -76,6 +102,28 @@ class ThemePreviewScreen extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           BookCard(book: mockBooks.first),
+          const SizedBox(height: 12),
+          ChapterTile(
+            index: 1,
+            title: 'Глава 1. Начало',
+            durationLabel: '24 мин',
+            progress: 0.42,
+            isDownloaded: true,
+            isCurrent: true,
+            onTap: () {},
+          ),
+          const SizedBox(height: 12),
+          const StatePlaceholder.empty(
+            title: 'Empty state',
+            message: 'Secondary text stays readable.',
+          ),
+          const SizedBox(height: 12),
+          const StatePlaceholder.error(
+            title: 'Error state',
+            message: 'Error text and actions use theme colors.',
+          ),
+          const SizedBox(height: 12),
+          const StatePlaceholder.loading(title: 'Loading state'),
           const SizedBox(height: 24),
           Text(
             strings.previewInputs,
@@ -84,7 +132,7 @@ class ThemePreviewScreen extends StatelessWidget {
           const SizedBox(height: 12),
           TextField(
             decoration: InputDecoration(
-              prefixIcon: const Icon(Icons.search_rounded),
+              prefixIcon: const AppIcon(AppIconAssets.navSearch),
               hintText: strings.searchHint,
             ),
           ),
@@ -119,6 +167,16 @@ class ThemePreviewScreen extends StatelessWidget {
                 background: tokens.info,
                 foreground: tokens.onInfo,
               ),
+              _StateBadge(
+                label: 'Error',
+                background: tokens.error,
+                foreground: tokens.onError,
+              ),
+              _StateBadge(
+                label: 'Focus',
+                background: tokens.focus,
+                foreground: AppColorTokens.readableOn(tokens.focus),
+              ),
             ],
           ),
         ],
@@ -130,7 +188,7 @@ class ThemePreviewScreen extends StatelessWidget {
             context,
           ).showSnackBar(SnackBar(content: Text(strings.mockDataNotice)));
         },
-        child: const Icon(Icons.notifications_rounded),
+        child: const AppIcon(AppIconAssets.systemNotification),
       ),
     );
   }

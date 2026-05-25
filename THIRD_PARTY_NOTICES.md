@@ -119,12 +119,21 @@ Purpose: Drift schema/code generation for typed SQLite tables.
 Текущие иконки:
 
 ```text
+Icon set: Lucide Static
+Version: 1.16.0
+License: ISC
+URL: https://lucide.dev
+Source package: https://www.npmjs.com/package/lucide-static
+Files:
+- assets/icons/**/*.svg
+Purpose: Checked-in SVG UI icons for navigation, book metadata, player controls, download states, and system actions.
+
 Icon set: Flutter Material Icons
 License: Provided through Flutter/Material icon font distribution
 URL: https://api.flutter.dev/flutter/material/Icons-class.html
 Files:
-- Runtime Material icons, no checked-in icon files yet.
-Purpose: Temporary navigation, player, book, download, settings, and state icons for the initial scaffold.
+- Runtime Material icons, used where Flutter widgets render built-in icons before a dedicated SVG asset is wired.
+Purpose: Temporary fallback icons during UI scaffolding.
 ```
 
 ## 4. Fonts

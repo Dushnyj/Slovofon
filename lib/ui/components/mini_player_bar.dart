@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../app/localization/app_strings.dart';
 import '../../app/theme/app_color_tokens.dart';
 import '../../data/mock/mock_books.dart';
+import '../icons/app_icons.dart';
 
 class MiniPlayerBar extends StatelessWidget {
   const MiniPlayerBar({super.key});
@@ -23,7 +24,10 @@ class MiniPlayerBar extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Row(
               children: [
-                Icon(Icons.graphic_eq_rounded, color: tokens.onPlayerSurface),
+                AppIcon(
+                  AppIconAssets.playerAudio,
+                  color: tokens.onPlayerSurface,
+                ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -53,8 +57,8 @@ class MiniPlayerBar extends StatelessWidget {
                 IconButton(
                   tooltip: strings.play,
                   onPressed: () {},
-                  icon: Icon(
-                    Icons.play_arrow_rounded,
+                  icon: AppIcon(
+                    AppIconAssets.playerPlay,
                     color: tokens.onPlayerSurface,
                   ),
                 ),

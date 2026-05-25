@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../app/localization/app_strings.dart';
 import '../components/mini_player_bar.dart';
+import '../icons/app_icons.dart';
 
 class SlovofonShell extends StatelessWidget {
   const SlovofonShell({required this.navigationShell, super.key});
@@ -29,28 +30,28 @@ class SlovofonShell extends StatelessWidget {
             },
             destinations: [
               NavigationDestination(
-                icon: const Icon(Icons.home_outlined),
-                selectedIcon: const Icon(Icons.home_rounded),
+                icon: const AppIcon(AppIconAssets.navHome),
+                selectedIcon: const AppIcon(AppIconAssets.navHome),
                 label: strings.home,
               ),
               NavigationDestination(
-                icon: const Icon(Icons.search_outlined),
-                selectedIcon: const Icon(Icons.search_rounded),
+                icon: const AppIcon(AppIconAssets.navSearch),
+                selectedIcon: const AppIcon(AppIconAssets.navSearch),
                 label: strings.search,
               ),
               NavigationDestination(
-                icon: const Icon(Icons.library_books_outlined),
-                selectedIcon: const Icon(Icons.library_books_rounded),
+                icon: const AppIcon(AppIconAssets.navLibrary),
+                selectedIcon: const AppIcon(AppIconAssets.navLibrary),
                 label: strings.library,
               ),
               NavigationDestination(
-                icon: const Icon(Icons.download_outlined),
-                selectedIcon: const Icon(Icons.download_rounded),
+                icon: const AppIcon(AppIconAssets.navDownloads),
+                selectedIcon: const AppIcon(AppIconAssets.navDownloads),
                 label: strings.downloads,
               ),
               NavigationDestination(
-                icon: const Icon(Icons.settings_outlined),
-                selectedIcon: const Icon(Icons.settings_rounded),
+                icon: const AppIcon(AppIconAssets.navSettings),
+                selectedIcon: const AppIcon(AppIconAssets.navSettings),
                 label: strings.settings,
               ),
             ],

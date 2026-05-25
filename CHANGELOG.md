@@ -5,6 +5,12 @@
 ## [Unreleased]
 
 ### Added
+- Добавлены Stage 2 дизайн-токены: semantic colors, spacing, radii, focus/hover/selected states и минимальные 48dp размеры интерактивных контролов.
+- Добавлены общие UI-компоненты Stage 2: primary/secondary/quiet buttons, source/access chips, `ChapterTile`, loading/empty/error placeholders.
+- Добавлены draft app icon SVG и полный Lucide-based SVG icon inventory для nav, book, player, downloads и system групп.
+- Добавлен единый `AppIcon`/`AppIconAssets` слой для локальных Lucide SVG в пользовательском интерфейсе.
+- Расширен `ThemePreviewScreen` превью для Stage 2 компонентов, chapter tile, state variants и focus/state colors.
+- Добавлены Stage 2 тесты для дизайн-системы, ассетов и reusable компонентов.
 - Добавлены доменные модели Stage 1: `Book`, `BookVersion`, `Chapter`, `AudioTrack`, `PlaybackSession`, `PlaybackProgress`, `DownloadTask`, `Bookmark` и `AppSettings`.
 - Добавлена Drift/SQLite схема версии 1 с обязательными таблицами для книг, источников, воспроизведения, загрузок, закладок, истории поиска, настроек, proxy profiles и source settings.
 - Добавлены тесты Stage 1 для доменных моделей и in-memory Drift database.
@@ -29,6 +35,8 @@
 - Зафиксированы правила версионности, сборки, релизов, источников, безопасности, прокси, тем и ассетов.
 
 ### Changed
+- Пользовательский UI переведён с временных `Icons.*` glyphs Material на локальные Lucide SVG assets.
+- Заменены временные одинаковые download-state SVG на осмысленную Lucide-карту: download, loader, queued, checked, trash, retry, error, pause и resume.
 - Логическое имя технического ТЗ изменено с `auralib_technical_spec_ru.md` на `docs/SLOVOFON_TECHNICAL_SPEC_RU.md`.
 - Убрано рабочее имя `Auralib` из технического ТЗ.
 

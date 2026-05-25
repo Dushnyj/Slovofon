@@ -1,16 +1,32 @@
 import 'package:flutter/material.dart';
 
+import '../icons/app_icons.dart';
+
 class StatePlaceholder extends StatelessWidget {
   const StatePlaceholder({
-    required this.icon,
+    required this.iconAsset,
     required this.title,
     this.message,
+    this.loading = false,
     super.key,
   });
 
-  final IconData icon;
+  const StatePlaceholder.loading({required this.title, this.message, super.key})
+    : iconAsset = AppIconAssets.downloading,
+      loading = true;
+
+  const StatePlaceholder.empty({required this.title, this.message, super.key})
+    : iconAsset = AppIconAssets.systemInfo,
+      loading = false;
+
+  const StatePlaceholder.error({required this.title, this.message, super.key})
+    : iconAsset = AppIconAssets.systemWarning,
+      loading = false;
+
+  final String iconAsset;
   final String title;
   final String? message;
+  final bool loading;
 
   @override
   Widget build(BuildContext context) {
@@ -24,7 +40,10 @@ class StatePlaceholder extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, size: 48, color: colorScheme.primary),
+              if (loading)
+                const CircularProgressIndicator()
+              else
+                AppIcon(iconAsset, size: 48, color: colorScheme.primary),
               const SizedBox(height: 16),
               Text(
                 title,
