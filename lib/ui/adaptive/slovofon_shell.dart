@@ -13,51 +13,89 @@ class SlovofonShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
+    final destinations = _destinations(strings);
 
-    return Scaffold(
-      body: SafeArea(child: navigationShell),
-      bottomNavigationBar: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const MiniPlayerBar(),
-          NavigationBar(
-            selectedIndex: navigationShell.currentIndex,
-            onDestinationSelected: (index) {
-              navigationShell.goBranch(
-                index,
-                initialLocation: index == navigationShell.currentIndex,
-              );
-            },
-            destinations: [
-              NavigationDestination(
-                icon: const AppIcon(AppIconAssets.navHome),
-                selectedIcon: const AppIcon(AppIconAssets.navHome),
-                label: strings.home,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth >= 900) {
+          return Scaffold(
+            body: SafeArea(
+              child: Row(
+                children: [
+                  NavigationRail(
+                    selectedIndex: navigationShell.currentIndex,
+                    labelType: NavigationRailLabelType.all,
+                    onDestinationSelected: _goToBranch,
+                    destinations: [
+                      for (final destination in destinations)
+                        NavigationRailDestination(
+                          icon: AppIcon(destination.iconAsset),
+                          selectedIcon: AppIcon(destination.iconAsset),
+                          label: Text(destination.label),
+                        ),
+                    ],
+                  ),
+                  const VerticalDivider(width: 1),
+                  Expanded(
+                    child: Column(
+                      children: [
+                        Expanded(child: navigationShell),
+                        const MiniPlayerBar(),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-              NavigationDestination(
-                icon: const AppIcon(AppIconAssets.navSearch),
-                selectedIcon: const AppIcon(AppIconAssets.navSearch),
-                label: strings.search,
-              ),
-              NavigationDestination(
-                icon: const AppIcon(AppIconAssets.navLibrary),
-                selectedIcon: const AppIcon(AppIconAssets.navLibrary),
-                label: strings.library,
-              ),
-              NavigationDestination(
-                icon: const AppIcon(AppIconAssets.navDownloads),
-                selectedIcon: const AppIcon(AppIconAssets.navDownloads),
-                label: strings.downloads,
-              ),
-              NavigationDestination(
-                icon: const AppIcon(AppIconAssets.navSettings),
-                selectedIcon: const AppIcon(AppIconAssets.navSettings),
-                label: strings.settings,
+            ),
+          );
+        }
+
+        return Scaffold(
+          body: SafeArea(child: navigationShell),
+          bottomNavigationBar: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const MiniPlayerBar(),
+              NavigationBar(
+                selectedIndex: navigationShell.currentIndex,
+                onDestinationSelected: _goToBranch,
+                destinations: [
+                  for (final destination in destinations)
+                    NavigationDestination(
+                      icon: AppIcon(destination.iconAsset),
+                      selectedIcon: AppIcon(destination.iconAsset),
+                      label: destination.label,
+                    ),
+                ],
               ),
             ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
+
+  void _goToBranch(int index) {
+    navigationShell.goBranch(
+      index,
+      initialLocation: index == navigationShell.currentIndex,
+    );
+  }
+
+  List<_ShellDestination> _destinations(AppStrings strings) {
+    return [
+      _ShellDestination(strings.home, AppIconAssets.navHome),
+      _ShellDestination(strings.search, AppIconAssets.navSearch),
+      _ShellDestination(strings.library, AppIconAssets.navLibrary),
+      _ShellDestination(strings.downloads, AppIconAssets.navDownloads),
+      _ShellDestination(strings.settings, AppIconAssets.navSettings),
+    ];
+  }
+}
+
+class _ShellDestination {
+  const _ShellDestination(this.label, this.iconAsset);
+
+  final String label;
+  final String iconAsset;
 }

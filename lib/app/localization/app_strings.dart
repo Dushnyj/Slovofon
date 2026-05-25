@@ -32,6 +32,9 @@ class AppStrings {
   String get themePreview => _isRu ? 'Предпросмотр темы' : 'Theme preview';
   String get continueListening =>
       _isRu ? 'Продолжить прослушивание' : 'Continue listening';
+  String get startedBooks => _isRu ? 'Начатые книги' : 'Started books';
+  String get offlineDownloads =>
+      _isRu ? 'Скачанные для оффлайна' : 'Offline downloads';
   String get recommended =>
       _isRu ? 'Рекомендации на mock data' : 'Mock recommendations';
   String get searchHint =>
@@ -57,8 +60,34 @@ class AppStrings {
   String get free => _isRu ? 'Бесплатно' : 'Free';
   String get play => _isRu ? 'Слушать' : 'Play';
   String get pause => _isRu ? 'Пауза' : 'Pause';
+  String get nextChapter => _isRu ? 'Следующая глава' : 'Next chapter';
   String get download => _isRu ? 'Скачать' : 'Download';
   String get details => _isRu ? 'Подробнее' : 'Details';
+  String get bookDetails => _isRu ? 'Карточка книги' : 'Book details';
+  String get chapters => _isRu ? 'Главы' : 'Chapters';
+  String get otherVersions => _isRu ? 'Другие версии' : 'Other versions';
+  String get fullPlayer => _isRu ? 'Полный плеер' : 'Full player';
+  String get nowPlaying => _isRu ? 'Сейчас играет' : 'Now playing';
+  String get bookmarks => _isRu ? 'Закладки' : 'Bookmarks';
+  String get information => _isRu ? 'Информация' : 'Information';
+  String get sleepTimer => _isRu ? 'Таймер сна' : 'Sleep timer';
+  String get openFullPlayer =>
+      _isRu ? 'Открыть полный плеер' : 'Open full player';
+  String get groupedDuplicates =>
+      _isRu ? 'Группировать одинаковые' : 'Grouped duplicates';
+  String get sortRelevance =>
+      _isRu ? 'Сортировка: релевантность' : 'Sort: relevance';
+  String get all => _isRu ? 'Все' : 'All';
+  String get listening => _isRu ? 'Слушаю' : 'Listening';
+  String get favorites => _isRu ? 'Избранное' : 'Favorites';
+  String get later => _isRu ? 'Позже' : 'Later';
+  String get downloaded => _isRu ? 'Скачанные' : 'Downloaded';
+  String get finished => _isRu ? 'Прослушано' : 'Finished';
+  String get history => _isRu ? 'История' : 'History';
+  String get language => _isRu ? 'Язык' : 'Language';
+  String get diagnostics => _isRu ? 'Диагностика' : 'Diagnostics';
+  String get deleteDownloaded =>
+      _isRu ? 'Удалить скачанное' : 'Delete downloaded';
   String get mockDataNotice => _isRu
       ? 'Каркас работает на локальных mock data. Источники будут подключены отдельным слоем.'
       : 'This scaffold uses local mock data. Sources will be wired through a separate layer.';

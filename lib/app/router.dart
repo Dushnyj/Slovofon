@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../data/mock/stage3_mock_data.dart';
+import '../features/book_details/book_details_screen.dart';
 import '../features/downloads/downloads_screen.dart';
 import '../features/home/home_screen.dart';
 import '../features/library/library_screen.dart';
+import '../features/player/full_player_screen.dart';
 import '../features/search/search_screen.dart';
 import '../features/settings/settings_screen.dart';
 import '../features/theme_preview/theme_preview_screen.dart';
@@ -60,6 +63,17 @@ final GoRouter appRouter = GoRouter(
           ],
         ),
       ],
+    ),
+    GoRoute(
+      path: '/book/:bookId',
+      builder: (context, state) {
+        final book = mockBookById(state.pathParameters['bookId']);
+        return BookDetailsScreen(book: book);
+      },
+    ),
+    GoRoute(
+      path: '/player',
+      builder: (context, state) => const FullPlayerScreen(),
     ),
     GoRoute(
       path: '/theme-preview',

@@ -5,6 +5,10 @@
 ## [Unreleased]
 
 ### Added
+- Добавлен Stage 3 UI на mock data: главная, поиск, карточка книги, библиотека, загрузки, настройки, мини-плеер и полный плеер.
+- Добавлены маршруты `/book/:bookId` и `/player` для mock-карточки книги и полноэкранного плеера.
+- Расширены mock data книгами, версиями, главами, закладками, полками библиотеки и состояниями загрузок.
+- Добавлены Stage 3 widget-тесты для навигации, поиска, карточки книги, full player, библиотеки, загрузок и настроек.
 - Добавлены Stage 2 дизайн-токены: semantic colors, spacing, radii, focus/hover/selected states и минимальные 48dp размеры интерактивных контролов.
 - Добавлены общие UI-компоненты Stage 2: primary/secondary/quiet buttons, source/access chips, `ChapterTile`, loading/empty/error placeholders.
 - Добавлены draft app icon SVG и полный Lucide-based SVG icon inventory для nav, book, player, downloads и system групп.
@@ -35,6 +39,7 @@
 - Зафиксированы правила версионности, сборки, релизов, источников, безопасности, прокси, тем и ассетов.
 
 ### Changed
+- `SlovofonShell` получил adaptive layout: bottom navigation для компактных экранов и navigation rail для широких окон.
 - Пользовательский UI переведён с временных `Icons.*` glyphs Material на локальные Lucide SVG assets.
 - Заменены временные одинаковые download-state SVG на осмысленную Lucide-карту: download, loader, queued, checked, trash, retry, error, pause и resume.
 - Логическое имя технического ТЗ изменено с `auralib_technical_spec_ru.md` на `docs/SLOVOFON_TECHNICAL_SPEC_RU.md`.

@@ -30,12 +30,27 @@ class SettingsScreen extends StatelessWidget {
           _SettingsTile(
             iconAsset: AppIconAssets.playerVolume,
             title: strings.player,
-            subtitle: strings.mockDataNotice,
+            subtitle: 'Speed, sleep timer, gestures and media keys',
+          ),
+          _SettingsTile(
+            iconAsset: AppIconAssets.download,
+            title: strings.downloads,
+            subtitle: 'Queue, offline storage and auto cleanup',
+          ),
+          _SettingsTile(
+            iconAsset: AppIconAssets.systemLanguage,
+            title: strings.language,
+            subtitle: 'Русский, English, Қазақша, Беларуская, Українська',
+          ),
+          _SettingsTile(
+            iconAsset: AppIconAssets.systemInfo,
+            title: strings.diagnostics,
+            subtitle: 'Environment checks and mock data diagnostics',
           ),
           _SettingsTile(
             iconAsset: AppIconAssets.systemProxy,
             title: strings.proxy,
-            subtitle: strings.mockDataNotice,
+            subtitle: 'Proxy profile placeholder for future source requests',
           ),
         ],
       ),

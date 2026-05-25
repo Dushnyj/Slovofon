@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 
 import '../../app/localization/app_strings.dart';
 import '../../domain/models/audio_book.dart';
+import 'book_cover.dart';
 import '../icons/app_icons.dart';
 
 class BookCard extends StatelessWidget {
-  const BookCard({required this.book, super.key});
+  const BookCard({required this.book, this.onTap, super.key});
 
   final AudioBook book;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -17,7 +19,7 @@ class BookCard extends StatelessWidget {
     return Card(
       child: InkWell(
         borderRadius: BorderRadius.circular(8),
-        onTap: () {},
+        onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Column(
@@ -26,18 +28,11 @@ class BookCard extends StatelessWidget {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(
+                  BookCover(
+                    title: book.title,
+                    progress: book.progress,
                     width: 56,
                     height: 72,
-                    decoration: BoxDecoration(
-                      color: colorScheme.primaryContainer,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: AppIcon(
-                      AppIconAssets.bookFull,
-                      size: 28,
-                      color: colorScheme.onPrimaryContainer,
-                    ),
                   ),
                   const SizedBox(width: 14),
                   Expanded(
