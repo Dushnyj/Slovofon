@@ -25,12 +25,18 @@ artifacts/
 # Secrets and local environment
 .env
 .env.*
+/secrets/
+/signing/
+android/key.properties
+android/app/key.properties
 *.keystore
 *.jks
 *.p12
+*.pfx
+*.pvk
+*.spc
 *.pem
 *.key
 
 # Logs
 *.log
-

@@ -5,6 +5,8 @@
 ## [Unreleased]
 
 ### Added
+- Описана схема release signing для Android и Windows: хранение ключей вне Git, будущие GitHub Secrets, временное восстановление ключей в CI и правила компрометации.
+- Добавлен безопасный шаблон `android/key.properties.example` для будущей Android release-подписи.
 - GitHub Actions CI теперь собирает Android debug APK и Windows debug bundle, публикуя их как временные Actions artifacts.
 - Добавлен GitHub Actions CI workflow для проверки `flutter pub get --enforce-lockfile`, форматирования, `flutter analyze` и `flutter test`.
 - Добавлены `LICENSE` с Apache License 2.0 и `NOTICE` для обязательного attribution notice проекта.
@@ -27,5 +29,6 @@
 - Убрано рабочее имя `Auralib` из технического ТЗ.
 
 ### Security
+- Расширены правила для signing secrets: Android `.jks`, Windows `.pfx`, GitHub Secrets и CI cleanup.
 - Зафиксирован запрет на хранение приватных API secrets в клиенте.
 - Зафиксировано правило: generated SIGN/token не сохранять и не логировать.

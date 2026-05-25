@@ -1,0 +1,11 @@
+# Copy this file to android/key.properties when Android release signing is enabled.
+# Never commit android/key.properties or the real keystore file.
+#
+# storeFile must point to the local release/upload keystore on the current machine.
+# On CI, the release workflow will create a temporary keystore file from
+# ANDROID_UPLOAD_KEYSTORE_BASE64 and generate android/key.properties at runtime.
+
+storeFile=C:\\Users\\<user>\\Documents\\Slovofon\\secrets\\android\\slovofon-upload.jks
+storePassword=<keystore-password>
+keyAlias=slovofon-upload
+keyPassword=<key-password>

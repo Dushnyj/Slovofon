@@ -176,7 +176,189 @@ Slovofon-v<version>-windows-x64-debug
 
 ---
 
-## 6. Имена артефактов
+## 6. Подпись релизов и секреты
+
+Release-подпись нужна отдельно от debug-сборок:
+
+- Android debug APK подписывается временным debug-ключом Flutter/Android SDK автоматически.
+- Android release APK/AAB должен быть подписан release/upload key.
+- Windows debug bundle не подписывается.
+- Windows release installer/MSIX/portable EXE должен быть подписан перед публичным распространением.
+
+Codex не должен создавать, менять, загружать, удалять или ротировать signing keys без явной команды владельца.
+
+### 6.1 Где хранить ключи
+
+Ключи и сертификаты не хранятся в Git.
+
+Локальное защищённое хранилище владельца проекта:
+
+```text
+%USERPROFILE%\Documents\Slovofon\secrets\android\slovofon-upload.jks
+%USERPROFILE%\Documents\Slovofon\secrets\windows\slovofon-code-signing.pfx
+```
+
+Допустимые альтернативы:
+
+```text
+password manager с attachment support
+зашифрованный внешний носитель
+защищённое корпоративное хранилище секретов
+Azure Trusted Signing / Azure Artifact Signing для Windows
+```
+
+Обязательна offline backup-копия Android key. Потеря Android signing/upload key может заблокировать нормальные обновления приложения или потребовать процедуры reset в магазине.
+
+### 6.2 Что хранится в Git
+
+В Git можно хранить только шаблоны и инструкции:
+
+```text
+android/key.properties.example
+docs/BUILD_RELEASE.md
+docs/SECURITY.md
+.gitignore
+```
+
+В Git запрещено хранить:
+
+```text
+android/key.properties
+*.jks
+*.keystore
+*.pfx
+*.p12
+*.pem
+*.key
+пароли
+base64 secret values
+```
+
+### 6.3 Android signing
+
+Основной вариант для будущего релиза:
+
+```text
+Google Play: AAB + upload key + Play App Signing
+Внешнее распространение APK: release APK подписывается тем же утверждённым release/upload key
+```
+
+Планируемый файл ключа:
+
+```text
+slovofon-upload.jks
+```
+
+Планируемый alias:
+
+```text
+slovofon-upload
+```
+
+Локальный файл настроек Gradle:
+
+```text
+android/key.properties
+```
+
+Он создаётся владельцем из шаблона:
+
+```text
+android/key.properties.example
+```
+
+Структура файла:
+
+```properties
+storeFile=C:\\Users\\<user>\\Documents\\Slovofon\\secrets\\android\\slovofon-upload.jks
+storePassword=<keystore-password>
+keyAlias=slovofon-upload
+keyPassword=<key-password>
+```
+
+`android/key.properties` не коммитится.
+
+Будущие GitHub Actions secrets для Android release:
+
+```text
+ANDROID_UPLOAD_KEYSTORE_BASE64
+ANDROID_KEYSTORE_PASSWORD
+ANDROID_KEY_PASSWORD
+ANDROID_KEY_ALIAS
+```
+
+Release workflow должен:
+
+1. брать `ANDROID_UPLOAD_KEYSTORE_BASE64` из GitHub Secrets;
+2. декодировать keystore во временный путь runner, например `$RUNNER_TEMP/slovofon-upload.jks`;
+3. создавать `android/key.properties` на runner только на время job;
+4. запускать `flutter build appbundle --release` и/или `flutter build apk --release`;
+5. переименовывать итоговые artifacts по правилам проекта;
+6. не печатать секреты, пароли, base64 или путь к постоянному локальному key storage в логах;
+7. удалять временный keystore/key.properties в конце job, если job дошёл до cleanup.
+
+### 6.4 Windows signing
+
+Для Windows есть три режима:
+
+```text
+dev/test: self-signed certificate, только для локальной проверки
+public direct download: trusted code signing certificate или Azure Trusted Signing / Azure Artifact Signing
+Microsoft Store / MSIX Store flow: подпись по правилам Store submission
+```
+
+Для публичного EXE/installer предпочтительно использовать trusted code signing, иначе Windows будет показывать `Unknown Publisher`, а SmartScreen может блокировать или пугать пользователя.
+
+Для MSIX подпись является обязательной частью установки: publisher в package manifest должен соответствовать certificate subject.
+
+Планируемый файл сертификата, если выбран PFX-вариант:
+
+```text
+slovofon-code-signing.pfx
+```
+
+Будущие GitHub Actions secrets для Windows PFX signing:
+
+```text
+WINDOWS_SIGNING_CERTIFICATE_BASE64
+WINDOWS_SIGNING_CERTIFICATE_PASSWORD
+```
+
+Release workflow с PFX должен:
+
+1. декодировать PFX во временный путь runner;
+2. импортировать или передать его в signing tool только на время job;
+3. подписать `Slovofon.exe`, installer `.exe` и/или `.msix`;
+4. использовать timestamp server, если это поддерживает выбранный signing tool;
+5. не печатать пароль, base64 или thumbprint с привязкой к приватному хранилищу в логах;
+6. удалить временный PFX после signing.
+
+Предпочтительный будущий вариант для публичного Windows-релиза:
+
+```text
+Azure Trusted Signing / Azure Artifact Signing
+```
+
+В этом варианте приватный ключ не попадает в GitHub Secrets как файл. Release workflow получает право подписи через Azure identity/credentials, а подпись выполняется управляемым сервисом.
+
+### 6.5 Когда включать release signing
+
+Release signing включается только после отдельного подтверждения владельца проекта.
+
+Перед включением нужно утвердить:
+
+```text
+Android distribution path: Google Play AAB, direct APK или оба
+Windows distribution path: setup.exe, portable.zip, MSIX, Store или несколько вариантов
+Windows signing provider: PFX certificate или Azure Trusted Signing
+место хранения master backup ключей
+набор GitHub Secrets
+процедуру восстановления/ротации
+```
+
+---
+
+## 7. Имена артефактов
 
 Формат:
 
@@ -220,7 +402,7 @@ artifacts/v<version>/
 
 ---
 
-## 7. Windows installer
+## 8. Windows installer
 
 Режимы:
 
@@ -253,7 +435,7 @@ Launch after install: optional checkbox
 
 ---
 
-## 8. Android package
+## 9. Android package
 
 ```text
 applicationId: com.slovofon.app
@@ -281,7 +463,7 @@ Storage permissions избегать.
 
 ---
 
-## 9. Release checklist
+## 10. Release checklist
 
 ```text
 1. VERSION совпадает с pubspec.yaml.
@@ -301,4 +483,7 @@ Storage permissions избегать.
 15. Git status чистый или изменения объяснены.
 16. Git tag создан только после подтверждения.
 17. GitHub Release создан только после подтверждения.
+18. Android release подписан утверждённым release/upload key.
+19. Windows release artifacts подписаны утверждённым certificate/provider, если распространяются публично.
+20. Signing secrets не попали в Git, логи, artifacts или crash/debug reports.
 ```
