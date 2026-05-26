@@ -95,6 +95,30 @@ License: BSD-3-Clause
 URL: https://pub.dev/packages/path_provider
 Purpose: Locate platform-specific application support directories.
 
+Package: just_audio
+Version: 0.10.5
+License: MIT
+URL: https://pub.dev/packages/just_audio
+Purpose: Cross-platform audio playback engine for chapters, seeking, playback speed, local files, assets, and media URLs.
+
+Package: just_audio_windows
+Version: 0.2.3
+License: MIT
+URL: https://pub.dev/packages/just_audio_windows
+Purpose: Windows platform implementation for `just_audio` using WinRT MediaPlayer.
+
+Package: audio_session
+Version: 0.2.3
+License: MIT
+URL: https://pub.dev/packages/audio_session
+Purpose: Android/iOS/macOS audio focus/session configuration for speech-style playback and interruptions.
+
+Package: audio_service
+Version: 0.18.18
+License: MIT
+URL: https://pub.dev/packages/audio_service
+Purpose: Background audio service, Android media notification, lock screen controls, and media button integration.
+
 Package: flutter_lints
 Version: 6.0.0
 License: BSD-3-Clause

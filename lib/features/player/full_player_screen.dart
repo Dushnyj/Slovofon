@@ -1,20 +1,24 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/localization/app_strings.dart';
 import '../../data/mock/stage3_mock_data.dart';
+import '../../services/audio/audio_state.dart';
+import '../../services/audio/playback_controller.dart';
+import '../../services/audio/playback_controller_provider.dart';
 import '../../ui/components/book_cover.dart';
 import '../../ui/components/chapter_tile.dart';
 import '../../ui/icons/app_icons.dart';
 
-class FullPlayerScreen extends StatefulWidget {
+class FullPlayerScreen extends ConsumerStatefulWidget {
   const FullPlayerScreen({super.key});
 
   @override
-  State<FullPlayerScreen> createState() => _FullPlayerScreenState();
+  ConsumerState<FullPlayerScreen> createState() => _FullPlayerScreenState();
 }
 
-class _FullPlayerScreenState extends State<FullPlayerScreen>
+class _FullPlayerScreenState extends ConsumerState<FullPlayerScreen>
     with SingleTickerProviderStateMixin {
   late final TabController _tabs;
 
@@ -32,45 +36,60 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
 
   @override
   Widget build(BuildContext context) {
-    final book = activeMockBook;
+    final service = ref.watch(playbackControllerProvider);
 
-    return Scaffold(
-      body: SafeArea(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(8, 6, 8, 0),
-              child: Row(
-                children: [
-                  IconButton(
-                    tooltip: context.strings.home,
-                    onPressed: () => _close(context),
-                    icon: const AppIcon(AppIconAssets.systemBack),
+    return ListenableBuilder(
+      listenable: service,
+      builder: (context, _) {
+        final state = service.state;
+        final book = state.book;
+        final mockBook = mockBookById(book?.id);
+
+        return Scaffold(
+          body: SafeArea(
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 6, 8, 0),
+                  child: Row(
+                    children: [
+                      IconButton(
+                        tooltip: context.strings.home,
+                        onPressed: () => _close(context),
+                        icon: const AppIcon(AppIconAssets.systemBack),
+                      ),
+                      const Spacer(),
+                      IconButton(
+                        tooltip: context.strings.cancel,
+                        onPressed: () => _close(context),
+                        icon: const AppIcon(AppIconAssets.systemClose),
+                      ),
+                    ],
                   ),
-                  const Spacer(),
-                  IconButton(
-                    tooltip: context.strings.cancel,
-                    onPressed: () => _close(context),
-                    icon: const AppIcon(AppIconAssets.systemClose),
-                  ),
-                ],
-              ),
+                ),
+                Expanded(
+                  child: book == null
+                      ? const Center(child: CircularProgressIndicator())
+                      : TabBarView(
+                          controller: _tabs,
+                          children: [
+                            _NowPlayingPage(state: state),
+                            _ChaptersPage(state: state, mockBook: mockBook),
+                            _BookmarksPage(book: mockBook),
+                            _InformationPage(book: mockBook),
+                          ],
+                        ),
+                ),
+                _PlayerChrome(
+                  state: state,
+                  service: service,
+                  controller: _tabs,
+                ),
+              ],
             ),
-            Expanded(
-              child: TabBarView(
-                controller: _tabs,
-                children: [
-                  _NowPlayingPage(book: book),
-                  _ChaptersPage(book: book),
-                  _BookmarksPage(book: book),
-                  _InformationPage(book: book),
-                ],
-              ),
-            ),
-            _PlayerChrome(book: book, controller: _tabs),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
@@ -84,18 +103,16 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
 }
 
 class _NowPlayingPage extends StatelessWidget {
-  const _NowPlayingPage({required this.book});
+  const _NowPlayingPage({required this.state});
 
-  final MockBook book;
+  final AudioPlaybackState state;
 
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
     final colorScheme = Theme.of(context).colorScheme;
-    final currentChapter = book.chapters.firstWhere(
-      (chapter) => chapter.isCurrent,
-      orElse: () => book.chapters.first,
-    );
+    final book = state.book!;
+    final currentChapter = state.currentChapter!;
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(24, 4, 24, 18),
@@ -103,7 +120,7 @@ class _NowPlayingPage extends StatelessWidget {
         Center(
           child: BookCover(
             title: book.title,
-            progress: book.progress,
+            progress: state.bookProgress,
             width: 176,
             height: 246,
           ),
@@ -128,7 +145,7 @@ class _NowPlayingPage extends StatelessWidget {
           children: [
             Flexible(
               child: Text(
-                '${currentChapter.index}/${book.chapterCount} · ${book.activeChapterTitle}',
+                '${currentChapter.index}/${book.chapters.length} · ${currentChapter.title}',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.labelLarge,
@@ -148,13 +165,15 @@ class _NowPlayingPage extends StatelessWidget {
 }
 
 class _ChaptersPage extends StatelessWidget {
-  const _ChaptersPage({required this.book});
+  const _ChaptersPage({required this.state, required this.mockBook});
 
-  final MockBook book;
+  final AudioPlaybackState state;
+  final MockBook mockBook;
 
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
+    final book = state.book!;
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 18),
@@ -170,10 +189,10 @@ class _ChaptersPage extends StatelessWidget {
             child: ChapterTile(
               index: chapter.index,
               title: chapter.title,
-              durationLabel: chapter.durationLabel,
-              progress: chapter.progress,
-              isDownloaded: chapter.isDownloaded,
-              isCurrent: chapter.isCurrent,
+              durationLabel: _formatShortDuration(context, chapter.duration),
+              progress: _chapterProgress(state, chapter),
+              isDownloaded: _isDownloaded(mockBook, chapter),
+              isCurrent: chapter.id == state.currentChapter?.id,
               onTap: () {},
               onDownloadPressed: () {},
             ),
@@ -181,6 +200,24 @@ class _ChaptersPage extends StatelessWidget {
       ],
     );
   }
+}
+
+double _chapterProgress(
+  AudioPlaybackState state,
+  AudioPlaybackChapter chapter,
+) {
+  if (chapter.id == state.currentChapter?.id) {
+    return state.chapterProgress;
+  }
+
+  return chapter.index < (state.currentChapter?.index ?? 0) ? 1 : 0;
+}
+
+bool _isDownloaded(MockBook mockBook, AudioPlaybackChapter chapter) {
+  return mockBook.chapters.any(
+    (mockChapter) =>
+        mockChapter.index == chapter.index && mockChapter.isDownloaded,
+  );
 }
 
 class _BookmarksPage extends StatelessWidget {
@@ -262,19 +299,21 @@ class _InformationPage extends StatelessWidget {
 }
 
 class _PlayerChrome extends StatelessWidget {
-  const _PlayerChrome({required this.book, required this.controller});
+  const _PlayerChrome({
+    required this.state,
+    required this.service,
+    required this.controller,
+  });
 
-  final MockBook book;
+  final AudioPlaybackState state;
+  final PlaybackController service;
   final TabController controller;
 
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
     final colorScheme = Theme.of(context).colorScheme;
-    final currentChapter = book.chapters.firstWhere(
-      (chapter) => chapter.isCurrent,
-      orElse: () => book.chapters.first,
-    );
+    final currentChapter = state.currentChapter;
 
     return Material(
       color: colorScheme.surface,
@@ -293,21 +332,35 @@ class _PlayerChrome extends StatelessWidget {
                 thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
               ),
               child: Slider(
-                value: book.progress.clamp(0, 1).toDouble(),
-                onChanged: (_) {},
+                value: state.chapterProgress,
+                onChanged: (value) {
+                  final duration = state.chapterDuration;
+                  service.seek(
+                    Duration(
+                      milliseconds: (duration.inMilliseconds * value).round(),
+                    ),
+                  );
+                },
               ),
             ),
             Row(
               children: [
                 Text(
-                  book.positionLabel,
+                  _formatPlaybackDuration(state.position),
                   style: Theme.of(context).textTheme.labelMedium,
                 ),
                 const Spacer(),
-                const _SleepTimerPill(label: '1:30:00'),
+                _SleepTimerPill(
+                  label: _formatPlaybackDuration(
+                    state.sleepTimerRemaining ?? Duration.zero,
+                  ),
+                ),
                 const Spacer(),
                 Text(
-                  currentChapter.durationLabel,
+                  _formatShortDuration(
+                    context,
+                    currentChapter?.duration ?? Duration.zero,
+                  ),
                   style: Theme.of(context).textTheme.labelMedium,
                 ),
               ],
@@ -316,35 +369,48 @@ class _PlayerChrome extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const _ControlIcon(
-                  tooltip: '1.25x',
+                _ControlIcon(
+                  tooltip: '${state.speed.toStringAsFixed(2)}x',
                   iconAsset: AppIconAssets.playerSpeed,
+                  onPressed: () =>
+                      service.setSpeed(state.speed == 1.25 ? 1 : 1.25),
                 ),
                 _ControlIcon(
                   tooltip: strings.previousChapter,
                   iconAsset: AppIconAssets.playerPreviousChapter,
+                  onPressed: service.previousChapter,
                 ),
                 _ControlIcon(
                   tooltip: strings.rewind15,
                   iconAsset: AppIconAssets.playerRewind15,
+                  onPressed: () => service.skipBy(const Duration(seconds: -15)),
                 ),
                 IconButton.filled(
-                  tooltip: strings.play,
+                  tooltip: state.isPlaying ? strings.pause : strings.play,
                   iconSize: 34,
-                  onPressed: () {},
-                  icon: const AppIcon(AppIconAssets.playerPlay, size: 34),
+                  onPressed: service.togglePlayPause,
+                  icon: AppIcon(
+                    state.isPlaying
+                        ? AppIconAssets.playerPause
+                        : AppIconAssets.playerPlay,
+                    size: 34,
+                  ),
                 ),
                 _ControlIcon(
                   tooltip: strings.forward15,
                   iconAsset: AppIconAssets.playerForward15,
+                  onPressed: () => service.skipBy(const Duration(seconds: 15)),
                 ),
                 _ControlIcon(
                   tooltip: strings.nextChapter,
                   iconAsset: AppIconAssets.playerNextChapter,
+                  onPressed: service.nextChapter,
                 ),
                 _ControlIcon(
                   tooltip: strings.sleepTimer,
                   iconAsset: AppIconAssets.playerSleepTimer,
+                  onPressed: () =>
+                      service.setSleepTimer(const Duration(minutes: 90)),
                 ),
               ],
             ),
@@ -454,17 +520,47 @@ class _SleepTimerPill extends StatelessWidget {
 }
 
 class _ControlIcon extends StatelessWidget {
-  const _ControlIcon({required this.tooltip, required this.iconAsset});
+  const _ControlIcon({
+    required this.tooltip,
+    required this.iconAsset,
+    this.onPressed,
+  });
 
   final String tooltip;
   final String iconAsset;
+  final VoidCallback? onPressed;
 
   @override
   Widget build(BuildContext context) {
     return IconButton(
       tooltip: tooltip,
-      onPressed: () {},
+      onPressed: onPressed,
       icon: AppIcon(iconAsset),
     );
   }
+}
+
+String _formatPlaybackDuration(Duration duration) {
+  final hours = duration.inHours;
+  final minutes = duration.inMinutes.remainder(60).toString().padLeft(2, '0');
+  final seconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
+
+  if (hours > 0) {
+    return '$hours:$minutes:$seconds';
+  }
+
+  return '$minutes:$seconds';
+}
+
+String _formatShortDuration(BuildContext context, Duration duration) {
+  final locale = Localizations.localeOf(context).languageCode;
+  final minutes = duration.inMinutes;
+  final suffix = locale == 'ru' ? 'мин' : 'min';
+
+  if (duration.inHours > 0) {
+    final hoursSuffix = locale == 'ru' ? 'ч' : 'h';
+    return '${duration.inHours} $hoursSuffix ${minutes.remainder(60)} $suffix';
+  }
+
+  return '$minutes $suffix';
 }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:slovofon/app/app.dart';
 import 'package:slovofon/app/router.dart';
@@ -112,6 +113,6 @@ Future<void> _pumpApp(WidgetTester tester) async {
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
-  await tester.pumpWidget(const SlovofonApp());
+  await tester.pumpWidget(const ProviderScope(child: SlovofonApp()));
   await tester.pumpAndSettle();
 }

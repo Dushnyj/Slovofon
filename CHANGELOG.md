@@ -5,6 +5,14 @@
 ## [Unreleased]
 
 ### Added
+- Добавлен Stage 4 `PlaybackController`: `AudioEngine` abstraction, playback state, play/pause/seek, speed, chapter switching, progress calculation, session restore and sleep timer behavior.
+- `PlaybackController` теперь слушает runtime snapshots от audio backend: позицию, ready/buffering/completed/error states и автоматически переходит к следующей главе при завершении текущей.
+- Добавлен `JustAudioEngine` поверх `just_audio` с URL/file/asset media source API и Windows backend через `just_audio_windows`.
+- Добавлен Android/system-media слой `SlovofonAudioHandler` поверх Flutter-пакета `audio_service` для metadata, notification/lock screen/media button команд.
+- Добавлен `PlaybackPersistenceStore` на Drift для сохранения и восстановления `PlaybackSession` и `PlaybackProgress` без уменьшения max reached progress.
+- Добавлен локальный сгенерированный `assets/audio/stage4_mock_chapter.wav` fixture на 45 минут, чтобы mock playback мог открыть реальный audio asset без сети и не завершал главу сразу после старта с сохраненной позиции.
+- Добавлен in-memory `AudioEngine` и switching engine для тестируемого Stage 4 ядра и mock UI без реальных media URL.
+- Добавлены Stage 4 unit-тесты для playback controls, runtime backend states, progress persistence, chapter navigation, session restore, sleep timer, `JustAudioEngine`, `SlovofonAudioHandler` и local audio fixture.
 - Добавлен Stage 3 UI на mock data: главная, поиск, карточка книги, библиотека, загрузки, настройки, мини-плеер и полный плеер.
 - Добавлены маршруты `/book/:bookId` и `/player` для mock-карточки книги и полноэкранного плеера.
 - Расширены mock data книгами, версиями, главами, закладками, полками библиотеки и состояниями загрузок.
@@ -39,6 +47,8 @@
 - Зафиксированы правила версионности, сборки, релизов, источников, безопасности, прокси, тем и ассетов.
 
 ### Changed
+- Мини-плеер и полный плеер теперь читают состояние через единый `PlaybackController`, а не напрямую из статичных mock-полей.
+- Внутренний app-level audio service переименован в `PlaybackController`, чтобы не конфликтовать с Flutter-пакетом `audio_service`.
 - Главная, поиск и библиотека получили более плотные book cards: процент прослушивания поверх обложки, прогресс под обложкой, metadata с иконками и icon-only действия для избранного, загрузки, запуска и информации.
 - Карточка "Продолжить прослушивание" переработана с крупной обложкой, процентом прогресса, metadata и быстрыми icon-only действиями.
 - Мини-плеер снизу стал компактнее и информативнее: тонкая полоса прогресса, обложка, глава, позиция и процент прослушивания.
