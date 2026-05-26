@@ -1,26 +1,30 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/localization/app_strings.dart';
+import '../../data/mock/mock_audio_playback.dart';
 import '../../data/mock/stage3_mock_data.dart';
+import '../../services/downloads/download_manager_provider.dart';
 import '../../ui/components/book_card.dart';
 import '../../ui/components/section_header.dart';
 import '../../ui/icons/app_icons.dart';
-import '../shared/mock_book_card_state.dart';
+import '../shared/download_ui_state.dart';
 
-class SearchScreen extends StatefulWidget {
+class SearchScreen extends ConsumerStatefulWidget {
   const SearchScreen({super.key});
 
   @override
-  State<SearchScreen> createState() => _SearchScreenState();
+  ConsumerState<SearchScreen> createState() => _SearchScreenState();
 }
 
-class _SearchScreenState extends State<SearchScreen> {
+class _SearchScreenState extends ConsumerState<SearchScreen> {
   String _query = '';
 
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
+    final downloadManager = ref.watch(downloadManagerProvider);
     final normalizedQuery = _query.trim().toLowerCase();
     final results = normalizedQuery.isEmpty
         ? stage3MockBooks
@@ -83,14 +87,27 @@ class _SearchScreenState extends State<SearchScreen> {
               for (final book in results)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 12),
-                  child: BookCard(
-                    book: book.toAudioBook(),
-                    yearLabel: '${book.year}',
-                    isFavorite: book.isFavorite,
-                    downloadState: mockDownloadStateFor(book.downloadStatus),
-                    downloadProgress: book.progress,
-                    onPlay: () => context.go('/player'),
-                    onTap: () => context.go('/book/${book.id}'),
+                  child: Builder(
+                    builder: (context) {
+                      final playbackBook = mockAudioPlaybackBook(book);
+                      return BookCard(
+                        book: book.toAudioBook(),
+                        yearLabel: '${book.year}',
+                        isFavorite: book.isFavorite,
+                        downloadState: downloadStateForBook(
+                          downloadManager,
+                          playbackBook,
+                        ),
+                        downloadProgress: downloadProgressForBook(
+                          downloadManager,
+                          playbackBook,
+                        ),
+                        onDownloadPressed: () =>
+                            toggleBookDownload(downloadManager, playbackBook),
+                        onPlay: () => context.go('/player'),
+                        onTap: () => context.go('/book/${book.id}'),
+                      );
+                    },
                   ),
                 ),
             ]),

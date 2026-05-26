@@ -5,6 +5,10 @@
 ## [Unreleased]
 
 ### Added
+- Добавлен Stage 5 `DownloadManager`: очередь загрузок глав и книг, ограничение параллельности, pause/resume/cancel/retry/delete, прогресс, скорость и восстановление прерванных задач после перезапуска как resumable.
+- Добавлены `DownloadClient`, `FileDownloadStorage` и `DownloadPersistenceStore`: скачивание URL/file/asset media sources, `.part` файлы, Range/resume, атомарное завершение файла, `metadata.json` и Drift-сохранение `DownloadTask`.
+- Добавлено подключение оффлайн-файлов к плееру: скачанные главы подставляются в `AudioPlaybackBook` как `AudioMediaSource.file`, без удаления истории, избранного, закладок и прогресса при удалении аудио.
+- Добавлены Stage 5 тесты для загрузки главы/книги, pause/resume по `.part`, cancel/delete, restart recovery и обновления статусов главы без потери playback progress.
 - Добавлен Stage 4 `PlaybackController`: `AudioEngine` abstraction, playback state, play/pause/seek, speed, chapter switching, progress calculation, session restore and sleep timer behavior.
 - `PlaybackController` теперь слушает runtime snapshots от audio backend: позицию, ready/buffering/completed/error states и автоматически переходит к следующей главе при завершении текущей.
 - Добавлен `JustAudioEngine` поверх `just_audio` с URL/file/asset media source API и Windows backend через `just_audio_windows`.
@@ -47,6 +51,9 @@
 - Зафиксированы правила версионности, сборки, релизов, источников, безопасности, прокси, тем и ассетов.
 
 ### Changed
+- Экран загрузок теперь показывает реальные задачи `DownloadManager` по разделам активные/очередь/ошибки/завершённые вместо mock-очереди.
+- Главная, поиск, библиотека, карточка книги и полный плеер теперь вызывают реальные действия загрузки книги/главы через `DownloadManager`.
+- Bootstrap приложения подключает app-specific storage для книг и общий Drift persistence для плеера и загрузок.
 - Мини-плеер и полный плеер теперь читают состояние через единый `PlaybackController`, а не напрямую из статичных mock-полей.
 - Внутренний app-level audio service переименован в `PlaybackController`, чтобы не конфликтовать с Flutter-пакетом `audio_service`.
 - Главная, поиск и библиотека получили более плотные book cards: процент прослушивания поверх обложки, прогресс под обложкой, metadata с иконками и icon-only действия для избранного, загрузки, запуска и информации.

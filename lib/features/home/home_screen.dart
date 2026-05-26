@@ -1,25 +1,37 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/localization/app_strings.dart';
+import '../../data/mock/mock_audio_playback.dart';
 import '../../data/mock/stage3_mock_data.dart';
-import '../shared/mock_book_card_state.dart';
+import '../../services/downloads/download_manager.dart';
+import '../../services/downloads/download_manager_provider.dart';
 import '../../ui/components/book_card.dart';
 import '../../ui/components/book_cover.dart';
 import '../../ui/components/section_header.dart';
 import '../../ui/icons/app_icons.dart';
+import '../shared/download_ui_state.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final strings = context.strings;
+    final downloadManager = ref.watch(downloadManagerProvider);
     final startedBooks = stage3MockBooks
         .where((book) => book.progress > 0 && !book.isFinished)
         .toList();
     final downloadedBooks = stage3MockBooks
-        .where((book) => book.downloadStatus == MockDownloadStatus.downloaded)
+        .where(
+          (book) =>
+              downloadStateForBook(
+                downloadManager,
+                mockAudioPlaybackBook(book),
+              ) ==
+              BookCardDownloadState.downloaded,
+        )
         .toList();
 
     return CustomScrollView(
@@ -32,23 +44,18 @@ class HomeScreen extends StatelessWidget {
                 title: strings.continueListening,
                 subtitle: strings.mockDataNotice,
               ),
-              _ContinueCard(book: activeMockBook),
+              _ContinueCard(
+                book: activeMockBook,
+                downloadManager: downloadManager,
+              ),
               const SizedBox(height: 20),
               SectionHeader(title: strings.startedBooks),
               for (final book in startedBooks)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 12),
-                  child: BookCard(
-                    book: book.toAudioBook(),
-                    yearLabel: '${book.year}',
-                    isFavorite: book.isFavorite,
-                    downloadState: mockDownloadStateFor(book.downloadStatus),
-                    downloadProgress:
-                        book.downloadStatus == MockDownloadStatus.downloading
-                        ? 0.48
-                        : book.progress,
-                    onPlay: () => context.go('/player'),
-                    onTap: () => context.go('/book/${book.id}'),
+                  child: _DownloadAwareBookCard(
+                    book: book,
+                    downloadManager: downloadManager,
                   ),
                 ),
               const SizedBox(height: 8),
@@ -62,14 +69,9 @@ class HomeScreen extends StatelessWidget {
                 for (final book in downloadedBooks)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 12),
-                    child: BookCard(
-                      book: book.toAudioBook(),
-                      yearLabel: '${book.year}',
-                      isFavorite: book.isFavorite,
-                      downloadState: mockDownloadStateFor(book.downloadStatus),
-                      downloadProgress: book.progress,
-                      onPlay: () => context.go('/player'),
-                      onTap: () => context.go('/book/${book.id}'),
+                    child: _DownloadAwareBookCard(
+                      book: book,
+                      downloadManager: downloadManager,
                     ),
                   ),
               const SizedBox(height: 8),
@@ -77,14 +79,9 @@ class HomeScreen extends StatelessWidget {
               for (final book in stage3MockBooks)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 12),
-                  child: BookCard(
-                    book: book.toAudioBook(),
-                    yearLabel: '${book.year}',
-                    isFavorite: book.isFavorite,
-                    downloadState: mockDownloadStateFor(book.downloadStatus),
-                    downloadProgress: book.progress,
-                    onPlay: () => context.go('/player'),
-                    onTap: () => context.go('/book/${book.id}'),
+                  child: _DownloadAwareBookCard(
+                    book: book,
+                    downloadManager: downloadManager,
                   ),
                 ),
             ]),
@@ -95,15 +92,45 @@ class HomeScreen extends StatelessWidget {
   }
 }
 
-class _ContinueCard extends StatelessWidget {
-  const _ContinueCard({required this.book});
+class _DownloadAwareBookCard extends StatelessWidget {
+  const _DownloadAwareBookCard({
+    required this.book,
+    required this.downloadManager,
+  });
 
   final MockBook book;
+  final DownloadManager downloadManager;
+
+  @override
+  Widget build(BuildContext context) {
+    final playbackBook = mockAudioPlaybackBook(book);
+
+    return BookCard(
+      book: book.toAudioBook(),
+      yearLabel: '${book.year}',
+      isFavorite: book.isFavorite,
+      downloadState: downloadStateForBook(downloadManager, playbackBook),
+      downloadProgress: downloadProgressForBook(downloadManager, playbackBook),
+      onDownloadPressed: () =>
+          toggleBookDownload(downloadManager, playbackBook),
+      onPlay: () => context.go('/player'),
+      onTap: () => context.go('/book/${book.id}'),
+    );
+  }
+}
+
+class _ContinueCard extends StatelessWidget {
+  const _ContinueCard({required this.book, required this.downloadManager});
+
+  final MockBook book;
+  final DownloadManager downloadManager;
 
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
     final colorScheme = Theme.of(context).colorScheme;
+    final playbackBook = mockAudioPlaybackBook(book);
+    final downloadState = downloadStateForBook(downloadManager, playbackBook);
 
     return Card(
       child: InkWell(
@@ -202,13 +229,13 @@ class _ContinueCard extends StatelessWidget {
                     ),
                   ),
                   IconButton(
-                    tooltip:
-                        book.downloadStatus == MockDownloadStatus.downloaded
+                    tooltip: downloadState == BookCardDownloadState.downloaded
                         ? strings.deleteDownloaded
                         : strings.download,
-                    onPressed: () {},
+                    onPressed: () =>
+                        toggleBookDownload(downloadManager, playbackBook),
                     icon: AppIcon(
-                      book.downloadStatus == MockDownloadStatus.downloaded
+                      downloadState == BookCardDownloadState.downloaded
                           ? AppIconAssets.deleteDownload
                           : AppIconAssets.download,
                     ),

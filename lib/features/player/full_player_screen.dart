@@ -7,9 +7,13 @@ import '../../data/mock/stage3_mock_data.dart';
 import '../../services/audio/audio_state.dart';
 import '../../services/audio/playback_controller.dart';
 import '../../services/audio/playback_controller_provider.dart';
+import '../../services/downloads/download_manager.dart';
+import '../../services/downloads/download_manager_provider.dart';
+import '../../ui/components/book_card.dart';
 import '../../ui/components/book_cover.dart';
 import '../../ui/components/chapter_tile.dart';
 import '../../ui/icons/app_icons.dart';
+import '../shared/download_ui_state.dart';
 
 class FullPlayerScreen extends ConsumerStatefulWidget {
   const FullPlayerScreen({super.key});
@@ -37,6 +41,7 @@ class _FullPlayerScreenState extends ConsumerState<FullPlayerScreen>
   @override
   Widget build(BuildContext context) {
     final service = ref.watch(playbackControllerProvider);
+    final downloadManager = ref.watch(downloadManagerProvider);
 
     return ListenableBuilder(
       listenable: service,
@@ -73,8 +78,14 @@ class _FullPlayerScreenState extends ConsumerState<FullPlayerScreen>
                       : TabBarView(
                           controller: _tabs,
                           children: [
-                            _NowPlayingPage(state: state),
-                            _ChaptersPage(state: state, mockBook: mockBook),
+                            _NowPlayingPage(
+                              state: state,
+                              downloadManager: downloadManager,
+                            ),
+                            _ChaptersPage(
+                              state: state,
+                              downloadManager: downloadManager,
+                            ),
                             _BookmarksPage(book: mockBook),
                             _InformationPage(book: mockBook),
                           ],
@@ -103,9 +114,10 @@ class _FullPlayerScreenState extends ConsumerState<FullPlayerScreen>
 }
 
 class _NowPlayingPage extends StatelessWidget {
-  const _NowPlayingPage({required this.state});
+  const _NowPlayingPage({required this.state, required this.downloadManager});
 
   final AudioPlaybackState state;
+  final DownloadManager downloadManager;
 
   @override
   Widget build(BuildContext context) {
@@ -154,8 +166,13 @@ class _NowPlayingPage extends StatelessWidget {
             const SizedBox(width: 8),
             IconButton.outlined(
               tooltip: strings.downloadBook,
-              onPressed: () {},
-              icon: const AppIcon(AppIconAssets.download),
+              onPressed: () => toggleBookDownload(downloadManager, book),
+              icon: AppIcon(
+                downloadStateForBook(downloadManager, book) ==
+                        BookCardDownloadState.downloaded
+                    ? AppIconAssets.deleteDownload
+                    : AppIconAssets.download,
+              ),
             ),
           ],
         ),
@@ -165,10 +182,10 @@ class _NowPlayingPage extends StatelessWidget {
 }
 
 class _ChaptersPage extends StatelessWidget {
-  const _ChaptersPage({required this.state, required this.mockBook});
+  const _ChaptersPage({required this.state, required this.downloadManager});
 
   final AudioPlaybackState state;
-  final MockBook mockBook;
+  final DownloadManager downloadManager;
 
   @override
   Widget build(BuildContext context) {
@@ -191,10 +208,11 @@ class _ChaptersPage extends StatelessWidget {
               title: chapter.title,
               durationLabel: _formatShortDuration(context, chapter.duration),
               progress: _chapterProgress(state, chapter),
-              isDownloaded: _isDownloaded(mockBook, chapter),
+              isDownloaded: isChapterDownloaded(downloadManager, chapter),
               isCurrent: chapter.id == state.currentChapter?.id,
               onTap: () {},
-              onDownloadPressed: () {},
+              onDownloadPressed: () =>
+                  toggleChapterDownload(downloadManager, book, chapter),
             ),
           ),
       ],
@@ -211,13 +229,6 @@ double _chapterProgress(
   }
 
   return chapter.index < (state.currentChapter?.index ?? 0) ? 1 : 0;
-}
-
-bool _isDownloaded(MockBook mockBook, AudioPlaybackChapter chapter) {
-  return mockBook.chapters.any(
-    (mockChapter) =>
-        mockChapter.index == chapter.index && mockChapter.isDownloaded,
-  );
 }
 
 class _BookmarksPage extends StatelessWidget {

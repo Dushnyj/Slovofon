@@ -19,6 +19,7 @@ class BookCard extends StatelessWidget {
     required this.book,
     this.onTap,
     this.onPlay,
+    this.onDownloadPressed,
     this.yearLabel,
     this.isFavorite = false,
     this.downloadState = BookCardDownloadState.none,
@@ -29,6 +30,7 @@ class BookCard extends StatelessWidget {
   final AudioBook book;
   final VoidCallback? onTap;
   final VoidCallback? onPlay;
+  final VoidCallback? onDownloadPressed;
   final String? yearLabel;
   final bool isFavorite;
   final BookCardDownloadState downloadState;
@@ -105,6 +107,7 @@ class BookCard extends StatelessWidget {
                     isFavorite: isFavorite,
                     downloadState: downloadState,
                     downloadProgress: downloadProgress,
+                    onDownloadPressed: onDownloadPressed,
                   ),
                 ],
               ),
@@ -163,11 +166,13 @@ class _CardActions extends StatelessWidget {
     required this.isFavorite,
     required this.downloadState,
     required this.downloadProgress,
+    this.onDownloadPressed,
   });
 
   final bool isFavorite;
   final BookCardDownloadState downloadState;
   final double downloadProgress;
+  final VoidCallback? onDownloadPressed;
 
   @override
   Widget build(BuildContext context) {
@@ -193,17 +198,26 @@ class _CardActions extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 4),
-        _DownloadIconButton(state: downloadState, progress: downloadProgress),
+        _DownloadIconButton(
+          state: downloadState,
+          progress: downloadProgress,
+          onPressed: onDownloadPressed,
+        ),
       ],
     );
   }
 }
 
 class _DownloadIconButton extends StatelessWidget {
-  const _DownloadIconButton({required this.state, required this.progress});
+  const _DownloadIconButton({
+    required this.state,
+    required this.progress,
+    this.onPressed,
+  });
 
   final BookCardDownloadState state;
   final double progress;
+  final VoidCallback? onPressed;
 
   @override
   Widget build(BuildContext context) {
@@ -241,7 +255,7 @@ class _DownloadIconButton extends StatelessWidget {
             ),
             IconButton(
               tooltip: tooltip,
-              onPressed: () {},
+              onPressed: onPressed,
               icon: AppIcon(iconAsset, size: 20),
             ),
           ],
@@ -251,7 +265,7 @@ class _DownloadIconButton extends StatelessWidget {
 
     return IconButton(
       tooltip: tooltip,
-      onPressed: () {},
+      onPressed: onPressed,
       icon: AppIcon(
         iconAsset,
         color: state == BookCardDownloadState.downloaded

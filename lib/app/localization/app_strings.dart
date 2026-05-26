@@ -28,6 +28,19 @@ class AppStrings {
   String get search => _isRu ? 'Поиск' : 'Search';
   String get library => _isRu ? 'Библиотека' : 'Library';
   String get downloads => _isRu ? 'Загрузки' : 'Downloads';
+  String get downloadsQueueSubtitle => _isRu
+      ? 'Очередь, прогресс, пауза, повтор и удаление оффлайн-файлов.'
+      : 'Queue, progress, pause, retry, and offline file removal.';
+  String get activeDownloads => _isRu ? 'Активные' : 'Active';
+  String get queuedDownloads => _isRu ? 'Очередь' : 'Queued';
+  String get completedDownloads => _isRu ? 'Завершённые' : 'Completed';
+  String get failedDownloads => _isRu ? 'Ошибки' : 'Errors';
+  String get downloading => _isRu ? 'Скачивается' : 'Downloading';
+  String get queued => _isRu ? 'В очереди' : 'Queued';
+  String get paused => _isRu ? 'На паузе' : 'Paused';
+  String get failed => _isRu ? 'Ошибка' : 'Failed';
+  String get unknownSize => _isRu ? 'Размер неизвестен' : 'Unknown size';
+  String booksCount(int count) => _isRu ? '$count книг' : '$count books';
   String get settings => _isRu ? 'Настройки' : 'Settings';
   String get themePreview => _isRu ? 'Предпросмотр темы' : 'Theme preview';
   String get continueListening =>

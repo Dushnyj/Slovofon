@@ -93,6 +93,15 @@ notification, lock screen и media buttons.
 - обновление статусов в базе;
 - восстановление задач после перезапуска.
 
+Текущая реализация Stage 5:
+
+- `DownloadManager` живёт в `lib/services/downloads/download_manager.dart`;
+- `DownloadClient` открывает `AudioMediaSource.url`, `AudioMediaSource.file` и `AudioMediaSource.asset`, передаёт headers, поддерживает Range для URL/file/asset и отдаёт поток байт в manager;
+- `FileDownloadStorage` хранит книги в app-specific папке `books/<sourceId>_<bookVersionId>/`, пишет `metadata.json`, скачивает главы в `chapters/NNN.part` и после успеха атомарно переименовывает в финальный файл;
+- `DriftDownloadPersistenceStore` сохраняет `DownloadTask`, обновляет `Chapter.localPath`, `Chapter.fileSizeBytes`, `downloadStatus` и `downloadProgress`, а при рестарте переводит `running` задачи в `paused`;
+- удаление скачанного аудио удаляет только offline files/tasks и не трогает PlaybackSession, PlaybackProgress, избранное, закладки и историю;
+- UI получает состояние через `downloadManagerProvider`; widgets не скачивают файлы напрямую.
+
 ### 3.3 SourceRegistry
 
 Хранит все доступные источники и настройки их включения.
@@ -197,14 +206,16 @@ User taps Play
 
 ```text
 User taps Download
--> DownloadManager.enqueue()
--> SourceConnector.resolveMedia(download)
--> validate media allowlist
+-> DownloadManager.enqueueBook/enqueueChapter()
+-> use already resolved AudioMediaSource from book/chapter
+-> SourceConnector.resolveMedia(download) when real source connectors are attached
+-> validate media allowlist at source/media boundary
 -> download to .part file
 -> verify size/content
 -> atomic rename
 -> update Chapter.localPath
 -> update DownloadTask completed
+-> offlinePlaybackBook overlays local files as AudioMediaSource.file
 ```
 
 ---

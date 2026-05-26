@@ -1,23 +1,34 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/localization/app_strings.dart';
+import '../../data/mock/mock_audio_playback.dart';
 import '../../data/mock/stage3_mock_data.dart';
+import '../../services/downloads/download_manager_provider.dart';
+import '../../ui/components/book_card.dart';
 import '../../ui/components/book_cover.dart';
 import '../../ui/components/chapter_tile.dart';
 import '../../ui/components/download_status_chip.dart';
 import '../../ui/components/section_header.dart';
 import '../../ui/icons/app_icons.dart';
+import '../shared/download_ui_state.dart';
 
-class BookDetailsScreen extends StatelessWidget {
+class BookDetailsScreen extends ConsumerWidget {
   const BookDetailsScreen({required this.book, super.key});
 
   final MockBook book;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final strings = context.strings;
     final colorScheme = Theme.of(context).colorScheme;
+    final downloadManager = ref.watch(downloadManagerProvider);
+    final playbackBook = mockAudioPlaybackBook(book);
+    final bookDownloadState = downloadStateForBook(
+      downloadManager,
+      playbackBook,
+    );
 
     return Scaffold(
       appBar: AppBar(title: Text(strings.bookDetails)),
@@ -69,9 +80,16 @@ class BookDetailsScreen extends StatelessWidget {
                 icon: const AppIcon(AppIconAssets.playerPlay),
               ),
               IconButton.outlined(
-                tooltip: strings.download,
-                onPressed: () {},
-                icon: const AppIcon(AppIconAssets.download),
+                tooltip: bookDownloadState == BookCardDownloadState.downloaded
+                    ? strings.deleteDownloaded
+                    : strings.downloadBook,
+                onPressed: () =>
+                    toggleBookDownload(downloadManager, playbackBook),
+                icon: AppIcon(
+                  bookDownloadState == BookCardDownloadState.downloaded
+                      ? AppIconAssets.deleteDownload
+                      : AppIconAssets.download,
+                ),
               ),
               IconButton.outlined(
                 tooltip: strings.bookmarks,
@@ -95,14 +113,29 @@ class BookDetailsScreen extends StatelessWidget {
           const SizedBox(height: 20),
           SectionHeader(title: strings.chapters),
           for (final chapter in book.chapters)
-            ChapterTile(
-              index: chapter.index,
-              title: chapter.title,
-              durationLabel: chapter.durationLabel,
-              progress: chapter.progress,
-              isDownloaded: chapter.isDownloaded,
-              isCurrent: chapter.isCurrent,
-              onTap: () => context.go('/player'),
+            Builder(
+              builder: (context) {
+                final audioChapter = playbackBook.chapters.firstWhere(
+                  (audioChapter) => audioChapter.index == chapter.index,
+                );
+                return ChapterTile(
+                  index: chapter.index,
+                  title: chapter.title,
+                  durationLabel: chapter.durationLabel,
+                  progress: chapter.progress,
+                  isDownloaded: isChapterDownloaded(
+                    downloadManager,
+                    audioChapter,
+                  ),
+                  isCurrent: chapter.isCurrent,
+                  onTap: () => context.go('/player'),
+                  onDownloadPressed: () => toggleChapterDownload(
+                    downloadManager,
+                    playbackBook,
+                    audioChapter,
+                  ),
+                );
+              },
             ),
           const SizedBox(height: 20),
           SectionHeader(title: strings.otherVersions),
