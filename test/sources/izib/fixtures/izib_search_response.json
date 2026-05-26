@@ -1,0 +1,58 @@
+{
+  "data": {
+    "booksSearch": {
+      "count": 1,
+      "items": [
+        {
+          "id": 2033,
+          "name": "Метро 2033",
+          "urlName": "metro-2033",
+          "defaultPoster": "/covers/metro-2033.jpg",
+          "defaultPosterMain": "",
+          "totalDuration": 47160,
+          "plays": 1200,
+          "views": 2400,
+          "comments": 12,
+          "likes": 9,
+          "dislikes": 1,
+          "posters": ["/covers/metro-2033-alt.jpg"],
+          "publishTs": 1577836800,
+          "aboutBb": "[b]Постапокалипсис[/b] в московском метро.",
+          "serieIndex": "1",
+          "genre": {
+            "id": 7,
+            "name": "Фантастика",
+            "booksCount": 10,
+            "__typename": "Genre"
+          },
+          "authors": [
+            {
+              "id": 11,
+              "name": "Дмитрий",
+              "surname": "Глуховский",
+              "booksCount": 5,
+              "__typename": "Author"
+            }
+          ],
+          "readers": [
+            {
+              "id": 21,
+              "name": "Петр",
+              "surname": "Иващенко",
+              "booksCount": 8,
+              "__typename": "Reader"
+            }
+          ],
+          "serie": {
+            "id": 31,
+            "name": "Метро",
+            "booksCount": 3,
+            "__typename": "Serie"
+          },
+          "__typename": "Book"
+        }
+      ],
+      "__typename": "BooksSearch"
+    }
+  }
+}

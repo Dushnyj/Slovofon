@@ -5,6 +5,8 @@
 ## [Unreleased]
 
 ### Added
+- Добавлен Stage 7 `IzibSourceConnector`: первый реальный источник через GraphQL API Izib, runtime SIGN generation, поиск, details, files -> chapters/audio tracks, resolveMedia/download через media allowlist и health check.
+- Добавлены Stage 7 тесты Izib для GraphQL client/signing, mapper, source connector, allowlist validation и безопасной обработки API ошибок без раскрытия SIGN.
 - Добавлен Stage 6 `SourceConnector` framework: общий контракт источников, `SearchRequest`, `BookSearchResult`, `BookVersionDetails`, `ResolvedMedia`, `SourceCapabilities`, `SourceHealth`, `SourceException` и агрегирующий `SourceSearchResponse`.
 - Добавлен `SourceRegistry` как единая точка доступа к источникам: регистрация коннекторов, защита от duplicate ids, фильтрация enabled/requested sources, агрегация частичных ошибок поиска, capabilities map и health checks.
 - Добавлены `SourceMediaPolicy` и `SourceMediaValidator`: проверка media allowlist, запрет URL с credentials, запрет non-http схем и явное разрешение local asset/file media только для mock/local источников.
@@ -57,6 +59,7 @@
 - Зафиксированы правила версионности, сборки, релизов, источников, безопасности, прокси, тем и ассетов.
 
 ### Changed
+- Порядок реализации реальных источников изменён: Stage 7 — Izib, Stage 8 — Akniga, Stage 9 — Yakniga, Knigavuhe, Knigoblud и Baza Knig.
 - Экран загрузок теперь показывает реальные задачи `DownloadManager` по разделам активные/очередь/ошибки/завершённые вместо mock-очереди.
 - Главная, поиск, библиотека, карточка книги и полный плеер теперь вызывают реальные действия загрузки книги/главы через `DownloadManager`.
 - Bootstrap приложения подключает app-specific storage для книг и общий Drift persistence для плеера и загрузок.

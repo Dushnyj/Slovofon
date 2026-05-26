@@ -41,7 +41,7 @@ yakniga
 
 ## 3. SourceConnector
 
-Статус реализации на 2026-05-26: базовый framework Stage 6 реализован в `lib/sources/`.
+Статус реализации на 2026-05-26: базовый framework Stage 6 реализован в `lib/sources/`, первый реальный connector Stage 7 — Izib.
 
 ```dart
 abstract class SourceConnector {
@@ -71,6 +71,16 @@ lib/sources/source_media_validator.dart  — проверка media allowlist и
 lib/sources/source_parser_helpers.dart   — общие чистые parser helpers
 lib/sources/mock/mock_source_connector.dart — локальный mock connector для тестов без сети
 lib/sources/sources.dart                 — public barrel export
+```
+
+Файлы Stage 7 Izib:
+
+```text
+lib/sources/izib/izib_signer.dart          — package key и runtime SIGN generation
+lib/sources/izib/izib_graphql_client.dart  — GraphQL transport/client и безопасная обработка API ошибок
+lib/sources/izib/izib_mapper.dart          — нормализация search/details/files в доменные source модели
+lib/sources/izib/izib_source_connector.dart — SourceConnector для search/details/chapters/tracks/resolveMedia/health
+test/sources/izib/                         — fixture-based тесты без live network и без хранения SIGN
 ```
 
 `MediaResolvePurpose`:
@@ -113,12 +123,12 @@ hasGraphQlApi
 ## 5. Порядок реализации источников
 
 ```text
-1. Yakniga
-2. Izib
-3. Knigavuhe
-4. Knigoblud
-5. Baza Knig
-6. Akniga
+1. Izib
+2. Akniga
+3. Yakniga
+4. Knigavuhe
+5. Knigoblud
+6. Baza Knig
 ```
 
 ---
@@ -132,6 +142,8 @@ GraphQL, API-режим предпочтителен, главы через `cha
 ### Izib
 
 GraphQL API, SIGN генерируется на месте, package key/body signature, поиск/книга/серия/files, HTML/XSPlayer fallback. SIGN не хранить и не логировать.
+
+Статус на 2026-05-26: реализован как первый реальный источник Stage 7. Используется GraphQL endpoint `https://api.izib.uk/graphql/`, SIGN генерируется внутри `IzibGraphQlClient` на каждый body, media URL валидируются через `SourceMediaPolicy` до playback/download. Поиск Izib не отдаёт `files`, поэтому доступ в search results остаётся `unknown` до загрузки details.
 
 ### Akniga
 
@@ -186,7 +198,7 @@ cover hosts, если нужно
 
 Проверять host, тестовый поиск, тестовую книгу, главы, resolveMedia, HEAD/Range если безопасно.
 
-Stage 6 содержит модель `SourceHealth`, `SourceHealthStatus` и `SourceRegistry.checkHealth()`. Реальные сетевые проверки конкретных источников добавляются вместе с соответствующим connector, начиная с Yakniga.
+Stage 6 содержит модель `SourceHealth`, `SourceHealthStatus` и `SourceRegistry.checkHealth()`. Реальные сетевые проверки конкретных источников добавляются вместе с соответствующим connector, начиная с Izib.
 
 Статусы:
 

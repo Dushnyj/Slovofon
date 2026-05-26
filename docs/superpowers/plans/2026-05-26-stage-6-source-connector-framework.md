@@ -199,7 +199,7 @@ Expected: PASS.
 
 - [x] **Step 1: Update docs**
 
-Document where the framework lives, what registry/validator guarantee, and that real source Yakniga starts in stage 7.
+Document where the framework lives, what registry/validator guarantee, and that real source connectors start after Stage 6.
 
 - [x] **Step 2: Format and analyze**
 

@@ -125,6 +125,13 @@ notification, lock screen и media buttons.
 - `SourceException` нормализуется в `SourceFailure`, чтобы UI/use cases могли показать частичный результат без потери успешных источников;
 - `SourceMediaValidator` проверяет media URL по `SourceMediaPolicy` до использования в плеере или загрузках.
 
+Текущая реализация Stage 7:
+
+- `IzibSourceConnector` живёт в `lib/sources/izib/` и является первым реальным сетевым источником;
+- `IzibGraphQlClient` изолирует GraphQL transport, runtime SIGN generation и безопасное преобразование API/HTTP/parser ошибок в `SourceException`;
+- `IzibMapper` переводит search/details/files API в `BookSearchResult`, `BookVersionDetails`, `Chapter` и `AudioTrack`;
+- media URL Izib проходят `SourceMediaValidator` по allowlist до передачи в playback/download.
+
 ### 3.4 ProxyManager
 
 Управляет proxy profiles внутри приложения.

@@ -8,6 +8,7 @@ enum MediaResolvePurpose { playback, download, probe }
 
 enum SourceErrorKind {
   unsupported,
+  api,
   network,
   parser,
   mediaValidation,

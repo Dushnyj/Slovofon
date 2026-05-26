@@ -1,0 +1,90 @@
+{
+  "data": {
+    "book": {
+      "id": 2033,
+      "name": "Метро 2033",
+      "urlName": "metro-2033",
+      "defaultPoster": "/covers/metro-2033.jpg",
+      "defaultPosterMain": "https://img.izib.uk/covers/metro-main.jpg",
+      "totalDuration": 47160,
+      "plays": 1200,
+      "views": 2400,
+      "comments": 12,
+      "likes": 9,
+      "dislikes": 1,
+      "posters": [],
+      "publishTs": 1577836800,
+      "aboutBb": "[b]Постапокалипсис[/b] в московском метро.",
+      "serieIndex": "1",
+      "favored": false,
+      "genre": {
+        "id": 7,
+        "name": "Фантастика",
+        "booksCount": 10,
+        "__typename": "Genre"
+      },
+      "authors": [
+        {
+          "id": 11,
+          "name": "Дмитрий",
+          "surname": "Глуховский",
+          "booksCount": 5,
+          "__typename": "Author"
+        }
+      ],
+      "readers": [
+        {
+          "id": 21,
+          "name": "Петр",
+          "surname": "Иващенко",
+          "booksCount": 8,
+          "__typename": "Reader"
+        }
+      ],
+      "serie": {
+        "id": 31,
+        "name": "Метро",
+        "booksCount": 3,
+        "__typename": "Serie"
+      },
+      "files": {
+        "full": [
+          {
+            "id": 501,
+            "index": 1,
+            "title": "Глава 01. Артем",
+            "fileName": "001.mp3",
+            "duration": 1260,
+            "url": "https://audio.izib.uk/books/2033/001.mp3",
+            "size": 1024,
+            "__typename": "BookFile"
+          }
+        ],
+        "mobile": [
+          {
+            "id": 501,
+            "index": 1,
+            "title": "Глава 01. Артем",
+            "fileName": "001.mp3",
+            "duration": 1260,
+            "url": "https://audio.izib.uk/books/2033/001.mp3",
+            "size": 1024,
+            "__typename": "BookFile"
+          },
+          {
+            "id": 502,
+            "index": 2,
+            "title": "",
+            "fileName": "002.mp3",
+            "duration": 1243,
+            "url": "https://audio.izib.uk/books/2033/002.mp3",
+            "size": 2048,
+            "__typename": "BookFile"
+          }
+        ],
+        "__typename": "BookFiles"
+      },
+      "__typename": "Book"
+    }
+  }
+}

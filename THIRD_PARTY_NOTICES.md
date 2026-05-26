@@ -119,6 +119,12 @@ License: MIT
 URL: https://pub.dev/packages/audio_service
 Purpose: Background audio service, Android media notification, lock screen controls, and media button integration.
 
+Package: crypto
+Version: 3.0.7
+License: BSD-3-Clause
+URL: https://pub.dev/packages/crypto
+Purpose: SHA-256 hashing for source request signatures generated at runtime.
+
 Package: flutter_lints
 Version: 6.0.0
 License: BSD-3-Clause

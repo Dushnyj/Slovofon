@@ -1,3 +1,4 @@
+export 'izib/izib_source_connector.dart';
 export 'mock/mock_source_connector.dart';
 export 'source_connector.dart';
 export 'source_media_validator.dart';
