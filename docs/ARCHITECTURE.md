@@ -106,6 +106,8 @@ notification, lock screen и media buttons.
 
 Хранит все доступные источники и настройки их включения.
 
+Текущая реализация Stage 6 находится в `lib/sources/source_registry.dart`.
+
 Обязанности:
 
 - зарегистрировать коннекторы;
@@ -114,6 +116,14 @@ notification, lock screen и media buttons.
 - объединить ошибки;
 - отдать capabilities;
 - запускать health checks.
+
+Поведение Stage 6:
+
+- duplicate source ids отклоняются при создании registry;
+- поиск запускается только по enabled/requested источникам;
+- успешные результаты и ошибки отдельных источников возвращаются вместе через `SourceSearchResponse`;
+- `SourceException` нормализуется в `SourceFailure`, чтобы UI/use cases могли показать частичный результат без потери успешных источников;
+- `SourceMediaValidator` проверяет media URL по `SourceMediaPolicy` до использования в плеере или загрузках.
 
 ### 3.4 ProxyManager
 
@@ -153,7 +163,10 @@ notification, lock screen и media buttons.
 `AudioTrack` — реальный аудиофайл/поток.  
 `PlaybackSession` — активная книга и позиция для восстановления.  
 `PlaybackProgress` — прогресс по книге и главам.  
-`DownloadTask` — загрузка книги, главы, обложки или metadata.
+`DownloadTask` — загрузка книги, главы, обложки или metadata.  
+`SourceBookRef` — ссылка на книгу внутри конкретного источника.  
+`BookSearchResult` — нормализованный результат поиска источника до сохранения в базу.  
+`ResolvedMedia` — media source после resolveMedia, готовый к allowlist validation.
 
 Разделение `Book` и `BookVersion` обязательно, потому что одна книга может быть найдена на нескольких источниках с разными чтецами, длительностями, обложками и статусами доступа.
 

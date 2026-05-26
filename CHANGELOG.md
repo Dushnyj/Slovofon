@@ -5,6 +5,12 @@
 ## [Unreleased]
 
 ### Added
+- Добавлен Stage 6 `SourceConnector` framework: общий контракт источников, `SearchRequest`, `BookSearchResult`, `BookVersionDetails`, `ResolvedMedia`, `SourceCapabilities`, `SourceHealth`, `SourceException` и агрегирующий `SourceSearchResponse`.
+- Добавлен `SourceRegistry` как единая точка доступа к источникам: регистрация коннекторов, защита от duplicate ids, фильтрация enabled/requested sources, агрегация частичных ошибок поиска, capabilities map и health checks.
+- Добавлены `SourceMediaPolicy` и `SourceMediaValidator`: проверка media allowlist, запрет URL с credentials, запрет non-http схем и явное разрешение local asset/file media только для mock/local источников.
+- Добавлены shared parser helpers для источников: нормализация whitespace/title, парсинг чисел/годов/длительности и безопасное разрешение URI.
+- Добавлен `MockSourceConnector.yakniga()` поверх текущих Stage 3/4 mock data для тестируемой интеграции search/details/chapters/audio tracks/resolveMedia без сети.
+- Добавлены Stage 6 unit-тесты для registry, media validator, parser helpers и mock connector.
 - Добавлен Stage 5 `DownloadManager`: очередь загрузок глав и книг, ограничение параллельности, pause/resume/cancel/retry/delete, прогресс, скорость и восстановление прерванных задач после перезапуска как resumable.
 - Добавлены `DownloadClient`, `FileDownloadStorage` и `DownloadPersistenceStore`: скачивание URL/file/asset media sources, `.part` файлы, Range/resume, атомарное завершение файла, `metadata.json` и Drift-сохранение `DownloadTask`.
 - Добавлено подключение оффлайн-файлов к плееру: скачанные главы подставляются в `AudioPlaybackBook` как `AudioMediaSource.file`, без удаления истории, избранного, закладок и прогресса при удалении аудио.
@@ -76,6 +82,7 @@
 - Основные action-кнопки mock UI заменены на icon-only controls с tooltip вместо громоздких текстовых кнопок.
 
 ### Security
+- Добавлена source-level media validation: реальные коннекторы обязаны отдавать media только через allowlist домены, без произвольных URL и без credentials в URL.
 - Расширены правила для signing secrets: Android `.jks`, Windows `.pfx`, GitHub Secrets и CI cleanup.
 - Зафиксирован запрет на хранение приватных API secrets в клиенте.
 - Зафиксировано правило: generated SIGN/token не сохранять и не логировать.

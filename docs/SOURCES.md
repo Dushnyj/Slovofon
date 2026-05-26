@@ -41,6 +41,8 @@ yakniga
 
 ## 3. SourceConnector
 
+Статус реализации на 2026-05-26: базовый framework Stage 6 реализован в `lib/sources/`.
+
 ```dart
 abstract class SourceConnector {
   String get id;
@@ -48,6 +50,7 @@ abstract class SourceConnector {
   String get host;
   String get color;
   SourceCapabilities get capabilities;
+  SourceMediaPolicy get mediaPolicy;
 
   Future<List<BookSearchResult>> search(SearchRequest request);
   Future<BookVersionDetails> getBookDetails(SourceBookRef ref);
@@ -56,6 +59,18 @@ abstract class SourceConnector {
   Future<ResolvedMedia> resolveMedia(Chapter chapter, MediaResolvePurpose purpose);
   Future<SourceHealth> checkHealth();
 }
+```
+
+Файлы Stage 6:
+
+```text
+lib/sources/source_connector.dart        — единый интерфейс SourceConnector
+lib/sources/source_models.dart           — SearchRequest, BookSearchResult, SourceHealth, ResolvedMedia, errors
+lib/sources/source_registry.dart         — регистрация источников, search aggregation, capabilities, health checks
+lib/sources/source_media_validator.dart  — проверка media allowlist и URL safety
+lib/sources/source_parser_helpers.dart   — общие чистые parser helpers
+lib/sources/mock/mock_source_connector.dart — локальный mock connector для тестов без сети
+lib/sources/sources.dart                 — public barrel export
 ```
 
 `MediaResolvePurpose`:
@@ -146,6 +161,16 @@ media hosts
 cover hosts, если нужно
 ```
 
+Реализованная Stage 6 проверка:
+
+```text
+- URL media разрешены только со схемой http/https;
+- URL с userInfo/credentials запрещены;
+- host должен совпадать с mediaHosts или быть subdomain разрешённого host;
+- file/asset media запрещены по умолчанию и разрешаются только через allowLocalMedia;
+- validator вызывается на source/media boundary до playback/download использования.
+```
+
 При 403/404/410:
 
 ```text
@@ -160,6 +185,8 @@ cover hosts, если нужно
 ## 8. Source Health Monitor
 
 Проверять host, тестовый поиск, тестовую книгу, главы, resolveMedia, HEAD/Range если безопасно.
+
+Stage 6 содержит модель `SourceHealth`, `SourceHealthStatus` и `SourceRegistry.checkHealth()`. Реальные сетевые проверки конкретных источников добавляются вместе с соответствующим connector, начиная с Yakniga.
 
 Статусы:
 
@@ -180,3 +207,12 @@ cover hosts, если нужно
 ## 9. Тесты источников
 
 Для каждого источника нужны parser fixtures, search/details/chapter/media tests. Реальные сетевые тесты должны быть optional.
+
+Stage 6 тесты:
+
+```text
+test/sources/source_registry_test.dart
+test/sources/source_media_validator_test.dart
+test/sources/source_parser_helpers_test.dart
+test/sources/mock_source_connector_test.dart
+```
