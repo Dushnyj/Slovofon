@@ -5,10 +5,13 @@
 ## [Unreleased]
 
 ### Added
-- Добавлен `SourceCatalogService` как app-level слой над `SourceRegistry`: поиск Izib, загрузка details/chapters, resolveMedia и сборка `AudioBook`/`AudioPlaybackBook` для UI, плеера и загрузок без прямых HTTP-вызовов из widgets.
+- Добавлен Stage 8 `AknigaSourceConnector`: HTML search/details parser, `book id`/`bid`, `ajax/bid` track resolver, LiveStreet security key extraction, CryptoJS/OpenSSL-compatible AES-CBC request hash, Referer/media headers и media allowlist для `*.akniga.club`/`*.audioknigi.xyz`.
+- Добавлены Stage 8 тесты Akniga для security encoder, HTML mapper, client/transport, source connector, media headers, cookie session behavior и optional live smoke-test против `akniga.org`.
+- Akniga зарегистрирован в default `SourceRegistry`; экран поиска теперь отправляет запрос во все включённые источники, а не только в Izib.
+- Добавлен `SourceCatalogService` как app-level слой над `SourceRegistry`: поиск источников, загрузка details/chapters, resolveMedia и сборка `AudioBook`/`AudioPlaybackBook` для UI, плеера и загрузок без прямых HTTP-вызовов из widgets.
 - Добавлен экран source book details для реальных книг Izib: обложка, авторы, чтецы, жанр, описание, главы, запуск книги/главы в плеере и действия загрузки через существующий `DownloadManager`.
 - Добавлен `SearchHistoryStore` для сохранения истории поисковых запросов с типом поиска: название, автор, чтец или цикл.
-- Добавлен `LibraryStore` с Drift persistence для избранного: сохранённые через поиск Izib книги появляются в библиотеке и переживают перезапуск приложения.
+- Добавлен `LibraryStore` с Drift persistence для избранного: сохранённые через поиск источников книги появляются в библиотеке и переживают перезапуск приложения.
 - Добавлены Stage 7 widget/service-тесты для end-to-end пути Izib в приложении: поиск, карточка, details, запуск playback, full player metadata/chapters и отображение реальных source download tasks без fallback на mock-книги.
 - Добавлен Stage 7 `IzibSourceConnector`: первый реальный источник через GraphQL API Izib, runtime SIGN generation, поиск, details, files -> chapters/audio tracks, resolveMedia/download через media allowlist и health check.
 - Добавлены Stage 7 тесты Izib для GraphQL client/signing, mapper, source connector, allowlist validation и безопасной обработки API ошибок без раскрытия SIGN.
@@ -64,11 +67,12 @@
 - Зафиксированы правила версионности, сборки, релизов, источников, безопасности, прокси, тем и ассетов.
 
 ### Changed
+- Search/home/library copy и source chips обновлены под два реальных источника: Izib и Akniga.
 - Карточки книг и глав получили единый borderless icon-action стиль: play/pause, info, favorite, download/delete/retry больше не используют квадратные outlined-кнопки.
 - Favorite-состояние теперь синхронизируется с активной карточкой на главной; выбранное избранное отображается заполненным красным сердцем.
 - Play с карточки поиска остаётся на экране поиска, показывает loading только до старта текущей книги и затем переключается в pause для активного аудио.
 - Download-кнопки на карточках и главах теперь используют единый круговой прогресс с крестиком отмены внутри; в загрузках убрано дублирование кнопок удаления.
-- Экран поиска переключён с mock-выдачи на реальный Izib-поиск через `SourceCatalogService`; пустое состояние теперь показывает готовность к поиску по Izib.
+- Экран поиска переключён с mock-выдачи на реальный поиск через `SourceCatalogService`; пустое состояние теперь показывает готовность к поиску по источникам.
 - Поиск больше не запускается на каждый ввод символа: запрос выполняется только по search action/кнопке, сохраняется в историю и фильтруется по выбранному полю так, чтобы все слова запроса совпадали как префиксы слов результата независимо от порядка.
 - Полный плеер, мини-плеер, карточки и экран загрузок теперь сохраняют и показывают metadata реального источника: `sourceBookId`, cover URL, описание, жанр, год, source URL, автора и чтеца.
 - Порядок реализации реальных источников изменён: Stage 7 — Izib, Stage 8 — Akniga, Stage 9 — Yakniga, Knigavuhe, Knigoblud и Baza Knig.
@@ -93,6 +97,7 @@
 - Убрано рабочее имя `Auralib` из технического ТЗ.
 
 ### Fixed
+- Akniga HTTP transport сохраняет cookies между page GET и `ajax/bid` POST, как session в reference implementation; без этого живой `ajax/bid` возвращал не-JSON ответ.
 - Последняя активная книга теперь восстанавливается после обновления/перезапуска приложения: `PlaybackController` сохраняет metadata активной книги и bootstrap поднимает `PlaybackSession` без автозапуска аудио.
 - Экран загрузок после перезапуска больше не деградирует до `izib-book-*`: `DownloadManager` восстанавливает контекст книги, обложку, автора, чтеца, главы и media metadata из сохранённого `metadata.json`.
 - Карточки поиска и библиотеки теперь подписаны на runtime-состояние плеера: после паузы `Pause` сразу меняется на `Play`, а не остаётся старой иконкой.
@@ -107,8 +112,8 @@
 - Source book details получил дополнительный нижний safe padding, чтобы блок информации и кнопки не залезали под системную навигацию Android.
 - Открытие source-карточки из поиска теперь использует stack navigation; системная кнопка Back и правый свайп возвращают на прошлый экран, а не закрывают приложение.
 - Поиск теперь показывает ошибку источника, если все подключённые источники вернули failure, вместо ложного состояния "Ничего не найдено".
-- Главная и production `PlaybackController` больше не стартуют с предзагруженной mock-книгой "Мастер и Маргарита"; стартовый экран ведёт в реальный поиск Izib.
-- Библиотека больше не показывает Stage 3 mock-книги как пользовательские сохранённые книги; до подключения постоянной библиотеки экран честно пустой и ведёт в поиск Izib.
+- Главная и production `PlaybackController` больше не стартуют с предзагруженной mock-книгой "Мастер и Маргарита"; стартовый экран ведёт в реальный поиск источников.
+- Библиотека больше не показывает Stage 3 mock-книги как пользовательские сохранённые книги; до добавления книг экран честно пустой и ведёт в поиск источников.
 - Исправлен размер SVG search icon внутри `TextField`, чтобы prefix icon не растягивался на Android.
 - Исправлена отрисовка Lucide SVG icons в Flutter UI через явный `ColorFilter`.
 - Исправлено подключение SVG icons из подпапок `assets/icons/*` в `pubspec.yaml`.

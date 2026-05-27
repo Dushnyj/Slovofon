@@ -7,7 +7,7 @@ void main() {
     await tester.pumpWidget(const ProviderScope(child: SlovofonApp()));
     await tester.pumpAndSettle();
 
-    expect(find.text('Find a book in Izib'), findsOneWidget);
+    expect(find.text('Find a book'), findsOneWidget);
     expect(find.text('Open search'), findsOneWidget);
   });
 }

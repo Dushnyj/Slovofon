@@ -58,11 +58,10 @@ class AppStrings {
       _isRu ? 'Скачанные для оффлайна' : 'Offline downloads';
   String get recommended =>
       _isRu ? 'Рекомендации на mock data' : 'Mock recommendations';
-  String get realSourceHomeTitle =>
-      _isRu ? 'Найдите книгу в Izib' : 'Find a book in Izib';
+  String get realSourceHomeTitle => _isRu ? 'Найдите книгу' : 'Find a book';
   String get realSourceHomeMessage => _isRu
-      ? 'Поиск, карточки, главы, плеер и загрузки уже подключены к первому реальному источнику.'
-      : 'Search, cards, chapters, playback, and downloads are connected to the first real source.';
+      ? 'Поиск, карточки, главы, плеер и загрузки подключены к реальным источникам Izib и Akniga.'
+      : 'Search, cards, chapters, playback, and downloads are connected to Izib and Akniga.';
   String get openSearch => _isRu ? 'Открыть поиск' : 'Open search';
   String get searchHint => _isRu
       ? 'Название, автор, чтец или цикл'
@@ -75,13 +74,14 @@ class AppStrings {
   String get searchReadyTitle =>
       _isRu ? 'Введите запрос' : 'Enter a search query';
   String get searchReadyMessage => _isRu
-      ? 'Поиск сейчас подключён к реальному источнику Izib.'
-      : 'Search is connected to the real Izib source.';
+      ? 'Поиск подключён к реальным источникам Izib и Akniga.'
+      : 'Search is connected to Izib and Akniga.';
   String get searchShortQueryTitle =>
       _isRu ? 'Слишком короткий запрос' : 'Query is too short';
   String get searchShortQueryMessage =>
       _isRu ? 'Введите минимум 2 символа.' : 'Enter at least 2 characters.';
-  String get searchingSources => _isRu ? 'Ищу в Izib...' : 'Searching Izib...';
+  String get searchingSources =>
+      _isRu ? 'Ищу в источниках...' : 'Searching sources...';
   String get sourceSearchError =>
       _isRu ? 'Не удалось выполнить поиск' : 'Search failed';
   String get noSearchResults => _isRu ? 'Ничего не найдено' : 'No results';
@@ -92,11 +92,11 @@ class AppStrings {
       ? 'Источник вернул данные, но после фильтра по полному запросу подходящих результатов нет.'
       : 'The source returned data, but none matched every query word.';
   String sourceResultsCount(int count) {
-    return _isRu ? '$count результатов Izib' : '$count Izib results';
+    return _isRu ? '$count результатов' : '$count results';
   }
 
   String get izibSearchSubtitle => _isRu
-      ? 'Реальная выдача источника, карточка и главы загружаются через SourceConnector.'
+      ? 'Реальная выдача источников, карточка и главы загружаются через SourceConnector.'
       : 'Real source results; details and chapters are loaded through SourceConnector.';
   String partialSourceFailures(int count) {
     return _isRu
@@ -106,9 +106,9 @@ class AppStrings {
 
   String get emptyLibrary =>
       _isRu ? 'Библиотека пока пуста' : 'Your library is empty';
-  String get libraryIzibMessage => _isRu
-      ? 'Добавляйте книги в избранное через поиск Izib. Сохранённые книги появятся здесь.'
-      : 'Add books to favorites through Izib search. Saved books will appear here.';
+  String get librarySourcesMessage => _isRu
+      ? 'Добавляйте книги в избранное через поиск источников. Сохранённые книги появятся здесь.'
+      : 'Add books to favorites through source search. Saved books will appear here.';
   String get emptyDownloads => _isRu ? 'Загрузок пока нет' : 'No downloads yet';
   String get appearance => _isRu ? 'Внешний вид' : 'Appearance';
   String get sources => _isRu ? 'Источники' : 'Sources';

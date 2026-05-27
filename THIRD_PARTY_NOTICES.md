@@ -123,7 +123,19 @@ Package: crypto
 Version: 3.0.7
 License: BSD-3-Clause
 URL: https://pub.dev/packages/crypto
-Purpose: SHA-256 hashing for source request signatures generated at runtime.
+Purpose: Hashing for source request signatures and Akniga CryptoJS-compatible MD5 KDF generated at runtime.
+
+Package: html
+Version: 0.15.6
+License: BSD-3-Clause
+URL: https://pub.dev/packages/html
+Purpose: HTML parsing for source connectors such as Akniga search/details pages.
+
+Package: pointycastle
+Version: 4.0.0
+License: MIT
+URL: https://pub.dev/packages/pointycastle
+Purpose: AES-CBC block cipher used for Akniga ajax/bid request hash generation compatible with CryptoJS passphrase mode.
 
 Package: flutter_lints
 Version: 6.0.0

@@ -4,7 +4,7 @@ import '../../sources/sources.dart';
 import 'source_catalog_service.dart';
 
 final sourceRegistryProvider = Provider<SourceRegistry>((ref) {
-  return SourceRegistry([IzibSourceConnector()]);
+  return SourceRegistry([IzibSourceConnector(), AknigaSourceConnector()]);
 });
 
 final sourceCatalogServiceProvider = Provider<SourceCatalogService>((ref) {

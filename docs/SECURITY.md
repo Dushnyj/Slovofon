@@ -46,14 +46,15 @@ Signing secrets также нельзя хранить в Git, release artifacts
 
 ## 4. Runtime-generated SIGN/token
 
-Для Izib и похожих источников:
+Для Izib, Akniga и похожих источников:
 
 - генерировать SIGN/token непосредственно перед запросом;
+- извлечённые security keys источников использовать только для текущего сетевого контракта;
 - не сохранять в базе;
 - не писать в UI;
 - не логировать;
 - не включать в crash/debug reports;
-- маскировать в debug: `SIGN: ***`;
+- маскировать в debug: `SIGN: ***`, `security_ls_key: ***`;
 - хранить алгоритм в connector/service, а не в UI.
 
 ---

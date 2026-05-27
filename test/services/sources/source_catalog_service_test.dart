@@ -1,15 +1,28 @@
 import 'dart:io';
 
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:slovofon/domain/models/audio_track.dart';
 import 'package:slovofon/domain/models/chapter.dart';
 import 'package:slovofon/services/audio/audio_state.dart';
+import 'package:slovofon/services/sources/source_catalog_provider.dart';
 import 'package:slovofon/services/sources/source_catalog_service.dart';
 import 'package:slovofon/sources/izib/izib_graphql_client.dart';
 import 'package:slovofon/sources/sources.dart';
 
 void main() {
   group('SourceCatalogService', () {
+    test('default registry enables Izib and Akniga connectors', () {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+
+      final registry = container.read(sourceRegistryProvider);
+
+      expect(registry.enabledSourceIds, containsAll({'izib', 'akniga'}));
+      expect(registry.connectorById('izib'), isA<IzibSourceConnector>());
+      expect(registry.connectorById('akniga'), isA<AknigaSourceConnector>());
+    });
+
     test('search returns Izib results through the source registry', () async {
       final service = SourceCatalogService(
         registry: SourceRegistry([

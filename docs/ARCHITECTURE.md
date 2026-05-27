@@ -143,11 +143,19 @@ notification, lock screen и media buttons.
 - `IzibMapper` переводит search/details/files API в `BookSearchResult`, `BookVersionDetails`, `Chapter` и `AudioTrack`;
 - media URL Izib проходят `SourceMediaValidator` по allowlist до передачи в playback/download.
 
+Текущая реализация Stage 8:
+
+- `AknigaSourceConnector` живёт в `lib/sources/akniga/` и является вторым реальным сетевым источником;
+- `AknigaClient` изолирует HTML/ajax transport, LiveStreet security key extraction, cookie session behavior, headers и безопасные `SourceException`;
+- `AknigaSecurityEncoder` генерирует runtime `ajax/bid` hash через OpenSSL-compatible MD5 KDF + AES-CBC/PKCS7 без хранения ключей в базе;
+- `AknigaMapper` переводит HTML search/details и ajax tracks в `BookSearchResult`, `BookVersionDetails`, `Chapter` и `AudioTrack`;
+- media URL Akniga проходят `SourceMediaValidator` по allowlist до передачи в playback/download.
+
 ### 3.5 SourceCatalogService
 
 App-level слой между feature UI и `SourceRegistry`.
 
-Текущая реализация Stage 7 находится в `lib/services/sources/`.
+Текущая реализация Stage 8 находится в `lib/services/sources/`.
 
 Обязанности:
 
@@ -219,7 +227,7 @@ SearchScreen
 -> UI results
 ```
 
-Stage 7: поиск запускается только по search action/кнопке, история запросов сохраняется через `SearchHistoryStore`, а `SourceCatalogService` фильтрует результаты по выбранному полю (`title`, `author`, `narrator`, `series`) или по всем полям. Позднее поверх этого потока добавляются deduplication, cache и поиск по нескольким источникам.
+Stage 8: поиск запускается только по search action/кнопке, история запросов сохраняется через `SearchHistoryStore`, `SourceRegistry` запрашивает включённые источники Izib и Akniga, а `SourceCatalogService` фильтрует результаты по выбранному полю (`title`, `author`, `narrator`, `series`) или по всем полям. Позднее поверх этого потока добавляются deduplication и cache.
 
 ### 5.2 Открытие книги
 

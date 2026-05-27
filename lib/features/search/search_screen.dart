@@ -134,9 +134,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       _activeQuery = query;
       _searchFuture = ref
           .read(sourceCatalogServiceProvider)
-          .search(
-            SearchRequest(query: query, kind: _kind, sourceIds: const {'izib'}),
-          );
+          .search(SearchRequest(query: query, kind: _kind));
     });
   }
 
@@ -274,6 +272,11 @@ class _SearchFilters extends StatelessWidget {
         FilterChip(
           selected: true,
           label: const Text('Izib'),
+          onSelected: (_) {},
+        ),
+        FilterChip(
+          selected: true,
+          label: const Text('Akniga'),
           onSelected: (_) {},
         ),
         InputChip(

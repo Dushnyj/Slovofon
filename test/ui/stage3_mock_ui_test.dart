@@ -27,7 +27,7 @@ void main() {
     (tester) async {
       await _pumpApp(tester, seedPlayback: false);
 
-      expect(find.text('Find a book in Izib'), findsOneWidget);
+      expect(find.text('Find a book'), findsOneWidget);
       expect(find.text('Open search'), findsOneWidget);
       expect(find.text('Мастер и Маргарита'), findsNothing);
       expect(find.text('Mock recommendations'), findsNothing);
@@ -48,7 +48,7 @@ void main() {
 
     expect(find.text('Continue listening'), findsOneWidget);
     expect(find.text('Мастер и Маргарита'), findsWidgets);
-    expect(find.text('Find a book in Izib'), findsNothing);
+    expect(find.text('Find a book'), findsNothing);
     expect(find.text('Open search'), findsNothing);
   });
 

@@ -41,7 +41,7 @@ yakniga
 
 ## 3. SourceConnector
 
-Статус реализации на 2026-05-26: базовый framework Stage 6 реализован в `lib/sources/`, первый реальный connector Stage 7 — Izib. Приложение уже использует Izib в UI-пути поиска, карточки источника, плеера и загрузок через `SourceCatalogService`.
+Статус реализации на 2026-05-27: базовый framework Stage 6 реализован в `lib/sources/`, реальные connector-ы Stage 7/8 — Izib и Akniga. Приложение использует их в UI-пути поиска, карточки источника, плеера и загрузок через `SourceCatalogService`.
 
 ```dart
 abstract class SourceConnector {
@@ -88,10 +88,20 @@ test/sources/izib/                         — fixture-based тесты без l
 ```text
 lib/services/sources/source_catalog_service.dart  — app-level mapping из SourceConnector в UI/playback модели
 lib/services/sources/source_catalog_provider.dart — Riverpod providers для SourceRegistry и SourceCatalogService
-lib/features/search/search_screen.dart            — реальный Izib-поиск вместо mock-only выдачи
+lib/features/search/search_screen.dart            — реальный source-поиск вместо mock-only выдачи
 lib/features/source_books/                        — details экран реальной source-книги
 test/services/sources/                            — service tests для SourceCatalogService
 test/ui/stage7_izib_app_integration_test.dart     — widget flow: search -> details -> playback/downloads
+```
+
+Файлы Stage 8 Akniga:
+
+```text
+lib/sources/akniga/akniga_security.dart          — CryptoJS/OpenSSL-compatible AES-CBC hash для ajax/bid
+lib/sources/akniga/akniga_client.dart            — HTML/ajax transport, LiveStreet key extraction, cookies/session, headers
+lib/sources/akniga/akniga_mapper.dart            — HTML/details/ajax tracks -> source domain models
+lib/sources/akniga/akniga_source_connector.dart  — SourceConnector для search/details/chapters/tracks/resolveMedia/health
+test/sources/akniga/                             — fixture-based тесты и optional live smoke-test
 ```
 
 `MediaResolvePurpose`:
@@ -166,9 +176,9 @@ media:    izib.uk, *.audioknigi.xyz
 
 `*.audioknigi.xyz` нужен для реальных URL глав, которые Izib возвращает в `files.mobile/full` (`r4.audioknigi.xyz`, `r7.audioknigi.xyz` и аналогичные поддомены). Произвольные hosts и URL с credentials по-прежнему запрещены.
 
-App integration на 2026-05-26:
+App integration на 2026-05-27:
 
-- `SearchScreen` выполняет поиск по Izib через `SourceCatalogService`;
+- `SearchScreen` выполняет поиск по включённым источникам Izib и Akniga через `SourceCatalogService`;
 - поиск запускается только по search action/кнопке, сохраняется в историю и фильтруется в приложении по выбранному полю: название, автор, чтец или цикл;
 - фильтр требует, чтобы все слова запроса совпадали как префиксы слов результата независимо от порядка, например `Дыхание зоны` и `зоны дыхание`;
 - source details экран загружает details, chapters и playback media перед стартом книги/главы;
@@ -183,6 +193,24 @@ App integration на 2026-05-26:
 ### Akniga
 
 HTML поиск, book id/bid, ajax/bid contract, security key из страницы, CryptoJS/AES-подобная логика, resolver tracks, Referer/headers, media allowlist.
+
+Статус на 2026-05-27: реализован как второй реальный источник Stage 8. Используется HTML search/details с `https://akniga.org/search/books/page{page}/?q={q}`, `article[data-bid]`/`.bookpage--chapters[data-bid]` для `bid`, `LIVESTREET_SECURITY_KEY` из страницы и `POST https://akniga.org/ajax/bid/{bid}`. Транспорт хранит cookies между page GET и ajax POST, потому что `ajax/bid` требует session-like контекст.
+
+Media allowlist Akniga на 2026-05-27:
+
+```text
+metadata: akniga.org, www.akniga.org
+cover:    akniga.org, www.akniga.org
+media:    akniga.org, *.akniga.club, *.audioknigi.xyz
+```
+
+Особенности:
+
+- request body `ajax/bid` содержит `bid`, `hash` и `security_ls_key`;
+- `hash` генерируется на runtime через OpenSSL-compatible MD5 KDF + AES-CBC/PKCS7, совместимо с CryptoJS passphrase mode;
+- LiveStreet security key не хранится в базе и не выводится в UI/logs;
+- `resolveMedia` отдаёт direct URL с `User-Agent`, `Accept` и `Referer`;
+- fixture-тесты не ходят в сеть, optional live smoke-test включается только через `SLOVOFON_LIVE_SOURCE_TESTS=1`.
 
 ### Baza Knig
 

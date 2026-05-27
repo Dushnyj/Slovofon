@@ -78,7 +78,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
             if (entries.isEmpty) ...[
               StatePlaceholder.empty(
                 title: strings.emptyLibrary,
-                message: strings.libraryIzibMessage,
+                message: strings.librarySourcesMessage,
               ),
               const SizedBox(height: 12),
               Align(
