@@ -1,14 +1,18 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/localization/app_strings.dart';
-import '../../data/mock/mock_audio_playback.dart';
-import '../../data/mock/stage3_mock_data.dart';
+import '../../domain/models/audio_book.dart';
+import '../../services/audio/audio_state.dart';
+import '../../services/audio/playback_controller.dart';
+import '../../services/audio/playback_controller_provider.dart';
 import '../../services/downloads/download_manager.dart';
 import '../../services/downloads/download_manager_provider.dart';
+import '../../services/library/library_store.dart';
 import '../../ui/components/book_card.dart';
-import '../../ui/components/book_cover.dart';
 import '../../ui/components/section_header.dart';
 import '../../ui/icons/app_icons.dart';
 import '../shared/download_ui_state.dart';
@@ -19,71 +23,44 @@ class HomeScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final strings = context.strings;
+    final playbackController = ref.watch(playbackControllerProvider);
     final downloadManager = ref.watch(downloadManagerProvider);
-    final startedBooks = stage3MockBooks
-        .where((book) => book.progress > 0 && !book.isFinished)
-        .toList();
-    final downloadedBooks = stage3MockBooks
-        .where(
-          (book) =>
-              downloadStateForBook(
-                downloadManager,
-                mockAudioPlaybackBook(book),
-              ) ==
-              BookCardDownloadState.downloaded,
-        )
-        .toList();
+    final libraryStore = ref.watch(libraryStoreProvider);
 
     return CustomScrollView(
       slivers: [
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(16, 18, 16, 24),
           sliver: SliverList(
-            delegate: SliverChildListDelegate.fixed([
-              SectionHeader(
-                title: strings.continueListening,
-                subtitle: strings.mockDataNotice,
+            delegate: SliverChildListDelegate([
+              ListenableBuilder(
+                listenable: playbackController,
+                builder: (context, _) {
+                  final state = playbackController.state;
+                  final book = state.book;
+
+                  if (book == null) {
+                    return _SourceSearchCard(strings: strings);
+                  }
+
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SectionHeader(
+                        title: strings.continueListening,
+                        subtitle: book.sourceName,
+                      ),
+                      _ActiveBookCard(
+                        book: book,
+                        state: state,
+                        playbackController: playbackController,
+                        downloadManager: downloadManager,
+                        libraryStore: libraryStore,
+                      ),
+                    ],
+                  );
+                },
               ),
-              _ContinueCard(
-                book: activeMockBook,
-                downloadManager: downloadManager,
-              ),
-              const SizedBox(height: 20),
-              SectionHeader(title: strings.startedBooks),
-              for (final book in startedBooks)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: _DownloadAwareBookCard(
-                    book: book,
-                    downloadManager: downloadManager,
-                  ),
-                ),
-              const SizedBox(height: 8),
-              SectionHeader(title: strings.offlineDownloads),
-              if (downloadedBooks.isEmpty)
-                Text(
-                  strings.emptyDownloads,
-                  style: Theme.of(context).textTheme.bodyMedium,
-                )
-              else
-                for (final book in downloadedBooks)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: _DownloadAwareBookCard(
-                      book: book,
-                      downloadManager: downloadManager,
-                    ),
-                  ),
-              const SizedBox(height: 8),
-              SectionHeader(title: strings.recommended),
-              for (final book in stage3MockBooks)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: _DownloadAwareBookCard(
-                    book: book,
-                    downloadManager: downloadManager,
-                  ),
-                ),
             ]),
           ),
         ),
@@ -92,186 +69,139 @@ class HomeScreen extends ConsumerWidget {
   }
 }
 
-class _DownloadAwareBookCard extends StatelessWidget {
-  const _DownloadAwareBookCard({
+class _ActiveBookCard extends StatelessWidget {
+  const _ActiveBookCard({
     required this.book,
+    required this.state,
+    required this.playbackController,
     required this.downloadManager,
+    required this.libraryStore,
   });
 
-  final MockBook book;
+  final AudioPlaybackBook book;
+  final AudioPlaybackState state;
+  final PlaybackController playbackController;
   final DownloadManager downloadManager;
+  final LibraryStore libraryStore;
 
   @override
   Widget build(BuildContext context) {
-    final playbackBook = mockAudioPlaybackBook(book);
-
+    final audioBook = _audioBookForPlayback(book, state.bookProgress);
     return BookCard(
-      book: book.toAudioBook(),
-      yearLabel: '${book.year}',
-      isFavorite: book.isFavorite,
-      downloadState: downloadStateForBook(downloadManager, playbackBook),
-      downloadProgress: downloadProgressForBook(downloadManager, playbackBook),
-      onDownloadPressed: () =>
-          toggleBookDownload(downloadManager, playbackBook),
-      onPlay: () => context.go('/player'),
-      onTap: () => context.go('/book/${book.id}'),
+      book: audioBook,
+      yearLabel: book.publishedYear?.toString(),
+      isFavorite: libraryStore.isFavorite(audioBook),
+      isCurrentBook: true,
+      isPlaying: state.isPlaying,
+      isPlaybackLoading:
+          state.status == AudioPlaybackStatus.loading ||
+          state.status == AudioPlaybackStatus.buffering,
+      downloadState: downloadStateForBook(downloadManager, book),
+      downloadProgress: downloadProgressForBook(downloadManager, book),
+      onFavoritePressed: () => libraryStore.toggleFavorite(audioBook),
+      onDownloadPressed: () => runBookCardDownloadAction(downloadManager, book),
+      onPlay: () async {
+        await playbackController.togglePlayPause();
+        if (context.mounted) {
+          await context.push('/player');
+        }
+      },
+      onTap: () => _openBook(context, book),
     );
   }
 }
 
-class _ContinueCard extends StatelessWidget {
-  const _ContinueCard({required this.book, required this.downloadManager});
+class _SourceSearchCard extends StatelessWidget {
+  const _SourceSearchCard({required this.strings});
 
-  final MockBook book;
-  final DownloadManager downloadManager;
+  final AppStrings strings;
 
   @override
   Widget build(BuildContext context) {
-    final strings = context.strings;
     final colorScheme = Theme.of(context).colorScheme;
-    final playbackBook = mockAudioPlaybackBook(book);
-    final downloadState = downloadStateForBook(downloadManager, playbackBook);
 
     return Card(
-      child: InkWell(
-        borderRadius: BorderRadius.circular(8),
-        onTap: () => context.go('/book/${book.id}'),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              BookCover(
-                title: book.title,
-                progress: book.progress,
-                width: 92,
-                height: 128,
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      book.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${book.author} · ${book.narrator}',
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: [
-                        _ContinueMeta(
-                          iconAsset: AppIconAssets.bookDuration,
-                          label: book.durationLabel,
-                        ),
-                        _ContinueMeta(
-                          iconAsset: AppIconAssets.bookYear,
-                          label: '${book.year}',
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      '${book.activeChapterTitle} · ${book.positionLabel}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: LinearProgressIndicator(
-                            value: book.progress,
-                            minHeight: 6,
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Text(
-                          '${(book.progress * 100).round()}%',
-                          style: Theme.of(context).textTheme.labelLarge,
-                        ),
-                        const SizedBox(width: 8),
-                        IconButton.filled(
-                          tooltip: strings.continuePlayback,
-                          onPressed: () => context.go('/player'),
-                          icon: const AppIcon(AppIconAssets.playerPlay),
-                        ),
-                      ],
-                    ),
-                  ],
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                CircleAvatar(
+                  backgroundColor: colorScheme.primaryContainer,
+                  foregroundColor: colorScheme.onPrimaryContainer,
+                  child: const AppIcon(AppIconAssets.navSearch),
                 ),
-              ),
-              const SizedBox(width: 8),
-              Column(
-                children: [
-                  IconButton(
-                    tooltip: book.isFavorite
-                        ? strings.removeFavorite
-                        : strings.addFavorite,
-                    onPressed: () {},
-                    icon: AppIcon(
-                      AppIconAssets.bookFavorite,
-                      color: book.isFavorite
-                          ? colorScheme.primary
-                          : colorScheme.onSurfaceVariant,
-                    ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        strings.realSourceHomeTitle,
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        strings.realSourceHomeMessage,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
                   ),
-                  IconButton(
-                    tooltip: downloadState == BookCardDownloadState.downloaded
-                        ? strings.deleteDownloaded
-                        : strings.download,
-                    onPressed: () =>
-                        toggleBookDownload(downloadManager, playbackBook),
-                    icon: AppIcon(
-                      downloadState == BookCardDownloadState.downloaded
-                          ? AppIconAssets.deleteDownload
-                          : AppIconAssets.download,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: () => context.go('/search'),
+              icon: const AppIcon(AppIconAssets.navSearch),
+              label: Text(strings.openSearch),
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
-class _ContinueMeta extends StatelessWidget {
-  const _ContinueMeta({required this.iconAsset, required this.label});
+AudioBook _audioBookForPlayback(AudioPlaybackBook book, double progress) {
+  return AudioBook(
+    id: book.id,
+    sourceBookId: book.sourceBookId,
+    title: book.title,
+    author: book.author,
+    narrator: book.narrator,
+    sourceId: book.sourceId,
+    sourceName: book.sourceName,
+    durationLabel: _formatDuration(book.totalDuration),
+    chapterCount: book.chapters.length,
+    progress: progress,
+    access: BookAccess.unknown,
+    coverUrl: book.coverUrl,
+    description: book.description,
+    year: book.publishedYear,
+  );
+}
 
-  final String iconAsset;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        AppIcon(iconAsset, size: 15, color: colorScheme.onSurfaceVariant),
-        const SizedBox(width: 4),
-        Text(
-          label,
-          style: Theme.of(context).textTheme.labelMedium?.copyWith(
-            color: colorScheme.onSurfaceVariant,
-          ),
-        ),
-      ],
-    );
+void _openBook(BuildContext context, AudioPlaybackBook book) {
+  final sourceBookId = book.sourceBookId;
+  if (sourceBookId != null && sourceBookId.isNotEmpty) {
+    unawaited(context.push('/source-book/${book.sourceId}/$sourceBookId'));
+    return;
   }
+
+  unawaited(context.push('/player'));
+}
+
+String _formatDuration(Duration duration) {
+  final hours = duration.inHours;
+  final minutes = duration.inMinutes.remainder(60);
+  if (hours > 0) {
+    return minutes > 0 ? '$hours ч $minutes мин' : '$hours ч';
+  }
+  return '$minutes мин';
 }

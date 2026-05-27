@@ -85,19 +85,37 @@ class AppIconActionButton extends StatelessWidget {
     required this.tooltip,
     required this.iconAsset,
     required this.onPressed,
+    this.foregroundColor,
+    this.backgroundColor,
+    this.iconSize = 24,
+    this.buttonSize = 44,
     super.key,
   });
 
   final String tooltip;
   final String iconAsset;
   final VoidCallback? onPressed;
+  final Color? foregroundColor;
+  final Color? backgroundColor;
+  final double iconSize;
+  final double buttonSize;
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return IconButton(
       tooltip: tooltip,
       onPressed: onPressed,
-      icon: AppIcon(iconAsset),
+      style: IconButton.styleFrom(
+        minimumSize: Size.square(buttonSize),
+        fixedSize: Size.square(buttonSize),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        shape: const CircleBorder(),
+        backgroundColor: backgroundColor ?? Colors.transparent,
+        foregroundColor: foregroundColor ?? colorScheme.onSurfaceVariant,
+        disabledForegroundColor: colorScheme.onSurface.withValues(alpha: 0.38),
+      ),
+      icon: AppIcon(iconAsset, size: iconSize),
     );
   }
 }

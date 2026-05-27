@@ -1,7 +1,7 @@
 import '../../domain/models/download_task.dart';
 import '../../services/audio/audio_state.dart';
 import '../../services/downloads/download_manager.dart';
-import '../../ui/components/book_card.dart';
+import '../../ui/components/download_action_button.dart';
 
 Iterable<DownloadTask> activeTasksForBook(
   DownloadManager manager,
@@ -9,8 +9,8 @@ Iterable<DownloadTask> activeTasksForBook(
 ) {
   return manager.tasks.where(
     (task) =>
-        task.bookVersionId == book.versionId &&
-        task.status != DownloadTaskStatus.canceled,
+        task.status != DownloadTaskStatus.canceled &&
+        _taskBelongsToBook(manager, task, book),
   );
 }
 
@@ -37,6 +37,9 @@ BookCardDownloadState downloadStateForBook(
   }
   if (tasks.any((task) => task.status == DownloadTaskStatus.queued)) {
     return BookCardDownloadState.queued;
+  }
+  if (tasks.any((task) => task.status == DownloadTaskStatus.completed)) {
+    return BookCardDownloadState.paused;
   }
 
   return BookCardDownloadState.none;
@@ -137,6 +140,27 @@ Future<void> toggleBookDownload(
   }
 }
 
+Future<void> runBookCardDownloadAction(
+  DownloadManager manager,
+  AudioPlaybackBook book,
+) async {
+  final state = downloadStateForBook(manager, book);
+  final tasks = activeTasksForBook(manager, book).toList();
+
+  switch (state) {
+    case BookCardDownloadState.downloaded:
+    case BookCardDownloadState.downloading:
+    case BookCardDownloadState.queued:
+      await manager.cancelAndDeleteBook(book);
+    case BookCardDownloadState.paused:
+      await _resumeBookTasks(manager, book, tasks);
+    case BookCardDownloadState.failed:
+      await _retryBookTasks(manager, book, tasks);
+    case BookCardDownloadState.none:
+      await manager.enqueueMissingChapters(book);
+  }
+}
+
 Future<void> toggleChapterDownload(
   DownloadManager manager,
   AudioPlaybackBook book,
@@ -152,6 +176,31 @@ Future<void> toggleChapterDownload(
     case BookCardDownloadState.queued:
       if (task != null) {
         await manager.pause(task.id);
+      }
+    case BookCardDownloadState.paused:
+      await manager.resumeChapter(book, chapter);
+    case BookCardDownloadState.failed:
+      await manager.retryChapter(book, chapter);
+    case BookCardDownloadState.none:
+      await manager.enqueueChapter(book, chapter);
+  }
+}
+
+Future<void> runChapterCardDownloadAction(
+  DownloadManager manager,
+  AudioPlaybackBook book,
+  AudioPlaybackChapter chapter,
+) async {
+  final task = manager.taskForChapter(chapter.id);
+  final state = downloadStateForTask(task);
+
+  switch (state) {
+    case BookCardDownloadState.downloaded:
+      await manager.deleteChapter(book, chapter);
+    case BookCardDownloadState.downloading:
+    case BookCardDownloadState.queued:
+      if (task != null) {
+        await manager.cancel(task.id);
       }
     case BookCardDownloadState.paused:
       await manager.resumeChapter(book, chapter);
@@ -216,4 +265,33 @@ bool _allBookChaptersCompleted(
   return book.chapters.every(
     (chapter) => completedChapterIds.contains(chapter.id),
   );
+}
+
+bool _taskBelongsToBook(
+  DownloadManager manager,
+  DownloadTask task,
+  AudioPlaybackBook book,
+) {
+  if (task.bookVersionId == book.versionId || task.bookId == book.id) {
+    return true;
+  }
+
+  final sourceBookId = book.sourceBookId;
+  if (sourceBookId != null &&
+      (task.bookVersionId == sourceBookId ||
+          task.bookVersionId == '${book.sourceId}-$sourceBookId' ||
+          task.bookId == sourceBookId ||
+          task.bookId == '${book.sourceId}-book-$sourceBookId')) {
+    return true;
+  }
+
+  final taskBook = manager.bookForTask(task.id);
+  if (taskBook == null || taskBook.sourceId != book.sourceId) {
+    return false;
+  }
+
+  return taskBook.versionId == book.versionId ||
+      taskBook.id == book.id ||
+      (taskBook.sourceBookId != null &&
+          taskBook.sourceBookId == book.sourceBookId);
 }

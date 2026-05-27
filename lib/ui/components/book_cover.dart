@@ -10,6 +10,7 @@ class BookCover extends StatelessWidget {
     this.width = 76,
     this.height = 104,
     this.showProgressPercent = true,
+    this.imageUrl,
     super.key,
   });
 
@@ -18,6 +19,7 @@ class BookCover extends StatelessWidget {
   final double width;
   final double height;
   final bool showProgressPercent;
+  final String? imageUrl;
 
   @override
   Widget build(BuildContext context) {
@@ -31,6 +33,19 @@ class BookCover extends StatelessWidget {
         .map((part) => part.characters.first)
         .join()
         .toUpperCase();
+
+    final coverImage = imageUrl == null || imageUrl!.trim().isEmpty
+        ? null
+        : Image.network(
+            imageUrl!,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) {
+              return _CoverPlaceholder(
+                initials: initials,
+                colorScheme: colorScheme,
+              );
+            },
+          );
 
     return SizedBox(
       width: width,
@@ -46,50 +61,46 @@ class BookCover extends StatelessWidget {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              Align(
-                alignment: Alignment.topRight,
-                child: Padding(
-                  padding: const EdgeInsets.all(8),
-                  child: AppIcon(
-                    AppIconAssets.bookFull,
-                    color: colorScheme.onPrimaryContainer.withValues(
-                      alpha: 0.44,
+              if (coverImage == null)
+                _CoverPlaceholder(initials: initials, colorScheme: colorScheme)
+              else
+                coverImage,
+              if (coverImage == null)
+                Align(
+                  alignment: Alignment.topRight,
+                  child: Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: AppIcon(
+                      AppIconAssets.bookFull,
+                      color: colorScheme.onPrimaryContainer.withValues(
+                        alpha: 0.44,
+                      ),
                     ),
                   ),
                 ),
-              ),
-              Center(
-                child: boundedProgress > 0 && showProgressPercent
-                    ? DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: colorScheme.scrim.withValues(alpha: 0.42),
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          child: Text(
-                            '${(boundedProgress * 100).round()}%',
-                            textAlign: TextAlign.center,
-                            style: Theme.of(context).textTheme.labelLarge
-                                ?.copyWith(
-                                  color: colorScheme.onPrimary,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                          ),
-                        ),
-                      )
-                    : Text(
-                        initials,
+              if (boundedProgress > 0 && showProgressPercent)
+                Center(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: colorScheme.scrim.withValues(alpha: 0.42),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      child: Text(
+                        '${(boundedProgress * 100).round()}%',
                         textAlign: TextAlign.center,
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          color: colorScheme.onPrimaryContainer,
-                          fontWeight: FontWeight.w700,
+                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                          color: colorScheme.onPrimary,
+                          fontWeight: FontWeight.w800,
                         ),
                       ),
-              ),
+                    ),
+                  ),
+                ),
               if (boundedProgress > 0)
                 Align(
                   alignment: Alignment.bottomCenter,
@@ -102,6 +113,27 @@ class BookCover extends StatelessWidget {
                 ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CoverPlaceholder extends StatelessWidget {
+  const _CoverPlaceholder({required this.initials, required this.colorScheme});
+
+  final String initials;
+  final ColorScheme colorScheme;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Text(
+        initials,
+        textAlign: TextAlign.center,
+        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+          color: colorScheme.onPrimaryContainer,
+          fontWeight: FontWeight.w700,
         ),
       ),
     );

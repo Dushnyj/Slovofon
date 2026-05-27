@@ -180,6 +180,43 @@ void main() {
       );
       expect(metadata.readAsStringSync(), contains('"chapters"'));
     });
+
+    test('loads persisted tasks with saved book metadata context', () async {
+      await storage.writeMetadata(_book);
+      final chapter = _book.chapters.first;
+      final task = DownloadTask(
+        id: 'chapter:${_book.versionId}:${chapter.id}',
+        bookId: _book.id,
+        bookVersionId: _book.versionId,
+        chapterId: chapter.id,
+        sourceId: _book.sourceId,
+        type: DownloadTaskType.chapter,
+        status: DownloadTaskStatus.completed,
+        progress: 1,
+        downloadedBytes: 10,
+        totalBytes: 10,
+        createdAt: DateTime.utc(2026, 5, 26, 12),
+        updatedAt: DateTime.utc(2026, 5, 26, 12),
+      );
+      await persistence.saveTask(task);
+      final manager = DownloadManager(
+        client: ByteDownloadClient([]),
+        storage: storage,
+        persistence: persistence,
+      );
+
+      await manager.loadPersistedTasks(recoverInterrupted: false);
+
+      final restoredBook = manager.bookForTask(task.id);
+      expect(restoredBook?.title, 'Мастер и Маргарита');
+      expect(restoredBook?.author, 'Михаил Булгаков');
+      expect(restoredBook?.narrator, 'Вячеслав Герасимов');
+      expect(restoredBook?.chapters, hasLength(2));
+      expect(
+        restoredBook?.chapters.first.mediaSource?.uri.toString(),
+        'https://media.example.test/book-1/chapter-1.bin',
+      );
+    });
   });
 }
 

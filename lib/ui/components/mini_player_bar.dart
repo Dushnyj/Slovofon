@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -34,7 +36,7 @@ class MiniPlayerBar extends ConsumerWidget {
           child: Material(
             color: tokens.playerSurface,
             child: InkWell(
-              onTap: () => context.go('/player'),
+              onTap: () => unawaited(context.push('/player')),
               child: SafeArea(
                 top: false,
                 child: SizedBox(
@@ -53,6 +55,7 @@ class MiniPlayerBar extends ConsumerWidget {
                               BookCover(
                                 title: book.title,
                                 progress: state.bookProgress,
+                                imageUrl: book.coverUrl,
                                 showProgressPercent: false,
                                 width: 38,
                                 height: 48,

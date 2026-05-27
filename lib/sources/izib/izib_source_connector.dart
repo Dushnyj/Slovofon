@@ -36,6 +36,9 @@ class IzibSourceConnector implements SourceConnector {
   SourceCapabilities get capabilities => const SourceCapabilities(
     supportsSearch: true,
     supportsSearchByTitle: true,
+    supportsSearchByAuthor: true,
+    supportsSearchByNarrator: true,
+    supportsSearchBySeries: true,
     supportsDetails: true,
     supportsChapters: true,
     supportsSeries: true,
@@ -52,7 +55,7 @@ class IzibSourceConnector implements SourceConnector {
   @override
   SourceMediaPolicy get mediaPolicy => const SourceMediaPolicy(
     metadataHosts: {'izib.uk', 'api.izib.uk'},
-    mediaHosts: {'izib.uk'},
+    mediaHosts: {'izib.uk', 'audioknigi.xyz'},
     coverHosts: {'izib.uk'},
   );
 

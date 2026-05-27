@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -6,9 +8,10 @@ import '../../app/localization/app_strings.dart';
 import '../../data/mock/mock_audio_playback.dart';
 import '../../data/mock/stage3_mock_data.dart';
 import '../../services/downloads/download_manager_provider.dart';
-import '../../ui/components/book_card.dart';
+import '../../ui/components/app_buttons.dart';
 import '../../ui/components/book_cover.dart';
 import '../../ui/components/chapter_tile.dart';
+import '../../ui/components/download_action_button.dart';
 import '../../ui/components/download_status_chip.dart';
 import '../../ui/components/section_header.dart';
 import '../../ui/icons/app_icons.dart';
@@ -72,34 +75,32 @@ class BookDetailsScreen extends ConsumerWidget {
             spacing: 8,
             runSpacing: 8,
             children: [
-              IconButton.filled(
+              AppIconActionButton(
                 tooltip: book.progress > 0
                     ? strings.continuePlayback
                     : strings.play,
-                onPressed: () => context.go('/player'),
-                icon: const AppIcon(AppIconAssets.playerPlay),
+                onPressed: () => unawaited(context.push('/player')),
+                iconAsset: AppIconAssets.playerPlay,
+                foregroundColor: colorScheme.primary,
               ),
-              IconButton.outlined(
-                tooltip: bookDownloadState == BookCardDownloadState.downloaded
-                    ? strings.deleteDownloaded
-                    : strings.downloadBook,
-                onPressed: () =>
-                    toggleBookDownload(downloadManager, playbackBook),
-                icon: AppIcon(
-                  bookDownloadState == BookCardDownloadState.downloaded
-                      ? AppIconAssets.deleteDownload
-                      : AppIconAssets.download,
+              DownloadActionButton(
+                state: bookDownloadState,
+                progress: downloadProgressForBook(
+                  downloadManager,
+                  playbackBook,
                 ),
+                onPressed: () =>
+                    runBookCardDownloadAction(downloadManager, playbackBook),
               ),
-              IconButton.outlined(
+              AppIconActionButton(
                 tooltip: strings.bookmarks,
                 onPressed: () {},
-                icon: const AppIcon(AppIconAssets.playerBookmark),
+                iconAsset: AppIconAssets.playerBookmark,
               ),
-              IconButton.outlined(
+              AppIconActionButton(
                 tooltip: strings.share,
                 onPressed: () {},
-                icon: const AppIcon(AppIconAssets.systemShare),
+                iconAsset: AppIconAssets.systemShare,
               ),
             ],
           ),
@@ -127,9 +128,17 @@ class BookDetailsScreen extends ConsumerWidget {
                     downloadManager,
                     audioChapter,
                   ),
+                  downloadState: downloadStateForChapter(
+                    downloadManager,
+                    audioChapter,
+                  ),
+                  downloadProgress: downloadProgressForChapter(
+                    downloadManager,
+                    audioChapter,
+                  ),
                   isCurrent: chapter.isCurrent,
-                  onTap: () => context.go('/player'),
-                  onDownloadPressed: () => toggleChapterDownload(
+                  onTap: () => unawaited(context.push('/player')),
+                  onDownloadPressed: () => runChapterCardDownloadAction(
                     downloadManager,
                     playbackBook,
                     audioChapter,

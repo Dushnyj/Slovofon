@@ -4,9 +4,10 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../audio/audio_persistence.dart';
 import '../audio/audio_state.dart';
 
-class FileDownloadStorage {
+class FileDownloadStorage implements PlaybackBookMetadataStore {
   FileDownloadStorage({required Directory rootDirectory})
     : _rootDirectory = rootDirectory;
 
@@ -22,11 +23,12 @@ class FileDownloadStorage {
   }
 
   Directory bookDirectoryFor(AudioPlaybackBook book) {
+    return bookDirectoryForIds(book.sourceId, book.versionId);
+  }
+
+  Directory bookDirectoryForIds(String sourceId, String versionId) {
     return Directory(
-      p.join(
-        _rootDirectory.path,
-        _safeSegment('${book.sourceId}_${book.versionId}'),
-      ),
+      p.join(_rootDirectory.path, _safeSegment('${sourceId}_$versionId')),
     );
   }
 
@@ -36,6 +38,12 @@ class FileDownloadStorage {
 
   File metadataFileFor(AudioPlaybackBook book) {
     return File(p.join(bookDirectoryFor(book).path, 'metadata.json'));
+  }
+
+  File metadataFileForIds(String sourceId, String versionId) {
+    return File(
+      p.join(bookDirectoryForIds(sourceId, versionId).path, 'metadata.json'),
+    );
   }
 
   File partFileFor(AudioPlaybackBook book, AudioPlaybackChapter chapter) {
@@ -125,6 +133,19 @@ class FileDownloadStorage {
     }
   }
 
+  @override
+  Future<void> saveBook(AudioPlaybackBook book) {
+    return writeMetadata(book);
+  }
+
+  @override
+  Future<AudioPlaybackBook?> loadBook({
+    required String sourceId,
+    required String versionId,
+  }) {
+    return readMetadataForIds(sourceId, versionId);
+  }
+
   Future<void> writeMetadata(AudioPlaybackBook book) async {
     final metadataFile = metadataFileFor(book);
     await metadataFile.parent.create(recursive: true);
@@ -132,10 +153,16 @@ class FileDownloadStorage {
       'bookId': book.id,
       'bookVersionId': book.versionId,
       'sourceId': book.sourceId,
+      'sourceBookId': book.sourceBookId,
       'title': book.title,
       'authors': [book.author],
       'narrators': [book.narrator],
       'sourceName': book.sourceName,
+      'coverUrl': book.coverUrl,
+      'description': book.description,
+      'genre': book.genre,
+      'publishedYear': book.publishedYear,
+      'sourceUrl': book.sourceUrl,
       'chapters': [
         for (final chapter in book.chapters)
           {
@@ -143,10 +170,76 @@ class FileDownloadStorage {
             'index': chapter.index,
             'title': chapter.title,
             'durationMs': chapter.duration.inMilliseconds,
+            'isDownloaded': chapter.isDownloaded,
+            'mediaSource': _mediaSourceToJson(chapter.mediaSource),
           },
       ],
     };
     await metadataFile.writeAsString(jsonEncode(metadata), flush: true);
+  }
+
+  Future<AudioPlaybackBook?> readMetadataForIds(
+    String sourceId,
+    String versionId,
+  ) async {
+    final metadataFile = metadataFileForIds(sourceId, versionId);
+    if (!metadataFile.existsSync()) {
+      return null;
+    }
+
+    final decoded = jsonDecode(metadataFile.readAsStringSync());
+    if (decoded is! Map<String, Object?>) {
+      return null;
+    }
+
+    final chaptersJson = decoded['chapters'];
+    final chapters = <AudioPlaybackChapter>[];
+    if (chaptersJson is List) {
+      for (final rawChapter in chaptersJson) {
+        if (rawChapter is! Map<String, Object?>) {
+          continue;
+        }
+        final id = _string(rawChapter['id']);
+        final title = _string(rawChapter['title']);
+        final durationMs = _int(rawChapter['durationMs']) ?? 0;
+        if (id == null || title == null) {
+          continue;
+        }
+        chapters.add(
+          AudioPlaybackChapter(
+            id: id,
+            index: _int(rawChapter['index']) ?? chapters.length,
+            title: title,
+            duration: Duration(milliseconds: durationMs),
+            isDownloaded: rawChapter['isDownloaded'] == true,
+            mediaSource: _mediaSourceFromJson(rawChapter['mediaSource']),
+          ),
+        );
+      }
+    }
+
+    final bookId = _string(decoded['bookId']);
+    final title = _string(decoded['title']);
+    if (bookId == null || title == null) {
+      return null;
+    }
+
+    return AudioPlaybackBook(
+      id: bookId,
+      versionId: _string(decoded['bookVersionId']) ?? versionId,
+      sourceId: _string(decoded['sourceId']) ?? sourceId,
+      sourceBookId: _string(decoded['sourceBookId']),
+      title: title,
+      author: _firstString(decoded['authors']),
+      narrator: _firstString(decoded['narrators']),
+      sourceName: _string(decoded['sourceName']) ?? sourceId,
+      coverUrl: _string(decoded['coverUrl']),
+      description: _string(decoded['description']),
+      genre: _string(decoded['genre']),
+      publishedYear: _int(decoded['publishedYear']),
+      sourceUrl: _string(decoded['sourceUrl']),
+      chapters: List.unmodifiable(chapters),
+    );
   }
 
   Future<File?> completedChapterFile(
@@ -189,10 +282,16 @@ class FileDownloadStorage {
       id: book.id,
       versionId: book.versionId,
       sourceId: book.sourceId,
+      sourceBookId: book.sourceBookId,
       title: book.title,
       author: book.author,
       narrator: book.narrator,
       sourceName: book.sourceName,
+      coverUrl: book.coverUrl,
+      description: book.description,
+      genre: book.genre,
+      publishedYear: book.publishedYear,
+      sourceUrl: book.sourceUrl,
       chapters: chapters,
     );
   }
@@ -214,5 +313,75 @@ class FileDownloadStorage {
         .replaceAll(RegExp(r'[^a-zA-Z0-9._-]+'), '_')
         .replaceAll(RegExp(r'_+'), '_');
     return normalized.isEmpty ? 'unknown' : normalized;
+  }
+
+  Map<String, Object?>? _mediaSourceToJson(AudioMediaSource? source) {
+    if (source == null) {
+      return null;
+    }
+
+    return {
+      'type': source.type.name,
+      'uri': source.uri.toString(),
+      'headers': source.headers,
+    };
+  }
+
+  AudioMediaSource? _mediaSourceFromJson(Object? value) {
+    if (value is! Map<String, Object?>) {
+      return null;
+    }
+
+    final type = _string(value['type']);
+    final rawUri = _string(value['uri']);
+    if (type == null || rawUri == null || rawUri.isEmpty) {
+      return null;
+    }
+
+    final uri = Uri.parse(rawUri);
+    final headers = _stringMap(value['headers']);
+    return switch (type) {
+      'url' => AudioMediaSource.url(uri, headers: headers),
+      'file' => AudioMediaSource.file(uri.toFilePath()),
+      'asset' => AudioMediaSource.asset(uri.path),
+      _ => null,
+    };
+  }
+
+  String? _string(Object? value) {
+    return value is String && value.isNotEmpty ? value : null;
+  }
+
+  int? _int(Object? value) {
+    if (value is int) {
+      return value;
+    }
+    if (value is num) {
+      return value.toInt();
+    }
+    return null;
+  }
+
+  String _firstString(Object? value) {
+    if (value is List) {
+      for (final item in value) {
+        if (item is String && item.isNotEmpty) {
+          return item;
+        }
+      }
+    }
+    return '';
+  }
+
+  Map<String, String> _stringMap(Object? value) {
+    if (value is! Map) {
+      return const {};
+    }
+
+    return {
+      for (final entry in value.entries)
+        if (entry.key is String && entry.value is String)
+          entry.key as String: entry.value as String,
+    };
   }
 }

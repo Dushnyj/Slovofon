@@ -41,6 +41,7 @@ class IzibMapper {
       title: _string(book['name']),
       author: _people(book['authors']),
       narrator: _people(book['readers']),
+      series: _entityName(book['serie']),
       coverUri: _posterUri(book),
       duration: duration,
       year: _yearFromUnixSeconds(book['publishTs']),

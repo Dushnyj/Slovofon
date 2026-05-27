@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:slovofon/sources/izib/izib_graphql_client.dart';
@@ -99,6 +100,33 @@ void main() {
       expect(data['booksSearch'], isA<Map<String, Object?>>());
       expect(requestBody['operationName'], 'booksSearch');
       expect(variables, {'q': 'метро', 'offset': 20, 'count': 10});
+    });
+
+    test('DartIoIzibGraphQlTransport posts UTF-8 request bodies', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() async => server.close(force: true));
+
+      final receivedBody = server.first.then((request) async {
+        final body = await utf8.decoder.bind(request).join();
+        request.response.statusCode = HttpStatus.ok;
+        request.response.headers.contentType = ContentType.json;
+        request.response.write('{"data":{}}');
+        await request.response.close();
+        return body;
+      });
+
+      const body = '{"q":"дыхание зоны"}';
+      final transport = DartIoIzibGraphQlTransport(
+        timeout: const Duration(seconds: 2),
+      );
+      final response = await transport.post(
+        Uri.parse('http://${server.address.address}:${server.port}/graphql'),
+        body: body,
+        headers: const {'Content-Type': 'application/json'},
+      );
+
+      expect(response.statusCode, HttpStatus.ok);
+      expect(await receivedBody, body);
     });
   });
 }

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../app/localization/app_strings.dart';
 import '../../data/mock/mock_audio_playback.dart';
@@ -9,7 +8,9 @@ import '../../domain/models/download_task.dart';
 import '../../services/audio/audio_state.dart';
 import '../../services/downloads/download_manager.dart';
 import '../../services/downloads/download_manager_provider.dart';
+import '../../ui/components/app_buttons.dart';
 import '../../ui/components/book_cover.dart';
+import '../../ui/components/download_action_button.dart';
 import '../../ui/components/section_header.dart';
 import '../../ui/icons/app_icons.dart';
 import '../shared/download_ui_state.dart';
@@ -24,21 +25,18 @@ class DownloadsScreen extends ConsumerWidget {
     final tasks = manager.tasks
         .where((task) => task.status != DownloadTaskStatus.canceled)
         .toList();
-    final active = tasks
-        .where(
-          (task) =>
-              task.status == DownloadTaskStatus.running ||
-              task.status == DownloadTaskStatus.paused,
-        )
+    final groups = _downloadBookGroups(tasks, manager);
+    final active = groups
+        .where((group) => group.section == _DownloadBookSection.active)
         .toList();
-    final queued = tasks
-        .where((task) => task.status == DownloadTaskStatus.queued)
+    final queued = groups
+        .where((group) => group.section == _DownloadBookSection.queued)
         .toList();
-    final completed = tasks
-        .where((task) => task.status == DownloadTaskStatus.completed)
+    final failed = groups
+        .where((group) => group.section == _DownloadBookSection.failed)
         .toList();
-    final failed = tasks
-        .where((task) => task.status == DownloadTaskStatus.failed)
+    final completed = groups
+        .where((group) => group.section == _DownloadBookSection.completed)
         .toList();
 
     return Scaffold(
@@ -50,7 +48,7 @@ class DownloadsScreen extends ConsumerWidget {
               title: strings.downloads,
               subtitle: strings.downloadsQueueSubtitle,
             ),
-            if (tasks.isEmpty)
+            if (groups.isEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 16),
                 child: Text(
@@ -61,22 +59,22 @@ class DownloadsScreen extends ConsumerWidget {
             else ...[
               _DownloadSection(
                 title: strings.activeDownloads,
-                tasks: active,
+                groups: active,
                 manager: manager,
               ),
               _DownloadSection(
                 title: strings.queuedDownloads,
-                tasks: queued,
+                groups: queued,
                 manager: manager,
               ),
               _DownloadSection(
                 title: strings.failedDownloads,
-                tasks: failed,
+                groups: failed,
                 manager: manager,
               ),
               _DownloadSection(
                 title: strings.completedDownloads,
-                tasks: completed,
+                groups: completed,
                 manager: manager,
               ),
             ],
@@ -90,17 +88,17 @@ class DownloadsScreen extends ConsumerWidget {
 class _DownloadSection extends StatelessWidget {
   const _DownloadSection({
     required this.title,
-    required this.tasks,
+    required this.groups,
     required this.manager,
   });
 
   final String title;
-  final List<DownloadTask> tasks;
+  final List<_DownloadBookGroup> groups;
   final DownloadManager manager;
 
   @override
   Widget build(BuildContext context) {
-    if (tasks.isEmpty) {
+    if (groups.isEmpty) {
       return const SizedBox.shrink();
     }
 
@@ -109,249 +107,230 @@ class _DownloadSection extends StatelessWidget {
       children: [
         const SizedBox(height: 16),
         SectionHeader(title: title),
-        for (final task in tasks)
+        for (final group in groups)
           Padding(
             padding: const EdgeInsets.only(bottom: 12),
-            child: _DownloadTile(task: task, manager: manager),
+            child: _DownloadBookTile(group: group, manager: manager),
           ),
       ],
     );
   }
 }
 
-class _DownloadTile extends StatelessWidget {
-  const _DownloadTile({required this.task, required this.manager});
+class _DownloadBookTile extends StatelessWidget {
+  const _DownloadBookTile({required this.group, required this.manager});
 
-  final DownloadTask task;
+  final _DownloadBookGroup group;
   final DownloadManager manager;
 
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
     final colorScheme = Theme.of(context).colorScheme;
-    final book = mockBookById(task.bookId);
-    final playbackBook = mockAudioPlaybackBook(book);
-    final chapter = chapterForTask(playbackBook, task);
-    final progress = task.progress.clamp(0, 1).toDouble();
+    final playbackBook = group.playbackBook;
+    final progress = group.progress;
 
     return Card(
-      child: InkWell(
-        borderRadius: BorderRadius.circular(8),
-        onTap: () => context.go('/book/${book.id}'),
-        child: Padding(
-          padding: const EdgeInsets.all(14),
+      clipBehavior: Clip.antiAlias,
+      child: ExpansionTile(
+        tilePadding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+        childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+        leading: BookCover(
+          title: playbackBook.title,
+          progress: group.mockBook?.progress ?? 0,
+          imageUrl: playbackBook.coverUrl,
+          width: 58,
+          height: 80,
+        ),
+        title: Text(
+          playbackBook.title,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        subtitle: Padding(
+          padding: const EdgeInsets.only(top: 4),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              Text(
+                playbackBook.author,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
                 children: [
-                  BookCover(
-                    title: book.title,
-                    progress: book.progress,
-                    width: 58,
-                    height: 80,
+                  _MetaPill(
+                    iconAsset: AppIconAssets.bookNarrator,
+                    label: playbackBook.narrator,
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          book.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                        const SizedBox(height: 3),
-                        Text(
-                          book.author,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(color: colorScheme.onSurfaceVariant),
-                        ),
-                        const SizedBox(height: 6),
-                        Wrap(
-                          spacing: 6,
-                          runSpacing: 6,
-                          children: [
-                            _MetaPill(
-                              iconAsset: AppIconAssets.bookNarrator,
-                              label: book.narrator,
-                            ),
-                            _MetaPill(
-                              iconAsset: AppIconAssets.bookYear,
-                              label: '${book.year}',
-                            ),
-                            _MetaPill(
-                              iconAsset: AppIconAssets.bookSource,
-                              label: book.sourceName,
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          '${chapter?.title ?? strings.chapters} · ${_sizeLabel(context, task)}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.labelSmall
-                              ?.copyWith(color: colorScheme.onSurfaceVariant),
-                        ),
-                        if (task.status == DownloadTaskStatus.running &&
-                            task.speedBytesPerSecond > 0) ...[
-                          const SizedBox(height: 3),
-                          Text(
-                            '${_formatBytes(task.speedBytesPerSecond)}/s',
-                            style: Theme.of(context).textTheme.labelSmall
-                                ?.copyWith(color: colorScheme.onSurfaceVariant),
-                          ),
-                        ],
-                      ],
+                  if (playbackBook.publishedYear != null ||
+                      group.mockBook != null)
+                    _MetaPill(
+                      iconAsset: AppIconAssets.bookYear,
+                      label:
+                          playbackBook.publishedYear?.toString() ??
+                          '${group.mockBook!.year}',
                     ),
+                  _MetaPill(
+                    iconAsset: AppIconAssets.bookSource,
+                    label: playbackBook.sourceName,
                   ),
-                  const SizedBox(width: 10),
-                  _DownloadActions(
-                    task: task,
-                    manager: manager,
-                    playbackBook: playbackBook,
-                    chapter: chapter,
-                  ),
+                  _StatusPill(status: group.displayStatus),
                 ],
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 8),
+              Text(
+                '${strings.downloadChaptersProgress(group.completedCount, group.totalChapterCount)} · ${_groupSizeLabel(context, group)}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 8),
               LinearProgressIndicator(
                 value: progress,
                 minHeight: 6,
                 borderRadius: BorderRadius.circular(999),
               ),
               const SizedBox(height: 8),
-              _StatusPill(status: task.status),
+              _DownloadBookActions(group: group, manager: manager),
             ],
           ),
         ),
+        children: [
+          for (final task in group.tasks)
+            _DownloadChapterRow(
+              task: task,
+              manager: manager,
+              playbackBook: playbackBook,
+            ),
+        ],
       ),
     );
   }
 }
 
-class _DownloadActions extends StatelessWidget {
-  const _DownloadActions({
-    required this.task,
-    required this.manager,
-    required this.playbackBook,
-    required this.chapter,
-  });
+class _DownloadBookActions extends StatelessWidget {
+  const _DownloadBookActions({required this.group, required this.manager});
 
-  final DownloadTask task;
+  final _DownloadBookGroup group;
   final DownloadManager manager;
-  final AudioPlaybackBook playbackBook;
-  final AudioPlaybackChapter? chapter;
 
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
-    final progress = task.progress.clamp(0, 1).toDouble();
+    final status = group.displayStatus;
 
-    return Column(
+    return Row(
       children: [
-        if (task.status == DownloadTaskStatus.running)
-          Tooltip(
-            message: strings.pauseDownload,
-            child: SizedBox.square(
-              dimension: 52,
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  CircularProgressIndicator(value: progress, strokeWidth: 4),
-                  IconButton(
-                    tooltip: strings.pauseDownload,
-                    onPressed: () => manager.pause(task.id),
-                    icon: const AppIcon(AppIconAssets.pauseDownload, size: 18),
-                  ),
-                ],
-              ),
+        if (status == DownloadTaskStatus.running ||
+            status == DownloadTaskStatus.queued) ...[
+          AppIconActionButton(
+            tooltip: strings.pauseDownload,
+            iconAsset: AppIconAssets.pauseDownload,
+            onPressed: () => _pauseBook(group, manager),
+          ),
+          const SizedBox(width: 8),
+          DownloadActionButton(
+            state: _bookDownloadState(status),
+            progress: group.progress,
+            onPressed: () => manager.cancelAndDeleteBook(group.playbackBook),
+          ),
+        ] else ...[
+          AppIconActionButton(
+            tooltip: _primaryTooltip(strings, status),
+            iconAsset: _primaryIcon(status),
+            onPressed: () => _runPrimary(group, manager),
+          ),
+          if (status != DownloadTaskStatus.completed) ...[
+            const SizedBox(width: 8),
+            AppIconActionButton(
+              tooltip: strings.deleteDownloaded,
+              iconAsset: AppIconAssets.deleteDownload,
+              onPressed: () => manager.cancelAndDeleteBook(group.playbackBook),
             ),
-          )
-        else
-          IconButton.outlined(
-            tooltip: _primaryTooltip(strings, task.status),
-            onPressed: chapter == null
-                ? null
-                : () =>
-                      _runPrimaryAction(manager, playbackBook, chapter!, task),
-            icon: AppIcon(_primaryIcon(task.status)),
-          ),
-        if (task.status != DownloadTaskStatus.completed) ...[
-          const SizedBox(height: 4),
-          IconButton(
-            tooltip: _secondaryTooltip(strings, task.status),
-            onPressed: chapter == null
-                ? null
-                : () => _runSecondaryAction(
-                    manager,
-                    playbackBook,
-                    chapter!,
-                    task,
-                  ),
-            icon: AppIcon(_secondaryIcon(task.status)),
-          ),
+          ],
         ],
       ],
     );
   }
 
-  Future<void> _runPrimaryAction(
+  Future<void> _runPrimary(
+    _DownloadBookGroup group,
     DownloadManager manager,
-    AudioPlaybackBook book,
-    AudioPlaybackChapter chapter,
-    DownloadTask task,
-  ) {
-    return switch (task.status) {
-      DownloadTaskStatus.completed => manager.deleteChapter(book, chapter),
-      DownloadTaskStatus.paused => manager.resumeChapter(book, chapter),
-      DownloadTaskStatus.failed => manager.retryChapter(book, chapter),
-      DownloadTaskStatus.queued => manager.resumeChapter(book, chapter),
-      DownloadTaskStatus.running => manager.pause(task.id),
-      DownloadTaskStatus.canceled => manager.enqueueChapter(book, chapter),
+  ) async {
+    return switch (group.displayStatus) {
+      DownloadTaskStatus.running => _pauseBook(group, manager),
+      DownloadTaskStatus.queued => _pauseBook(group, manager),
+      DownloadTaskStatus.paused => _resumeBook(group, manager),
+      DownloadTaskStatus.failed => _retryBook(group, manager),
+      DownloadTaskStatus.completed => manager.cancelAndDeleteBook(
+        group.playbackBook,
+      ),
+      DownloadTaskStatus.canceled => manager.enqueueMissingChapters(
+        group.playbackBook,
+      ),
     };
   }
 
-  Future<void> _runSecondaryAction(
+  Future<void> _pauseBook(
+    _DownloadBookGroup group,
     DownloadManager manager,
-    AudioPlaybackBook book,
-    AudioPlaybackChapter chapter,
-    DownloadTask task,
-  ) {
-    return switch (task.status) {
-      DownloadTaskStatus.running => manager.cancel(task.id),
-      DownloadTaskStatus.queued => manager.cancel(task.id),
-      DownloadTaskStatus.paused => manager.deleteChapter(book, chapter),
-      DownloadTaskStatus.failed => manager.deleteChapter(book, chapter),
-      DownloadTaskStatus.completed => manager.deleteChapter(book, chapter),
-      DownloadTaskStatus.canceled => manager.deleteChapter(book, chapter),
-    };
+  ) async {
+    for (final task in group.tasks) {
+      if (task.status == DownloadTaskStatus.running ||
+          task.status == DownloadTaskStatus.queued) {
+        await manager.pause(task.id);
+      }
+    }
+  }
+
+  Future<void> _resumeBook(
+    _DownloadBookGroup group,
+    DownloadManager manager,
+  ) async {
+    for (final task in group.tasks) {
+      if (task.status == DownloadTaskStatus.completed) {
+        continue;
+      }
+      final chapter = chapterForTask(group.playbackBook, task);
+      if (chapter != null) {
+        await manager.resumeChapter(group.playbackBook, chapter);
+      }
+    }
+  }
+
+  Future<void> _retryBook(
+    _DownloadBookGroup group,
+    DownloadManager manager,
+  ) async {
+    for (final task in group.tasks) {
+      if (task.status != DownloadTaskStatus.failed) {
+        continue;
+      }
+      final chapter = chapterForTask(group.playbackBook, task);
+      if (chapter != null) {
+        await manager.retryChapter(group.playbackBook, chapter);
+      }
+    }
   }
 
   String _primaryIcon(DownloadTaskStatus status) {
     return switch (status) {
       DownloadTaskStatus.completed => AppIconAssets.deleteDownload,
       DownloadTaskStatus.running => AppIconAssets.pauseDownload,
-      DownloadTaskStatus.queued => AppIconAssets.resumeDownload,
+      DownloadTaskStatus.queued => AppIconAssets.pauseDownload,
       DownloadTaskStatus.paused => AppIconAssets.resumeDownload,
       DownloadTaskStatus.failed => AppIconAssets.downloadRetry,
       DownloadTaskStatus.canceled => AppIconAssets.download,
-    };
-  }
-
-  String _secondaryIcon(DownloadTaskStatus status) {
-    return switch (status) {
-      DownloadTaskStatus.running => AppIconAssets.systemClose,
-      DownloadTaskStatus.queued => AppIconAssets.systemClose,
-      DownloadTaskStatus.paused => AppIconAssets.deleteDownload,
-      DownloadTaskStatus.failed => AppIconAssets.deleteDownload,
-      DownloadTaskStatus.completed => AppIconAssets.systemInfo,
-      DownloadTaskStatus.canceled => AppIconAssets.deleteDownload,
     };
   }
 
@@ -359,23 +338,292 @@ class _DownloadActions extends StatelessWidget {
     return switch (status) {
       DownloadTaskStatus.completed => strings.deleteDownloaded,
       DownloadTaskStatus.running => strings.pauseDownload,
-      DownloadTaskStatus.queued => strings.resumeDownload,
+      DownloadTaskStatus.queued => strings.pauseDownload,
       DownloadTaskStatus.paused => strings.resumeDownload,
       DownloadTaskStatus.failed => strings.retry,
       DownloadTaskStatus.canceled => strings.download,
     };
   }
 
-  String _secondaryTooltip(AppStrings strings, DownloadTaskStatus status) {
+  BookCardDownloadState _bookDownloadState(DownloadTaskStatus status) {
     return switch (status) {
-      DownloadTaskStatus.running => strings.cancelDownload,
-      DownloadTaskStatus.queued => strings.cancelDownload,
-      DownloadTaskStatus.paused => strings.deleteDownloaded,
-      DownloadTaskStatus.failed => strings.deleteDownloaded,
-      DownloadTaskStatus.completed => strings.details,
-      DownloadTaskStatus.canceled => strings.deleteDownloaded,
+      DownloadTaskStatus.running => BookCardDownloadState.downloading,
+      DownloadTaskStatus.queued => BookCardDownloadState.queued,
+      DownloadTaskStatus.paused => BookCardDownloadState.paused,
+      DownloadTaskStatus.failed => BookCardDownloadState.failed,
+      DownloadTaskStatus.completed => BookCardDownloadState.downloaded,
+      DownloadTaskStatus.canceled => BookCardDownloadState.none,
     };
   }
+}
+
+class _DownloadChapterRow extends StatelessWidget {
+  const _DownloadChapterRow({
+    required this.task,
+    required this.manager,
+    required this.playbackBook,
+  });
+
+  final DownloadTask task;
+  final DownloadManager manager;
+  final AudioPlaybackBook playbackBook;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    final colorScheme = Theme.of(context).colorScheme;
+    final chapter = chapterForTask(playbackBook, task);
+    final progress = task.progress.clamp(0, 1).toDouble();
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: colorScheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: colorScheme.outlineVariant),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(10),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 17,
+                backgroundColor: colorScheme.primaryContainer,
+                foregroundColor: colorScheme.onPrimaryContainer,
+                child: Text('${chapter?.index ?? '-'}'),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      chapter?.title ?? strings.chapters,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _chapterMeta(context, task, chapter),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    if (task.status == DownloadTaskStatus.running &&
+                        task.speedBytesPerSecond > 0) ...[
+                      const SizedBox(height: 3),
+                      Text(
+                        '${_formatBytes(task.speedBytesPerSecond)}/s',
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 8),
+                    LinearProgressIndicator(
+                      value: progress,
+                      minHeight: 5,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              DownloadActionButton(
+                state: downloadStateForTask(task),
+                progress: progress,
+                onPressed: chapter == null
+                    ? null
+                    : () => runChapterCardDownloadAction(
+                        manager,
+                        playbackBook,
+                        chapter,
+                      ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _chapterMeta(
+    BuildContext context,
+    DownloadTask task,
+    AudioPlaybackChapter? chapter,
+  ) {
+    final parts = <String>[
+      if (chapter != null) _formatDuration(chapter.duration),
+      _sizeLabel(context, task),
+    ];
+    return parts.join(' · ');
+  }
+}
+
+enum _DownloadBookSection { active, queued, failed, completed }
+
+class _DownloadBookGroup {
+  const _DownloadBookGroup({
+    required this.playbackBook,
+    required this.tasks,
+    this.mockBook,
+  });
+
+  final AudioPlaybackBook playbackBook;
+  final List<DownloadTask> tasks;
+  final MockBook? mockBook;
+
+  _DownloadBookSection get section {
+    if (tasks.any(
+      (task) =>
+          task.status == DownloadTaskStatus.running ||
+          task.status == DownloadTaskStatus.paused,
+    )) {
+      return _DownloadBookSection.active;
+    }
+    if (tasks.any((task) => task.status == DownloadTaskStatus.failed)) {
+      return _DownloadBookSection.failed;
+    }
+    if (tasks.any((task) => task.status == DownloadTaskStatus.queued)) {
+      return _DownloadBookSection.queued;
+    }
+    return _DownloadBookSection.completed;
+  }
+
+  DownloadTaskStatus get displayStatus {
+    if (tasks.any((task) => task.status == DownloadTaskStatus.running)) {
+      return DownloadTaskStatus.running;
+    }
+    if (tasks.any((task) => task.status == DownloadTaskStatus.paused)) {
+      return DownloadTaskStatus.paused;
+    }
+    if (tasks.any((task) => task.status == DownloadTaskStatus.failed)) {
+      return DownloadTaskStatus.failed;
+    }
+    if (tasks.any((task) => task.status == DownloadTaskStatus.queued)) {
+      return DownloadTaskStatus.queued;
+    }
+    return DownloadTaskStatus.completed;
+  }
+
+  int get completedCount {
+    return tasks
+        .where((task) => task.status == DownloadTaskStatus.completed)
+        .length;
+  }
+
+  int get totalChapterCount {
+    return playbackBook.chapters.isEmpty
+        ? tasks.length
+        : playbackBook.chapters.length;
+  }
+
+  double get progress {
+    if (tasks.isEmpty) {
+      return 0;
+    }
+    final summed = tasks.fold<double>(
+      0,
+      (sum, task) => sum + task.progress.clamp(0, 1).toDouble(),
+    );
+    return (summed / tasks.length).clamp(0, 1).toDouble();
+  }
+}
+
+List<_DownloadBookGroup> _downloadBookGroups(
+  List<DownloadTask> tasks,
+  DownloadManager manager,
+) {
+  final byBook = <String, List<DownloadTask>>{};
+  for (final task in tasks) {
+    final key = '${task.sourceId}:${task.bookVersionId}';
+    byBook.putIfAbsent(key, () => []).add(task);
+  }
+
+  final groups = <_DownloadBookGroup>[];
+  for (final entry in byBook.entries) {
+    final groupTasks = [...entry.value];
+    final firstTask = groupTasks.first;
+    final mockBook = _mockBookByIdOrNull(firstTask.bookId);
+    final playbackBook =
+        _attachedBookForTasks(manager, groupTasks) ??
+        (mockBook == null
+            ? _fallbackPlaybackBook(firstTask)
+            : mockAudioPlaybackBook(mockBook));
+    groupTasks.sort((left, right) {
+      final leftChapter = chapterForTask(playbackBook, left);
+      final rightChapter = chapterForTask(playbackBook, right);
+      final leftIndex = leftChapter?.index ?? 1 << 30;
+      final rightIndex = rightChapter?.index ?? 1 << 30;
+      return leftIndex.compareTo(rightIndex);
+    });
+    groups.add(
+      _DownloadBookGroup(
+        playbackBook: playbackBook,
+        tasks: List.unmodifiable(groupTasks),
+        mockBook: mockBook,
+      ),
+    );
+  }
+
+  groups.sort((left, right) {
+    final section = left.section.index.compareTo(right.section.index);
+    if (section != 0) {
+      return section;
+    }
+    return left.playbackBook.title.compareTo(right.playbackBook.title);
+  });
+  return groups;
+}
+
+AudioPlaybackBook? _attachedBookForTasks(
+  DownloadManager manager,
+  List<DownloadTask> tasks,
+) {
+  for (final task in tasks) {
+    final book = manager.bookForTask(task.id);
+    if (book != null) {
+      return book;
+    }
+  }
+  return null;
+}
+
+String _groupSizeLabel(BuildContext context, _DownloadBookGroup group) {
+  final strings = context.strings;
+  final allTotalsKnown =
+      group.tasks.every(
+        (task) => task.totalBytes != null && task.totalBytes! > 0,
+      ) &&
+      group.tasks.length >= group.totalChapterCount;
+  final totalBytes = group.tasks.fold<int>(
+    0,
+    (sum, task) => sum + (task.totalBytes ?? 0),
+  );
+  final downloadedBytes = group.tasks.fold<int>(
+    0,
+    (sum, task) => sum + task.downloadedBytes,
+  );
+  if (!allTotalsKnown || totalBytes <= 0) {
+    return '${_formatBytes(downloadedBytes)} / ${strings.calculatingTotalSize}';
+  }
+  return '${_formatBytes(downloadedBytes)} / ${_formatBytes(totalBytes)}';
+}
+
+String _formatDuration(Duration duration) {
+  if (duration <= Duration.zero) {
+    return '0 мин';
+  }
+  final hours = duration.inHours;
+  final minutes = duration.inMinutes.remainder(60);
+  if (hours > 0) {
+    return minutes > 0 ? '$hours ч $minutes мин' : '$hours ч';
+  }
+  return '$minutes мин';
 }
 
 class _StatusPill extends StatelessWidget {
@@ -504,4 +752,26 @@ String _formatBytes(int bytes) {
   }
   final gib = mib / 1024;
   return '${gib.toStringAsFixed(1)} GB';
+}
+
+MockBook? _mockBookByIdOrNull(String id) {
+  for (final book in stage3MockBooks) {
+    if (book.id == id) {
+      return book;
+    }
+  }
+  return null;
+}
+
+AudioPlaybackBook _fallbackPlaybackBook(DownloadTask task) {
+  return AudioPlaybackBook(
+    id: task.bookId,
+    versionId: task.bookVersionId,
+    sourceId: task.sourceId,
+    title: task.bookId,
+    author: '',
+    narrator: '',
+    sourceName: task.sourceId,
+    chapters: const [],
+  );
 }

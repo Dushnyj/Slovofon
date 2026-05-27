@@ -120,7 +120,9 @@ class DartIoIzibGraphQlTransport implements IzibGraphQlTransport {
       for (final entry in headers.entries) {
         request.headers.set(entry.key, entry.value);
       }
-      request.write(body);
+      final bodyBytes = utf8.encode(body);
+      request.contentLength = bodyBytes.length;
+      request.add(bodyBytes);
 
       final response = await request.close().timeout(_timeout);
       final responseBody = await response

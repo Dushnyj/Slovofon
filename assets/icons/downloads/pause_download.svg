@@ -1,7 +1,7 @@
-<!-- Source: Lucide v1.16.0 icon: circle-pause; License: ISC -->
+<!-- Source: Lucide v1.16.0 icon: pause; License: ISC -->
 <!-- @license lucide-static v1.16.0 - ISC -->
 <svg
-  class="lucide lucide-circle-pause"
+  class="lucide lucide-pause"
   xmlns="http://www.w3.org/2000/svg"
   width="24"
   height="24"
@@ -12,7 +12,6 @@
   stroke-linecap="round"
   stroke-linejoin="round"
 >
-  <circle stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" cx="12" cy="12" r="10" />
-  <line stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" x1="10" x2="10" y1="15" y2="9" />
-  <line stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" x1="14" x2="14" y1="15" y2="9" />
+  <rect stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" x="14" y="4" width="4" height="16" rx="1" />
+  <rect stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" x="6" y="4" width="4" height="16" rx="1" />
 </svg>

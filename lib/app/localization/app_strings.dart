@@ -40,6 +40,14 @@ class AppStrings {
   String get paused => _isRu ? 'На паузе' : 'Paused';
   String get failed => _isRu ? 'Ошибка' : 'Failed';
   String get unknownSize => _isRu ? 'Размер неизвестен' : 'Unknown size';
+  String downloadChaptersProgress(int completed, int total) {
+    return _isRu
+        ? '$completed из $total глав'
+        : '$completed of $total chapters';
+  }
+
+  String get calculatingTotalSize =>
+      _isRu ? 'размер уточняется' : 'size is being calculated';
   String booksCount(int count) => _isRu ? '$count книг' : '$count books';
   String get settings => _isRu ? 'Настройки' : 'Settings';
   String get themePreview => _isRu ? 'Предпросмотр темы' : 'Theme preview';
@@ -50,10 +58,57 @@ class AppStrings {
       _isRu ? 'Скачанные для оффлайна' : 'Offline downloads';
   String get recommended =>
       _isRu ? 'Рекомендации на mock data' : 'Mock recommendations';
-  String get searchHint =>
-      _isRu ? 'Название, автор или исполнитель' : 'Title, author, or narrator';
+  String get realSourceHomeTitle =>
+      _isRu ? 'Найдите книгу в Izib' : 'Find a book in Izib';
+  String get realSourceHomeMessage => _isRu
+      ? 'Поиск, карточки, главы, плеер и загрузки уже подключены к первому реальному источнику.'
+      : 'Search, cards, chapters, playback, and downloads are connected to the first real source.';
+  String get openSearch => _isRu ? 'Открыть поиск' : 'Open search';
+  String get searchHint => _isRu
+      ? 'Название, автор, чтец или цикл'
+      : 'Title, author, narrator, or series';
+  String get searchByTitle => _isRu ? 'Название' : 'Title';
+  String get searchByAuthor => _isRu ? 'Автор' : 'Author';
+  String get searchByNarrator => _isRu ? 'Чтец' : 'Narrator';
+  String get searchBySeries => _isRu ? 'Цикл' : 'Series';
+  String get recentSearches => _isRu ? 'История поиска' : 'Recent searches';
+  String get searchReadyTitle =>
+      _isRu ? 'Введите запрос' : 'Enter a search query';
+  String get searchReadyMessage => _isRu
+      ? 'Поиск сейчас подключён к реальному источнику Izib.'
+      : 'Search is connected to the real Izib source.';
+  String get searchShortQueryTitle =>
+      _isRu ? 'Слишком короткий запрос' : 'Query is too short';
+  String get searchShortQueryMessage =>
+      _isRu ? 'Введите минимум 2 символа.' : 'Enter at least 2 characters.';
+  String get searchingSources => _isRu ? 'Ищу в Izib...' : 'Searching Izib...';
+  String get sourceSearchError =>
+      _isRu ? 'Не удалось выполнить поиск' : 'Search failed';
+  String get noSearchResults => _isRu ? 'Ничего не найдено' : 'No results';
+  String get noSearchResultsMessage => _isRu
+      ? 'Попробуйте другое название, автора или чтеца.'
+      : 'Try another title, author, or narrator.';
+  String get filteredNoSearchResults => _isRu
+      ? 'Источник вернул данные, но после фильтра по полному запросу подходящих результатов нет.'
+      : 'The source returned data, but none matched every query word.';
+  String sourceResultsCount(int count) {
+    return _isRu ? '$count результатов Izib' : '$count Izib results';
+  }
+
+  String get izibSearchSubtitle => _isRu
+      ? 'Реальная выдача источника, карточка и главы загружаются через SourceConnector.'
+      : 'Real source results; details and chapters are loaded through SourceConnector.';
+  String partialSourceFailures(int count) {
+    return _isRu
+        ? '$count источников вернули ошибку'
+        : '$count source failures';
+  }
+
   String get emptyLibrary =>
       _isRu ? 'Библиотека пока пуста' : 'Your library is empty';
+  String get libraryIzibMessage => _isRu
+      ? 'Добавляйте книги в избранное через поиск Izib. Сохранённые книги появятся здесь.'
+      : 'Add books to favorites through Izib search. Saved books will appear here.';
   String get emptyDownloads => _isRu ? 'Загрузок пока нет' : 'No downloads yet';
   String get appearance => _isRu ? 'Внешний вид' : 'Appearance';
   String get sources => _isRu ? 'Источники' : 'Sources';
@@ -71,6 +126,9 @@ class AppStrings {
   String get warning => _isRu ? 'Внимание' : 'Warning';
   String get info => _isRu ? 'Информация' : 'Info';
   String get free => _isRu ? 'Бесплатно' : 'Free';
+  String get paid => _isRu ? 'Платно' : 'Paid';
+  String get subscription => _isRu ? 'Подписка' : 'Subscription';
+  String get unknown => _isRu ? 'Неизвестно' : 'Unknown';
   String get play => _isRu ? 'Слушать' : 'Play';
   String get pause => _isRu ? 'Пауза' : 'Pause';
   String get resume => _isRu ? 'Продолжить' : 'Resume';
@@ -90,6 +148,11 @@ class AppStrings {
   String get details => _isRu ? 'Подробнее' : 'Details';
   String get bookDetails => _isRu ? 'Карточка книги' : 'Book details';
   String get chapters => _isRu ? 'Главы' : 'Chapters';
+  String showMoreChapters(int count) {
+    return _isRu ? 'Показать ещё $count глав' : 'Show $count more chapters';
+  }
+
+  String get collapseChapters => _isRu ? 'Свернуть главы' : 'Collapse chapters';
   String get otherVersions => _isRu ? 'Другие версии' : 'Other versions';
   String get fullPlayer => _isRu ? 'Полный плеер' : 'Full player';
   String get nowPlaying => _isRu ? 'Сейчас играет' : 'Now playing';
@@ -116,8 +179,14 @@ class AppStrings {
   String get addFavorite => _isRu ? 'В избранное' : 'Add to favorites';
   String get removeFavorite =>
       _isRu ? 'Убрать из избранного' : 'Remove from favorites';
+  String get favoriteAdded =>
+      _isRu ? 'Добавлено в избранное' : 'Added to favorites';
+  String get favoriteRemoved =>
+      _isRu ? 'Удалено из избранного' : 'Removed from favorites';
   String get deleteDownloaded =>
       _isRu ? 'Удалить скачанное' : 'Delete downloaded';
+  String get downloadQueuedMessage =>
+      _isRu ? 'Книга добавлена в загрузки' : 'Book added to downloads';
   String get mockDataNotice => _isRu
       ? 'Каркас работает на локальных mock data. Источники будут подключены отдельным слоем.'
       : 'This scaffold uses local mock data. Sources will be wired through a separate layer.';

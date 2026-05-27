@@ -19,6 +19,10 @@ void main() {
         expect(connector.name, 'Izib');
         expect(connector.host, 'https://izib.uk');
         expect(connector.capabilities.supportsSearch, isTrue);
+        expect(connector.capabilities.supportsSearchByTitle, isTrue);
+        expect(connector.capabilities.supportsSearchByAuthor, isTrue);
+        expect(connector.capabilities.supportsSearchByNarrator, isTrue);
+        expect(connector.capabilities.supportsSearchBySeries, isTrue);
         expect(connector.capabilities.supportsDetails, isTrue);
         expect(connector.capabilities.supportsChapters, isTrue);
         expect(connector.capabilities.supportsDirectAudio, isTrue);
@@ -26,6 +30,10 @@ void main() {
         expect(connector.capabilities.hasGraphQlApi, isTrue);
         expect(connector.capabilities.hasApiSignature, isTrue);
         expect(connector.mediaPolicy.allowsMediaHost('audio.izib.uk'), isTrue);
+        expect(
+          connector.mediaPolicy.allowsMediaHost('r4.audioknigi.xyz'),
+          isTrue,
+        );
       },
     );
 

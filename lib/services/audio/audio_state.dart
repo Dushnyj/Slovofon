@@ -78,6 +78,12 @@ class AudioPlaybackBook {
     required this.narrator,
     required this.sourceName,
     required this.chapters,
+    this.sourceBookId,
+    this.coverUrl,
+    this.description,
+    this.genre,
+    this.publishedYear,
+    this.sourceUrl,
   });
 
   final String id;
@@ -88,6 +94,12 @@ class AudioPlaybackBook {
   final String narrator;
   final String sourceName;
   final List<AudioPlaybackChapter> chapters;
+  final String? sourceBookId;
+  final String? coverUrl;
+  final String? description;
+  final String? genre;
+  final int? publishedYear;
+  final String? sourceUrl;
 
   Duration get totalDuration {
     return chapters.fold(

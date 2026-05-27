@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/localization/app_strings.dart';
@@ -15,63 +16,87 @@ class SlovofonShell extends StatelessWidget {
     final strings = context.strings;
     final destinations = _destinations(strings);
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        if (constraints.maxWidth >= 900) {
-          return Scaffold(
-            body: SafeArea(
-              child: Row(
-                children: [
-                  NavigationRail(
-                    selectedIndex: navigationShell.currentIndex,
-                    labelType: NavigationRailLabelType.all,
-                    onDestinationSelected: _goToBranch,
-                    destinations: [
-                      for (final destination in destinations)
-                        NavigationRailDestination(
-                          icon: AppIcon(destination.iconAsset),
-                          selectedIcon: AppIcon(destination.iconAsset),
-                          label: Text(destination.label),
-                        ),
-                    ],
-                  ),
-                  const VerticalDivider(width: 1),
-                  Expanded(
-                    child: Column(
-                      children: [
-                        Expanded(child: navigationShell),
-                        const MiniPlayerBar(),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) {
+          return;
+        }
+        if (navigationShell.currentIndex != 0) {
+          navigationShell.goBranch(0);
+          return;
+        }
+        SystemNavigator.pop();
+      },
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final body = GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onHorizontalDragEnd: (details) {
+              if ((details.primaryVelocity ?? 0) > 450 &&
+                  navigationShell.currentIndex != 0) {
+                navigationShell.goBranch(0);
+              }
+            },
+            child: navigationShell,
+          );
+
+          if (constraints.maxWidth >= 900) {
+            return Scaffold(
+              body: SafeArea(
+                child: Row(
+                  children: [
+                    NavigationRail(
+                      selectedIndex: navigationShell.currentIndex,
+                      labelType: NavigationRailLabelType.all,
+                      onDestinationSelected: _goToBranch,
+                      destinations: [
+                        for (final destination in destinations)
+                          NavigationRailDestination(
+                            icon: AppIcon(destination.iconAsset),
+                            selectedIcon: AppIcon(destination.iconAsset),
+                            label: Text(destination.label),
+                          ),
                       ],
                     ),
-                  ),
-                ],
+                    const VerticalDivider(width: 1),
+                    Expanded(
+                      child: Column(
+                        children: [
+                          Expanded(child: body),
+                          const MiniPlayerBar(),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
+            );
+          }
+
+          return Scaffold(
+            body: SafeArea(child: body),
+            bottomNavigationBar: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const MiniPlayerBar(),
+                NavigationBar(
+                  selectedIndex: navigationShell.currentIndex,
+                  onDestinationSelected: _goToBranch,
+                  destinations: [
+                    for (final destination in destinations)
+                      NavigationDestination(
+                        icon: AppIcon(destination.iconAsset),
+                        selectedIcon: AppIcon(destination.iconAsset),
+                        label: destination.label,
+                      ),
+                  ],
+                ),
+              ],
             ),
           );
-        }
-
-        return Scaffold(
-          body: SafeArea(child: navigationShell),
-          bottomNavigationBar: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const MiniPlayerBar(),
-              NavigationBar(
-                selectedIndex: navigationShell.currentIndex,
-                onDestinationSelected: _goToBranch,
-                destinations: [
-                  for (final destination in destinations)
-                    NavigationDestination(
-                      icon: AppIcon(destination.iconAsset),
-                      selectedIcon: AppIcon(destination.iconAsset),
-                      label: destination.label,
-                    ),
-                ],
-              ),
-            ],
-          ),
-        );
-      },
+        },
+      ),
     );
   }
 

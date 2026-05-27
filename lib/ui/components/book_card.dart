@@ -2,45 +2,54 @@ import 'package:flutter/material.dart';
 
 import '../../app/localization/app_strings.dart';
 import '../../domain/models/audio_book.dart';
+import 'app_buttons.dart';
 import 'book_cover.dart';
+import 'download_action_button.dart';
 import '../icons/app_icons.dart';
 
-enum BookCardDownloadState {
-  none,
-  queued,
-  downloading,
-  downloaded,
-  paused,
-  failed,
-}
+export 'download_action_button.dart';
 
 class BookCard extends StatelessWidget {
   const BookCard({
     required this.book,
     this.onTap,
     this.onPlay,
+    this.onFavoritePressed,
     this.onDownloadPressed,
     this.yearLabel,
     this.isFavorite = false,
     this.downloadState = BookCardDownloadState.none,
     this.downloadProgress = 0,
+    this.isPlayLoading = false,
+    this.isPlaybackLoading = false,
+    this.isCurrentBook = false,
+    this.isPlaying = false,
+    this.isDownloadLoading = false,
     super.key,
   });
 
   final AudioBook book;
   final VoidCallback? onTap;
   final VoidCallback? onPlay;
+  final VoidCallback? onFavoritePressed;
   final VoidCallback? onDownloadPressed;
   final String? yearLabel;
   final bool isFavorite;
   final BookCardDownloadState downloadState;
   final double downloadProgress;
+  final bool isPlayLoading;
+  final bool isPlaybackLoading;
+  final bool isCurrentBook;
+  final bool isPlaying;
+  final bool isDownloadLoading;
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final strings = context.strings;
     final boundedProgress = book.progress.clamp(0, 1).toDouble();
+    final showPause = isCurrentBook && isPlaying;
+    final showPlayLoading = !showPause && (isPlayLoading || isPlaybackLoading);
 
     return Card(
       child: InkWell(
@@ -57,6 +66,7 @@ class BookCard extends StatelessWidget {
                   BookCover(
                     title: book.title,
                     progress: boundedProgress,
+                    imageUrl: book.coverUrl,
                     width: 62,
                     height: 88,
                   ),
@@ -107,6 +117,8 @@ class BookCard extends StatelessWidget {
                     isFavorite: isFavorite,
                     downloadState: downloadState,
                     downloadProgress: downloadProgress,
+                    isDownloadLoading: isDownloadLoading,
+                    onFavoritePressed: onFavoritePressed,
                     onDownloadPressed: onDownloadPressed,
                   ),
                 ],
@@ -140,16 +152,34 @@ class BookCard extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
-                  IconButton.filled(
-                    tooltip: strings.play,
-                    onPressed: onPlay ?? () {},
-                    icon: const AppIcon(AppIconAssets.playerPlay),
-                  ),
+                  if (showPlayLoading)
+                    SizedBox.square(
+                      dimension: 44,
+                      child: Center(
+                        child: SizedBox.square(
+                          key: const ValueKey('book-card-play-loading'),
+                          dimension: 22,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.6,
+                            color: colorScheme.primary,
+                          ),
+                        ),
+                      ),
+                    )
+                  else
+                    AppIconActionButton(
+                      tooltip: showPause ? strings.pause : strings.play,
+                      iconAsset: showPause
+                          ? AppIconAssets.playerPause
+                          : AppIconAssets.playerPlay,
+                      onPressed: onPlay,
+                      foregroundColor: colorScheme.primary,
+                    ),
                   const SizedBox(width: 8),
-                  IconButton.outlined(
+                  AppIconActionButton(
                     tooltip: strings.details,
                     onPressed: onTap,
-                    icon: const AppIcon(AppIconAssets.systemInfo),
+                    iconAsset: AppIconAssets.systemInfo,
                   ),
                 ],
               ),
@@ -161,117 +191,66 @@ class BookCard extends StatelessWidget {
   }
 }
 
-class _CardActions extends StatelessWidget {
-  const _CardActions({
+class _FavoriteActionButton extends StatelessWidget {
+  const _FavoriteActionButton({
     required this.isFavorite,
-    required this.downloadState,
-    required this.downloadProgress,
-    this.onDownloadPressed,
+    required this.onPressed,
   });
 
   final bool isFavorite;
-  final BookCardDownloadState downloadState;
-  final double downloadProgress;
-  final VoidCallback? onDownloadPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final strings = context.strings;
-    final colorScheme = Theme.of(context).colorScheme;
-
-    return Column(
-      children: [
-        IconButton(
-          tooltip: isFavorite ? strings.removeFavorite : strings.addFavorite,
-          onPressed: () {},
-          style: isFavorite
-              ? IconButton.styleFrom(
-                  backgroundColor: colorScheme.primaryContainer,
-                  foregroundColor: colorScheme.onPrimaryContainer,
-                )
-              : null,
-          icon: AppIcon(
-            AppIconAssets.bookFavorite,
-            color: isFavorite
-                ? colorScheme.onPrimaryContainer
-                : colorScheme.onSurfaceVariant,
-          ),
-        ),
-        const SizedBox(height: 4),
-        _DownloadIconButton(
-          state: downloadState,
-          progress: downloadProgress,
-          onPressed: onDownloadPressed,
-        ),
-      ],
-    );
-  }
-}
-
-class _DownloadIconButton extends StatelessWidget {
-  const _DownloadIconButton({
-    required this.state,
-    required this.progress,
-    this.onPressed,
-  });
-
-  final BookCardDownloadState state;
-  final double progress;
   final VoidCallback? onPressed;
 
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
     final colorScheme = Theme.of(context).colorScheme;
-    final boundedProgress = progress.clamp(0, 1).toDouble();
 
-    final iconAsset = switch (state) {
-      BookCardDownloadState.downloaded => AppIconAssets.deleteDownload,
-      BookCardDownloadState.downloading => AppIconAssets.pauseDownload,
-      BookCardDownloadState.paused => AppIconAssets.resumeDownload,
-      BookCardDownloadState.failed => AppIconAssets.downloadRetry,
-      BookCardDownloadState.queued => AppIconAssets.downloadQueued,
-      BookCardDownloadState.none => AppIconAssets.download,
-    };
-    final tooltip = switch (state) {
-      BookCardDownloadState.downloaded => strings.deleteDownloaded,
-      BookCardDownloadState.downloading => strings.pauseDownload,
-      BookCardDownloadState.paused => strings.resumeDownload,
-      BookCardDownloadState.failed => strings.retry,
-      BookCardDownloadState.queued => strings.download,
-      BookCardDownloadState.none => strings.download,
-    };
-
-    if (state == BookCardDownloadState.downloading) {
-      return SizedBox.square(
-        dimension: 48,
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            CircularProgressIndicator(
-              value: boundedProgress,
-              strokeWidth: 3,
-              backgroundColor: colorScheme.surfaceContainerHighest,
-            ),
-            IconButton(
-              tooltip: tooltip,
-              onPressed: onPressed,
-              icon: AppIcon(iconAsset, size: 20),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return IconButton(
-      tooltip: tooltip,
+    return AppIconActionButton(
+      tooltip: isFavorite ? strings.removeFavorite : strings.addFavorite,
+      iconAsset: isFavorite
+          ? AppIconAssets.bookFavoriteFilled
+          : AppIconAssets.bookFavorite,
       onPressed: onPressed,
-      icon: AppIcon(
-        iconAsset,
-        color: state == BookCardDownloadState.downloaded
-            ? colorScheme.error
-            : colorScheme.onSurfaceVariant,
-      ),
+      foregroundColor: isFavorite
+          ? colorScheme.error
+          : colorScheme.onSurfaceVariant,
+    );
+  }
+}
+
+class _CardActions extends StatelessWidget {
+  const _CardActions({
+    required this.isFavorite,
+    required this.downloadState,
+    required this.downloadProgress,
+    required this.isDownloadLoading,
+    this.onFavoritePressed,
+    this.onDownloadPressed,
+  });
+
+  final bool isFavorite;
+  final BookCardDownloadState downloadState;
+  final double downloadProgress;
+  final bool isDownloadLoading;
+  final VoidCallback? onFavoritePressed;
+  final VoidCallback? onDownloadPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        _FavoriteActionButton(
+          isFavorite: isFavorite,
+          onPressed: onFavoritePressed,
+        ),
+        const SizedBox(height: 4),
+        DownloadActionButton(
+          state: downloadState,
+          progress: downloadProgress,
+          isResolving: isDownloadLoading,
+          onPressed: onDownloadPressed,
+        ),
+      ],
     );
   }
 }

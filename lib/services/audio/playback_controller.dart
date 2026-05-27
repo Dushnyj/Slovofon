@@ -11,10 +11,12 @@ class PlaybackController extends ChangeNotifier {
   PlaybackController({
     required AudioEngine engine,
     PlaybackPersistenceStore? persistence,
+    PlaybackBookMetadataStore? bookMetadataStore,
     DateTime Function()? clock,
     Duration persistenceInterval = const Duration(seconds: 5),
   }) : _engine = engine,
        _persistence = persistence,
+       _bookMetadataStore = bookMetadataStore,
        _clock = clock ?? DateTime.now,
        _persistenceInterval = persistenceInterval {
     _engineSubscription = _engine.snapshots.listen(_handleEngineSnapshot);
@@ -22,6 +24,7 @@ class PlaybackController extends ChangeNotifier {
 
   final AudioEngine _engine;
   final PlaybackPersistenceStore? _persistence;
+  final PlaybackBookMetadataStore? _bookMetadataStore;
   final DateTime Function() _clock;
   final Duration _persistenceInterval;
   late final StreamSubscription<AudioEngineSnapshot> _engineSubscription;
@@ -96,10 +99,11 @@ class PlaybackController extends ChangeNotifier {
       return;
     }
 
+    await _bookMetadataStore?.saveBook(book);
     await _engine.setSpeed(_state.speed);
 
     if (autoPlay) {
-      await _engine.play();
+      _startEnginePlayback();
     }
 
     _state = _state.copyWith(
@@ -148,10 +152,11 @@ class PlaybackController extends ChangeNotifier {
       return;
     }
 
+    await _bookMetadataStore?.saveBook(book);
     await _engine.setSpeed(_state.speed);
 
     if (session.isPlaying) {
-      await _engine.play();
+      _startEnginePlayback();
     }
 
     _state = _state.copyWith(
@@ -193,7 +198,7 @@ class PlaybackController extends ChangeNotifier {
     }
 
     await _preparePositionForPlayback();
-    await _engine.play();
+    _startEnginePlayback();
     _state = _state.copyWith(
       status: AudioPlaybackStatus.playing,
       clearError: true,
@@ -475,7 +480,7 @@ class PlaybackController extends ChangeNotifier {
 
     await _engine.setSpeed(_state.speed);
     if (wasPlaying) {
-      await _engine.play();
+      _startEnginePlayback();
     }
 
     _state = _state.copyWith(
@@ -507,6 +512,18 @@ class PlaybackController extends ChangeNotifier {
       notifyListeners();
       return false;
     }
+  }
+
+  void _startEnginePlayback() {
+    unawaited(
+      _engine.play().catchError((Object error, StackTrace stackTrace) {
+        _state = _state.copyWith(
+          status: AudioPlaybackStatus.error,
+          errorMessage: _errorMessage(error),
+        );
+        notifyListeners();
+      }),
+    );
   }
 
   int _clampChapterIndex(AudioPlaybackBook book, int index) {

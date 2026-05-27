@@ -9,7 +9,9 @@ import '../features/library/library_screen.dart';
 import '../features/player/full_player_screen.dart';
 import '../features/search/search_screen.dart';
 import '../features/settings/settings_screen.dart';
+import '../features/source_books/source_book_details_screen.dart';
 import '../features/theme_preview/theme_preview_screen.dart';
+import '../sources/sources.dart';
 import '../ui/adaptive/slovofon_shell.dart';
 
 final GoRouter appRouter = GoRouter(
@@ -69,6 +71,17 @@ final GoRouter appRouter = GoRouter(
       builder: (context, state) {
         final book = mockBookById(state.pathParameters['bookId']);
         return BookDetailsScreen(book: book);
+      },
+    ),
+    GoRoute(
+      path: '/source-book/:sourceId/:sourceBookId',
+      builder: (context, state) {
+        return SourceBookDetailsScreen(
+          ref: SourceBookRef(
+            sourceId: state.pathParameters['sourceId']!,
+            sourceBookId: state.pathParameters['sourceBookId']!,
+          ),
+        );
       },
     ),
     GoRoute(

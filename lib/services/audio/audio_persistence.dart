@@ -2,6 +2,7 @@ import 'package:drift/drift.dart';
 
 import '../../data/database/app_database.dart';
 import '../../domain/models/playback_session.dart';
+import 'audio_state.dart';
 
 abstract interface class PlaybackPersistenceStore {
   Future<PlaybackSession?> loadSession({String id = 'active'});
@@ -9,6 +10,15 @@ abstract interface class PlaybackPersistenceStore {
   Future<void> saveSession(PlaybackSession session);
 
   Future<void> saveProgress(PlaybackProgressSnapshot progress);
+}
+
+abstract interface class PlaybackBookMetadataStore {
+  Future<void> saveBook(AudioPlaybackBook book);
+
+  Future<AudioPlaybackBook?> loadBook({
+    required String sourceId,
+    required String versionId,
+  });
 }
 
 class PlaybackProgressSnapshot {

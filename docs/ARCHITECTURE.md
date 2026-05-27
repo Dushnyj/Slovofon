@@ -101,8 +101,19 @@ notification, lock screen и media buttons.
 - `DriftDownloadPersistenceStore` сохраняет `DownloadTask`, обновляет `Chapter.localPath`, `Chapter.fileSizeBytes`, `downloadStatus` и `downloadProgress`, а при рестарте переводит `running` задачи в `paused`;
 - удаление скачанного аудио удаляет только offline files/tasks и не трогает PlaybackSession, PlaybackProgress, избранное, закладки и историю;
 - UI получает состояние через `downloadManagerProvider`; widgets не скачивают файлы напрямую.
+- Экран загрузок группирует `DownloadTask` по книге/версии, даёт общие действия pause/resume/retry/delete для всей книги и раскрывает главы внутри карточки, чтобы главный список не превращался в длинный плоский список глав.
 
-### 3.3 SourceRegistry
+### 3.3 LibraryStore
+
+Единый источник истины для пользовательской библиотеки.
+
+Текущая реализация Stage 7:
+
+- `LibraryStore` живёт в `lib/services/library/` и предоставляет сохранённые книги/избранное для поиска и библиотеки;
+- `DriftLibraryPersistenceStore` сохраняет избранное в таблицах `books`, `book_versions` и `favorites`, не удаляя историю, прогресс, закладки или скачанное аудио;
+- карточки поиска и библиотеки читают один и тот же store, поэтому активное сердце и список библиотеки меняются синхронно.
+
+### 3.4 SourceRegistry
 
 Хранит все доступные источники и настройки их включения.
 
@@ -132,7 +143,22 @@ notification, lock screen и media buttons.
 - `IzibMapper` переводит search/details/files API в `BookSearchResult`, `BookVersionDetails`, `Chapter` и `AudioTrack`;
 - media URL Izib проходят `SourceMediaValidator` по allowlist до передачи в playback/download.
 
-### 3.4 ProxyManager
+### 3.5 SourceCatalogService
+
+App-level слой между feature UI и `SourceRegistry`.
+
+Текущая реализация Stage 7 находится в `lib/services/sources/`.
+
+Обязанности:
+
+- выполнить search через `SourceRegistry`, не раскрывая widgets конкретные connector implementations;
+- нормализовать поисковый запрос и отфильтровать шум источника: все слова запроса должны совпасть как префиксы слов результата в выбранном поле поиска, независимо от порядка;
+- загрузить source details, chapters и resolved playback media;
+- собрать `AudioBook` для карточек и `AudioPlaybackBook` для `PlaybackController`/`DownloadManager`;
+- сохранить source metadata (`sourceId`, `sourceBookId`, cover URL, description, genre, year, source URL), чтобы плеер и загрузки не падали обратно на mock data;
+- оставить SIGN/media URL handling внутри sources/services boundary, а не в UI.
+
+### 3.6 ProxyManager
 
 Управляет proxy profiles внутри приложения.
 
@@ -145,7 +171,7 @@ notification, lock screen и media buttons.
 - не менять системный proxy Windows/Android;
 - не хранить proxy password вне secure storage.
 
-### 3.5 MediaProxyService
+### 3.6 MediaProxyService
 
 Локальный proxy-layer для воспроизведения и загрузок проблемных источников.
 
@@ -185,27 +211,29 @@ notification, lock screen и media buttons.
 
 ```text
 SearchScreen
--> SearchController
--> SearchBooksUseCase
+-> SourceCatalogService.search()
 -> SourceRegistry.search()
 -> SourceConnector.search()
 -> normalize BookSearchResult
--> DeduplicationService
--> SearchRepository cache/history
+-> app-level strict query filtering/history
 -> UI results
 ```
+
+Stage 7: поиск запускается только по search action/кнопке, история запросов сохраняется через `SearchHistoryStore`, а `SourceCatalogService` фильтрует результаты по выбранному полю (`title`, `author`, `narrator`, `series`) или по всем полям. Позднее поверх этого потока добавляются deduplication, cache и поиск по нескольким источникам.
 
 ### 5.2 Открытие книги
 
 ```text
-BookDetailsScreen
--> BookDetailsController
--> GetBookDetailsUseCase
+SourceBookDetailsScreen
+-> SourceCatalogService.loadBook()
 -> SourceConnector.getBookDetails()
 -> SourceConnector.getChapters()
--> Database upsert Book/BookVersion/Chapter
+-> SourceConnector.resolveMedia(playback)
+-> AudioPlaybackBook
 -> UI details
 ```
+
+Сохранение source books в постоянную базу добавляется отдельным шагом, когда будет готов слой объединения книг из нескольких источников.
 
 ### 5.3 Воспроизведение
 

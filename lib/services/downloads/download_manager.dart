@@ -45,6 +45,17 @@ class DownloadManager extends ChangeNotifier {
 
   DownloadTask? taskById(String id) => _tasks[id];
 
+  AudioPlaybackBook? bookForTask(String taskId) => _jobs[taskId]?.book;
+
+  void attachBookContext(AudioPlaybackBook book) {
+    for (final chapter in book.chapters) {
+      _jobs[_taskId(book, chapter)] = _DownloadJob(
+        book: book,
+        chapter: chapter,
+      );
+    }
+  }
+
   DownloadTask? taskForChapter(String chapterId) {
     for (final task in _tasks.values) {
       if (task.chapterId == chapterId) {
@@ -61,6 +72,8 @@ class DownloadManager extends ChangeNotifier {
     _tasks
       ..clear()
       ..addEntries(persisted.map((task) => MapEntry(task.id, task)));
+    _jobs.clear();
+    await _restorePersistedBookContexts(persisted);
     _notify();
   }
 
@@ -248,6 +261,20 @@ class DownloadManager extends ChangeNotifier {
     await _storage.deleteBook(book);
   }
 
+  Future<void> cancelAndDeleteBook(AudioPlaybackBook book) async {
+    final taskIds = _tasks.values
+        .where((task) => task.bookVersionId == book.versionId)
+        .map((task) => task.id)
+        .toList();
+    for (final taskId in taskIds) {
+      await cancel(taskId);
+    }
+    for (final taskId in taskIds) {
+      await _activeFutures[taskId]?.catchError((_) {});
+    }
+    await deleteBook(book);
+  }
+
   Future<AudioPlaybackBook> offlinePlaybackBook(AudioPlaybackBook book) {
     return _storage.offlinePlaybackBook(book);
   }
@@ -316,6 +343,37 @@ class DownloadManager extends ChangeNotifier {
       });
       _activeFutures[running.id] = future;
     }
+  }
+
+  Future<void> _restorePersistedBookContexts(List<DownloadTask> tasks) async {
+    final booksByKey = <String, Future<AudioPlaybackBook?>>{};
+    for (final task in tasks) {
+      final key = '${task.sourceId}:${task.bookVersionId}';
+      final book = booksByKey.putIfAbsent(
+        key,
+        () => _storage.readMetadataForIds(task.sourceId, task.bookVersionId),
+      );
+      final restoredBook = await book;
+      final chapter = _chapterForTask(restoredBook, task);
+      if (restoredBook != null && chapter != null) {
+        _jobs[task.id] = _DownloadJob(book: restoredBook, chapter: chapter);
+      }
+    }
+  }
+
+  AudioPlaybackChapter? _chapterForTask(
+    AudioPlaybackBook? book,
+    DownloadTask task,
+  ) {
+    if (book == null) {
+      return null;
+    }
+    for (final chapter in book.chapters) {
+      if (chapter.id == task.chapterId) {
+        return chapter;
+      }
+    }
+    return null;
   }
 
   DownloadTask? _nextQueuedTask() {

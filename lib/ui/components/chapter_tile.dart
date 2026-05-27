@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../app/localization/app_strings.dart';
-import '../icons/app_icons.dart';
+import 'download_action_button.dart';
 
 class ChapterTile extends StatelessWidget {
   const ChapterTile({
@@ -12,6 +11,8 @@ class ChapterTile extends StatelessWidget {
     required this.onTap,
     this.isDownloaded = false,
     this.isCurrent = false,
+    this.downloadState = BookCardDownloadState.none,
+    this.downloadProgress = 0,
     this.onDownloadPressed,
     super.key,
   });
@@ -22,13 +23,14 @@ class ChapterTile extends StatelessWidget {
   final double progress;
   final bool isDownloaded;
   final bool isCurrent;
+  final BookCardDownloadState downloadState;
+  final double downloadProgress;
   final VoidCallback? onTap;
   final VoidCallback? onDownloadPressed;
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final strings = context.strings;
     final boundedProgress = progress.clamp(0, 1).toDouble();
 
     return Card(
@@ -75,17 +77,12 @@ class ChapterTile extends StatelessWidget {
                   ],
                 ),
               ),
-              IconButton.outlined(
-                tooltip: isDownloaded
-                    ? strings.deleteDownloaded
-                    : strings.download,
-                onPressed: onDownloadPressed ?? () {},
-                icon: AppIcon(
-                  isDownloaded
-                      ? AppIconAssets.deleteDownload
-                      : AppIconAssets.download,
-                  color: isDownloaded ? colorScheme.error : colorScheme.primary,
-                ),
+              DownloadActionButton(
+                state: isDownloaded
+                    ? BookCardDownloadState.downloaded
+                    : downloadState,
+                progress: downloadProgress,
+                onPressed: onDownloadPressed,
               ),
             ],
           ),

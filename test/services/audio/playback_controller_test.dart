@@ -32,6 +32,22 @@ void main() {
     });
 
     test(
+      'autoplay load returns after starting a long-lived play future',
+      () async {
+        final engine = HangingPlayAudioEngine();
+        final service = PlaybackController(engine: engine);
+        addTearDown(engine.completePlay);
+
+        final loadFuture = service.loadBook(_book, autoPlay: true);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(engine.playCount, 1);
+        await loadFuture.timeout(const Duration(milliseconds: 100));
+        expect(service.state.status, AudioPlaybackStatus.playing);
+      },
+    );
+
+    test(
       'seeks, advances time, and calculates chapter and book progress',
       () async {
         final engine = RecordingAudioEngine();
@@ -221,6 +237,18 @@ void main() {
       );
     });
 
+    test('persists active book metadata when a book is loaded', () async {
+      final metadataStore = RecordingPlaybackBookMetadataStore();
+      final service = PlaybackController(
+        engine: RecordingAudioEngine(),
+        bookMetadataStore: metadataStore,
+      );
+
+      await service.loadBook(_book, autoPlay: true);
+
+      expect(metadataStore.savedBooks, [_book]);
+    });
+
     test('loads a saved session without auto-starting playback', () async {
       final store = RecordingPlaybackPersistenceStore()
         ..savedSessions.add(
@@ -366,6 +394,22 @@ class RecordingAudioEngine implements AudioEngine {
   Future<void> dispose() async {}
 }
 
+class HangingPlayAudioEngine extends RecordingAudioEngine {
+  final _playCompleter = Completer<void>();
+
+  @override
+  Future<void> play() {
+    playCount++;
+    return _playCompleter.future;
+  }
+
+  void completePlay() {
+    if (!_playCompleter.isCompleted) {
+      _playCompleter.complete();
+    }
+  }
+}
+
 class FailingAudioEngine implements AudioEngine {
   const FailingAudioEngine(this.error);
 
@@ -456,6 +500,26 @@ class RecordingPlaybackPersistenceStore implements PlaybackPersistenceStore {
   @override
   Future<void> saveSession(PlaybackSession session) async {
     savedSessions.add(session);
+  }
+}
+
+class RecordingPlaybackBookMetadataStore implements PlaybackBookMetadataStore {
+  final savedBooks = <AudioPlaybackBook>[];
+
+  @override
+  Future<AudioPlaybackBook?> loadBook({
+    required String sourceId,
+    required String versionId,
+  }) async {
+    return savedBooks.cast<AudioPlaybackBook?>().firstWhere(
+      (book) => book?.sourceId == sourceId && book?.versionId == versionId,
+      orElse: () => null,
+    );
+  }
+
+  @override
+  Future<void> saveBook(AudioPlaybackBook book) async {
+    savedBooks.add(book);
   }
 }
 

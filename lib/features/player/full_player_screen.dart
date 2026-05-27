@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -48,7 +50,7 @@ class _FullPlayerScreenState extends ConsumerState<FullPlayerScreen>
       builder: (context, _) {
         final state = service.state;
         final book = state.book;
-        final mockBook = mockBookById(book?.id);
+        final mockBook = _mockBookForPlayback(book);
 
         return Scaffold(
           body: SafeArea(
@@ -87,7 +89,7 @@ class _FullPlayerScreenState extends ConsumerState<FullPlayerScreen>
                               downloadManager: downloadManager,
                             ),
                             _BookmarksPage(book: mockBook),
-                            _InformationPage(book: mockBook),
+                            _InformationPage(book: book, mockBook: mockBook),
                           ],
                         ),
                 ),
@@ -133,6 +135,7 @@ class _NowPlayingPage extends StatelessWidget {
           child: BookCover(
             title: book.title,
             progress: state.bookProgress,
+            imageUrl: book.coverUrl,
             width: 176,
             height: 246,
           ),
@@ -234,7 +237,7 @@ double _chapterProgress(
 class _BookmarksPage extends StatelessWidget {
   const _BookmarksPage({required this.book});
 
-  final MockBook book;
+  final MockBook? book;
 
   @override
   Widget build(BuildContext context) {
@@ -248,26 +251,33 @@ class _BookmarksPage extends StatelessWidget {
           style: Theme.of(context).textTheme.headlineSmall,
         ),
         const SizedBox(height: 12),
-        for (final bookmark in book.bookmarks)
-          Card(
-            child: ListTile(
-              leading: const AppIcon(AppIconAssets.playerBookmark),
-              title: Text(
-                '${bookmark.chapterTitle} · ${bookmark.positionLabel}',
+        if (book == null || book!.bookmarks.isEmpty)
+          Text(
+            strings.emptyLibrary,
+            style: Theme.of(context).textTheme.bodyMedium,
+          )
+        else
+          for (final bookmark in book!.bookmarks)
+            Card(
+              child: ListTile(
+                leading: const AppIcon(AppIconAssets.playerBookmark),
+                title: Text(
+                  '${bookmark.chapterTitle} · ${bookmark.positionLabel}',
+                ),
+                subtitle: Text(bookmark.note),
+                trailing: const AppIcon(AppIconAssets.systemForward),
               ),
-              subtitle: Text(bookmark.note),
-              trailing: const AppIcon(AppIconAssets.systemForward),
             ),
-          ),
       ],
     );
   }
 }
 
 class _InformationPage extends StatelessWidget {
-  const _InformationPage({required this.book});
+  const _InformationPage({required this.book, required this.mockBook});
 
-  final MockBook book;
+  final AudioPlaybackBook book;
+  final MockBook? mockBook;
 
   @override
   Widget build(BuildContext context) {
@@ -284,7 +294,15 @@ class _InformationPage extends StatelessWidget {
         ListTile(
           leading: const AppIcon(AppIconAssets.bookSource),
           title: Text(book.sourceName),
-          subtitle: Text('${book.genre} · ${book.durationLabel}'),
+          subtitle: Text(
+            [
+                  book.genre ?? mockBook?.genre,
+                  _formatShortDuration(context, book.totalDuration),
+                ]
+                .whereType<String>()
+                .where((value) => value.isNotEmpty)
+                .join(' · '),
+          ),
         ),
         ListTile(
           leading: const AppIcon(AppIconAssets.bookAuthor),
@@ -293,20 +311,47 @@ class _InformationPage extends StatelessWidget {
         ),
         ListTile(
           leading: const AppIcon(AppIconAssets.bookYear),
-          title: Text('${book.year} / audio ${book.audioYear}'),
-          subtitle: Text(book.ratingLabel),
+          title: Text(
+            [
+              book.publishedYear?.toString() ?? mockBook?.year.toString(),
+              if (mockBook != null) 'audio ${mockBook!.audioYear}',
+            ].whereType<String>().join(' / '),
+          ),
+          subtitle: Text(mockBook?.ratingLabel ?? book.sourceUrl ?? ''),
         ),
         Align(
           alignment: Alignment.centerLeft,
           child: IconButton.filled(
             tooltip: strings.bookDetails,
-            onPressed: () => context.go('/book/${book.id}'),
+            onPressed: () {
+              final sourceBookId = book.sourceBookId;
+              if (sourceBookId == null) {
+                unawaited(context.push('/book/${book.id}'));
+                return;
+              }
+              unawaited(
+                context.push('/source-book/${book.sourceId}/$sourceBookId'),
+              );
+            },
             icon: const AppIcon(AppIconAssets.systemInfo),
           ),
         ),
       ],
     );
   }
+}
+
+MockBook? _mockBookForPlayback(AudioPlaybackBook? book) {
+  if (book == null) {
+    return null;
+  }
+
+  for (final mockBook in stage3MockBooks) {
+    if (mockBook.id == book.id) {
+      return mockBook;
+    }
+  }
+  return null;
 }
 
 class _PlayerChrome extends StatelessWidget {

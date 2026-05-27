@@ -5,9 +5,6 @@ import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../data/mock/mock_audio_playback.dart';
-import '../../data/mock/stage3_mock_data.dart';
-import '../downloads/download_manager_provider.dart';
 import 'audio_persistence.dart';
 import 'audio_engine.dart';
 import 'just_audio_engine.dart';
@@ -31,24 +28,6 @@ final playbackControllerProvider = Provider<PlaybackController>((ref) {
     engine: ref.watch(audioEngineProvider),
     persistence: ref.watch(playbackPersistenceStoreProvider),
   );
-  final downloadManager = ref.read(downloadManagerProvider);
-
-  unawaited(() async {
-    final book = await downloadManager.offlinePlaybackBook(
-      mockAudioPlaybackBook(activeMockBook),
-    );
-    final restored = await service.loadSavedSession(book);
-    if (restored) {
-      return;
-    }
-
-    await service.loadBook(
-      book,
-      chapterIndex: mockCurrentChapterIndex(activeMockBook),
-      position: mockCurrentChapterPosition(activeMockBook),
-    );
-    service.setSleepTimer(const Duration(minutes: 90));
-  }());
 
   ref.onDispose(service.dispose);
   return service;

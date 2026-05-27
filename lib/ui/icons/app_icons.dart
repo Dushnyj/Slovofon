@@ -22,6 +22,7 @@ abstract final class AppIconAssets {
   static const bookFull = 'assets/icons/book/full.svg';
   static const bookFragment = 'assets/icons/book/fragment.svg';
   static const bookFavorite = 'assets/icons/book/favorite.svg';
+  static const bookFavoriteFilled = 'assets/icons/book/favorite_filled.svg';
   static const bookPaid = 'assets/icons/book/paid.svg';
   static const bookFree = 'assets/icons/book/free.svg';
   static const bookSubscription = 'assets/icons/book/subscription.svg';

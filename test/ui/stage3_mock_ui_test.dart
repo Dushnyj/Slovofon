@@ -17,39 +17,39 @@ import 'package:slovofon/services/downloads/download_manager.dart';
 import 'package:slovofon/services/downloads/download_manager_provider.dart';
 import 'package:slovofon/services/downloads/download_persistence.dart';
 import 'package:slovofon/services/downloads/download_storage.dart';
+import 'package:slovofon/services/search/search_history_store.dart';
+
+import 'test_search_history_store.dart';
 
 void main() {
-  testWidgets('home exposes Stage 3 mock sections and opens book details', (
+  testWidgets(
+    'home starts from real-source search and does not seed mock data',
+    (tester) async {
+      await _pumpApp(tester, seedPlayback: false);
+
+      expect(find.text('Find a book in Izib'), findsOneWidget);
+      expect(find.text('Open search'), findsOneWidget);
+      expect(find.text('Мастер и Маргарита'), findsNothing);
+      expect(find.text('Mock recommendations'), findsNothing);
+      expect(find.textContaining('mock data'), findsNothing);
+
+      await tester.tap(find.text('Open search'));
+      await _pumpFrames(tester);
+
+      expect(find.text('Search'), findsWidgets);
+      expect(find.text('Enter a search query'), findsOneWidget);
+    },
+  );
+
+  testWidgets('home hides source search prompt when playback is active', (
     tester,
   ) async {
     await _pumpApp(tester);
 
     expect(find.text('Continue listening'), findsOneWidget);
-    expect(find.text('Started books'), findsOneWidget);
-
-    await tester.tap(find.text('Мастер и Маргарита').first);
-    await _pumpFrames(tester);
-
-    expect(find.text('Book details'), findsOneWidget);
-    expect(find.text('Other versions'), findsOneWidget);
-    expect(find.text('Chapters'), findsWidgets);
-
-    appRouter.go('/');
-    await _pumpFrames(tester);
-    await tester.drag(
-      find.byType(Scrollable).first,
-      const Offset(0, -500),
-      warnIfMissed: false,
-    );
-    await _pumpFrames(tester);
-    expect(find.text('Offline downloads'), findsOneWidget);
-    await tester.drag(
-      find.byType(Scrollable).first,
-      const Offset(0, -500),
-      warnIfMissed: false,
-    );
-    await _pumpFrames(tester);
-    expect(find.text('Mock recommendations'), findsOneWidget);
+    expect(find.text('Мастер и Маргарита'), findsWidgets);
+    expect(find.text('Find a book in Izib'), findsNothing);
+    expect(find.text('Open search'), findsNothing);
   });
 
   testWidgets('mini player opens full player mock pages', (tester) async {
@@ -71,7 +71,7 @@ void main() {
     expect(find.byTooltip('Download'), findsWidgets);
   });
 
-  testWidgets('search shows filters and navigable mock results', (
+  testWidgets('search shows filters and real-source ready state', (
     tester,
   ) async {
     await _pumpApp(tester);
@@ -79,37 +79,34 @@ void main() {
     await tester.tap(find.text('Search'));
     await _pumpFrames(tester);
 
-    expect(find.text('Grouped duplicates'), findsOneWidget);
+    expect(find.text('Title'), findsOneWidget);
+    expect(find.text('Author'), findsOneWidget);
+    expect(find.text('Narrator'), findsOneWidget);
+    expect(find.text('Series'), findsOneWidget);
     expect(find.text('Sort: relevance'), findsOneWidget);
-    expect(find.textContaining('mock results'), findsOneWidget);
-
-    await tester.enterText(find.byType(TextField), 'метро');
-    await _pumpFrames(tester);
-
-    expect(find.text('Метро 2033'), findsOneWidget);
-    await tester.tap(find.text('Метро 2033').first);
-    await _pumpFrames(tester);
-
-    expect(find.text('Book details'), findsOneWidget);
-    expect(find.text('Метро 2033'), findsWidgets);
+    expect(find.text('Izib'), findsOneWidget);
+    expect(find.text('Enter a search query'), findsOneWidget);
+    expect(find.textContaining('mock results'), findsNothing);
   });
 
-  testWidgets('library downloads and settings expose Stage 3 sections', (
+  testWidgets('library is empty until real source books are saved', (
     tester,
   ) async {
-    final manager = await _seededDownloadManager(tester);
-    await _pumpAppWithDownloadManager(tester, manager);
+    await _pumpApp(tester, seedPlayback: false);
 
     await tester.tap(find.text('Library'));
     await _pumpFrames(tester);
 
     expect(find.text('All'), findsWidgets);
     expect(find.text('Listening'), findsOneWidget);
-    expect(find.text('Favorites'), findsOneWidget);
-    expect(find.text('Later'), findsOneWidget);
-    expect(find.text('Downloaded'), findsWidgets);
-    expect(find.text('Finished'), findsOneWidget);
-    expect(find.text('History'), findsOneWidget);
+    expect(find.text('Your library is empty'), findsOneWidget);
+    expect(find.text('Open search'), findsOneWidget);
+    expect(find.text('Мастер и Маргарита'), findsNothing);
+  });
+
+  testWidgets('downloads and settings expose Stage 3 sections', (tester) async {
+    final manager = await _seededDownloadManager(tester);
+    await _pumpAppWithDownloadManager(tester, manager);
 
     await tester.tap(find.text('Downloads'));
     await _pumpFrames(tester);
@@ -123,8 +120,22 @@ void main() {
     );
     await _pumpFrames(tester);
     expect(find.text('451 градус по Фаренгейту'), findsOneWidget);
-    expect(find.byTooltip('Cancel download'), findsWidgets);
+    expect(find.text('Библиотека'), findsNothing);
+
+    await tester.tap(find.text('Метро 2033'));
+    await _pumpFrames(tester);
+    expect(find.text('Библиотека'), findsOneWidget);
     expect(find.byTooltip('Delete downloaded'), findsWidgets);
+
+    await tester.ensureVisible(find.text('Мастер и Маргарита').first);
+    await _pumpFrames(tester);
+    await tester.tap(find.text('Мастер и Маргарита').first);
+    await _pumpFrames(tester);
+    expect(
+      find.text('Никогда не разговаривайте с неизвестными'),
+      findsOneWidget,
+    );
+    expect(find.byTooltip('Cancel download'), findsWidgets);
 
     await tester.tap(find.text('Settings'));
     await _pumpFrames(tester);
@@ -138,8 +149,10 @@ void main() {
   });
 }
 
-Future<void> _pumpApp(WidgetTester tester) async {
-  final playbackController = await _testPlaybackController();
+Future<void> _pumpApp(WidgetTester tester, {bool seedPlayback = true}) async {
+  final playbackController = seedPlayback
+      ? await _testPlaybackController()
+      : PlaybackController(engine: InMemoryAudioEngine());
   appRouter.go('/');
   tester.view.physicalSize = const Size(430, 932);
   tester.view.devicePixelRatio = 1;
@@ -152,6 +165,9 @@ Future<void> _pumpApp(WidgetTester tester) async {
           ref.onDispose(playbackController.dispose);
           return playbackController;
         }),
+        searchHistoryStoreProvider.overrideWith(
+          (ref) => MemorySearchHistoryStore(),
+        ),
       ],
       child: const SlovofonApp(),
     ),
@@ -181,6 +197,9 @@ Future<void> _pumpAppWithDownloadManager(
           ref.onDispose(manager.dispose);
           return manager;
         }),
+        searchHistoryStoreProvider.overrideWith(
+          (ref) => MemorySearchHistoryStore(),
+        ),
       ],
       child: const SlovofonApp(),
     ),

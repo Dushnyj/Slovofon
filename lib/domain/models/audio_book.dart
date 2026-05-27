@@ -12,6 +12,10 @@ class AudioBook {
     required this.chapterCount,
     required this.progress,
     required this.access,
+    this.sourceBookId,
+    this.coverUrl,
+    this.description,
+    this.year,
   });
 
   final String id;
@@ -24,4 +28,8 @@ class AudioBook {
   final int chapterCount;
   final double progress;
   final BookAccess access;
+  final String? sourceBookId;
+  final String? coverUrl;
+  final String? description;
+  final int? year;
 }

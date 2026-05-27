@@ -48,6 +48,22 @@ class SearchRequest {
   bool allowsSource(String sourceId) {
     return sourceIds.isEmpty || sourceIds.contains(sourceId);
   }
+
+  SearchRequest copyWith({
+    String? query,
+    SearchKind? kind,
+    int? page,
+    int? pageSize,
+    Set<String>? sourceIds,
+  }) {
+    return SearchRequest(
+      query: query ?? this.query,
+      kind: kind ?? this.kind,
+      page: page ?? this.page,
+      pageSize: pageSize ?? this.pageSize,
+      sourceIds: sourceIds ?? this.sourceIds,
+    );
+  }
 }
 
 class SourceBookRef {
@@ -69,6 +85,7 @@ class BookSearchResult {
     required this.title,
     this.author,
     this.narrator,
+    this.series,
     this.coverUri,
     this.duration,
     this.year,
@@ -85,6 +102,7 @@ class BookSearchResult {
   final String title;
   final String? author;
   final String? narrator;
+  final String? series;
   final Uri? coverUri;
   final Duration? duration;
   final int? year;
