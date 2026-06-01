@@ -23,6 +23,12 @@ void main() {
       expect(SourceParserHelpers.parseYear('время 99:12'), isNull);
     });
 
+    test('parses fractional series numbers without dropping separators', () {
+      expect(SourceParserHelpers.parseSeriesNumber('21.1. Название'), 21.1);
+      expect(SourceParserHelpers.parseSeriesNumber('21,1 Название'), 21.1);
+      expect(SourceParserHelpers.parseSeriesNumber('211 Название'), 211);
+    });
+
     test('parses duration labels', () {
       expect(
         SourceParserHelpers.parseDuration('1 ч 05 мин 09 сек'),

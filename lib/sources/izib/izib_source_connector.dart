@@ -19,6 +19,9 @@ class IzibSourceConnector implements SourceConnector {
   final IzibGraphQlClient _client;
   final IzibMapper _mapper;
   final DateTime Function() _clock;
+  final _bookCache = <int, _IzibBookCacheEntry>{};
+
+  static const _bookCacheTtl = Duration(minutes: 5);
 
   @override
   String get id => 'izib';
@@ -193,7 +196,7 @@ class IzibSourceConnector implements SourceConnector {
       );
     }
 
-    final data = await _client.book(id: bookId);
+    final data = await _cachedBook(bookId);
     final book = data['book'];
     if (book is! Map<String, Object?>) {
       throw SourceException(
@@ -206,6 +209,22 @@ class IzibSourceConnector implements SourceConnector {
     return book;
   }
 
+  Future<Map<String, Object?>> _cachedBook(int bookId) {
+    final cached = _bookCache[bookId];
+    if (cached != null &&
+        _clock().difference(cached.createdAt) < _bookCacheTtl) {
+      return cached.future;
+    }
+
+    late final Future<Map<String, Object?>> future;
+    future = _client.book(id: bookId).catchError((Object error) {
+      _bookCache.remove(bookId);
+      throw error;
+    });
+    _bookCache[bookId] = _IzibBookCacheEntry(future, _clock());
+    return future;
+  }
+
   static int? _extractBookId(Uri? uri) {
     if (uri == null) {
       return null;
@@ -214,4 +233,11 @@ class IzibSourceConnector implements SourceConnector {
     final match = RegExp(r'/art(\d+)(?:\D|$)').firstMatch(uri.path);
     return match == null ? null : int.tryParse(match.group(1)!);
   }
+}
+
+class _IzibBookCacheEntry {
+  const _IzibBookCacheEntry(this.future, this.createdAt);
+
+  final Future<Map<String, Object?>> future;
+  final DateTime createdAt;
 }

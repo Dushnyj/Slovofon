@@ -71,6 +71,9 @@ class MockBook {
       chapterCount: chapterCount,
       progress: progress,
       access: access,
+      seriesTitle: series,
+      ratingValue: double.tryParse(ratingLabel.replaceAll(',', '.')),
+      year: year,
     );
   }
 }

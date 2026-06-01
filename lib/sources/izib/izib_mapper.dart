@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import '../../domain/models/audio_track.dart';
 import '../../domain/models/book.dart';
 import '../../domain/models/book_version.dart';
@@ -34,6 +36,7 @@ class IzibMapper {
     final files = _files(book);
     final duration = _secondsDuration(book['totalDuration']);
     final hasFiles = files.isNotEmpty;
+    final genre = _entityName(book['genre']);
 
     return BookSearchResult(
       ref: bookRef(book),
@@ -42,6 +45,8 @@ class IzibMapper {
       author: _people(book['authors']),
       narrator: _people(book['readers']),
       series: _entityName(book['serie']),
+      seriesNumber: _seriesNumber(book['serieIndex']),
+      genres: [if (genre.isNotEmpty) genre],
       coverUri: _posterUri(book),
       duration: duration,
       year: _yearFromUnixSeconds(book['publishTs']),
@@ -49,6 +54,8 @@ class IzibMapper {
       isFull: hasFiles ? true : null,
       isFree: hasFiles ? true : null,
       accessType: hasFiles ? AccessType.free : AccessType.unknown,
+      ratingValue: _ratingValue(book),
+      ratingCount: _ratingCount(book),
       score: _ratingValue(book),
     );
   }
@@ -108,6 +115,7 @@ class IzibMapper {
         isAccessibleForFree: hasFiles,
         canStream: hasFiles,
         canDownload: hasFiles,
+        rawSourceDataJson: _statsJson(book),
         createdAt: now,
         updatedAt: now,
       ),
@@ -372,6 +380,23 @@ class IzibMapper {
     final dislikes = _intValue(book['dislikes']) ?? 0;
     final total = likes + dislikes;
     return total <= 0 ? null : total;
+  }
+
+  static String? _statsJson(Map<String, Object?> book) {
+    final values = <String, int>{};
+    final views = _intValue(book['views']);
+    final likes = _intValue(book['likes']);
+    final dislikes = _intValue(book['dislikes']);
+    if (views != null && views >= 0) {
+      values['views'] = views;
+    }
+    if (likes != null && likes >= 0) {
+      values['likes'] = likes;
+    }
+    if (dislikes != null && dislikes >= 0) {
+      values['dislikes'] = dislikes;
+    }
+    return values.isEmpty ? null : jsonEncode(values);
   }
 
   static String _stripMarkup(String value) {

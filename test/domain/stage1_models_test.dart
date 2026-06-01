@@ -59,7 +59,7 @@ void main() {
     const settings = AppSettings.defaults();
 
     expect(settings.themeMode, AppThemeMode.system);
-    expect(settings.languageCode, 'ru');
+    expect(settings.languageCode, 'system');
     expect(settings.compactCards, isFalse);
     expect(settings.showSourceOnCards, isTrue);
     expect(settings.animationsMode, AppAnimationsMode.full);

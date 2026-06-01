@@ -41,7 +41,7 @@ yakniga
 
 ## 3. SourceConnector
 
-Статус реализации на 2026-05-27: базовый framework Stage 6 реализован в `lib/sources/`, реальные connector-ы Stage 7/8 — Izib и Akniga. Приложение использует их в UI-пути поиска, карточки источника, плеера и загрузок через `SourceCatalogService`.
+Статус реализации на 2026-05-27: базовый framework Stage 6 реализован в `lib/sources/`, реальные connector-ы Stage 7/8/9 — Izib, Akniga, Yakniga, Knigavuhe, Knigoblud и Baza Knig. Приложение использует их в UI-пути поиска, карточки источника, плеера и загрузок через `SourceCatalogService`.
 
 ```dart
 abstract class SourceConnector {
@@ -104,6 +104,26 @@ lib/sources/akniga/akniga_source_connector.dart  — SourceConnector для sear
 test/sources/akniga/                             — fixture-based тесты и optional live smoke-test
 ```
 
+Файлы Stage 9 Yakniga:
+
+```text
+lib/sources/yakniga/yakniga_graphql_client.dart  — public GraphQL transport/client и безопасная обработка API ошибок
+lib/sources/yakniga/yakniga_mapper.dart          — search/details/chapters -> source domain models
+lib/sources/yakniga/yakniga_source_connector.dart — SourceConnector для search/details/chapters/tracks/resolveMedia/health
+test/sources/yakniga/                            — fixture-based тесты и optional live smoke-test
+```
+
+Файлы Stage 9 HTML-источников:
+
+```text
+lib/sources/knigavuhe/   — HTML search/details, BookPlayer parser, media headers/allowlist
+lib/sources/knigoblud/   — HTML search/details, KB.playerInit parser, media headers/allowlist
+lib/sources/baza_knig/   — HTML search/details, Playerjs parser, abooka media allowlist
+test/sources/knigavuhe/  — fixture-based тесты и optional live smoke-test
+test/sources/knigoblud/  — fixture-based тесты и optional live smoke-test
+test/sources/baza_knig/  — fixture-based тесты и optional live smoke-test
+```
+
 `MediaResolvePurpose`:
 
 ```text
@@ -160,6 +180,16 @@ hasGraphQlApi
 
 GraphQL, API-режим предпочтителен, главы через `chapters.collection`, `fileUrl` как media source, есть авторы/чтецы/серии/rating/price/access flags.
 
+Статус на 2026-05-27: реализован как первый источник Stage 9. Используется endpoint `https://yakniga.org/graphql`, GraphQL search/details, `chapters.collection[].fileUrl` как direct media source, `User-Agent`/`Referer` media headers, `SourceMediaPolicy` allowlist и optional live smoke-test через `SLOVOFON_LIVE_SOURCE_TESTS=1`.
+
+Media allowlist Yakniga на 2026-05-27:
+
+```text
+metadata: yakniga.org, www.yakniga.org
+cover:    yakniga.org, www.yakniga.org
+media:    yakniga.org, www.yakniga.org
+```
+
 ### Izib
 
 GraphQL API, SIGN генерируется на месте, package key/body signature, поиск/книга/серия/files, HTML/XSPlayer fallback. SIGN не хранить и не логировать.
@@ -178,8 +208,8 @@ media:    izib.uk, *.audioknigi.xyz
 
 App integration на 2026-05-27:
 
-- `SearchScreen` выполняет поиск по включённым источникам Izib и Akniga через `SourceCatalogService`;
-- поиск запускается только по search action/кнопке, сохраняется в историю и фильтруется в приложении по выбранному полю: название, автор, чтец или цикл;
+- `SearchScreen` выполняет поиск по включённым источникам Izib, Akniga, Yakniga, Knigavuhe, Knigoblud и Baza Knig через `SourceCatalogService`;
+- поиск запускается только по search action/кнопке, сохраняется в историю и фильтруется в приложении по выбранным полям: название, автор, чтец и/или цикл; источники выбираются отдельным multi-select фильтром или общими настройками источников;
 - фильтр требует, чтобы все слова запроса совпадали как префиксы слов результата независимо от порядка, например `Дыхание зоны` и `зоны дыхание`;
 - source details экран загружает details, chapters и playback media перед стартом книги/главы;
 - source details показывает первые 5 глав длинной книги по умолчанию и раскрывает остальные по действию пользователя;
@@ -188,6 +218,10 @@ App integration на 2026-05-27:
 - `LibraryStore` сохраняет избранные source-книги в Drift и отдаёт тот же статус сердцу на карточке поиска и библиотеке;
 - карточка результата показывает play/download loading только во время загрузки details/media, а активная загрузка отображается как круговой прогресс с отменой всей книги;
 - экран загрузок группирует source download tasks по книгам, даёт общие pause/resume/retry/delete действия для книги, а главы показывает только внутри раскрытой карточки;
+- карточки главной, поиска и библиотеки используют один нормализованный набор source metadata: название, автор, чтец, цикл с номером книги, рейтинг, год, длительность и цветную локализованную подпись источника;
+- карточки поиска подмешивают сохранённый `PlaybackProgress` и показывают процент прослушивания на обложке, если книга уже слушалась;
+- номер книги в цикле хранится как дробное число, чтобы значения вроде `21.1` не превращались в `211`;
+- экран результатов поиска отделён от формы: после search action показываются только back action, количество результатов и список карточек;
 - UI не вызывает `IzibSourceConnector` напрямую.
 
 ### Akniga
@@ -216,13 +250,69 @@ media:    akniga.org, *.akniga.club, *.audioknigi.xyz
 
 HTML поиск, strDecode, PlayerJS-подобные структуры, abooka host/fallback, Referer/Origin.
 
+Статус на 2026-05-29: реализован как Stage 9 connector. Поддержаны HTML search/details, `Playerjs(file: [...])` parser, `*.abooka.casa` direct media, строгий `archive.org/download/*.mp3` fallback, `User-Agent`/`Referer` headers, media allowlist и optional live smoke-test через `SLOVOFON_LIVE_SOURCE_TESTS=1`.
+
+Пометка Stage 9: по указанию владельца источник считать рабочим, но оставить caveat по аудио: Baza Knig может оказаться нестабильным на отдельных страницах. На 2026-05-29 подтверждён live-fallback через `archive.org/download/*.mp3`; прочие fallback-hosts остаются запрещены.
+
+Media allowlist Baza Knig на 2026-05-29:
+
+```text
+metadata: baza-knig.top, www.baza-knig.top
+cover:    baza-knig.top, www.baza-knig.top
+media:    abooka.casa; archive.org, *.archive.org только для `/download/...` audio paths на уровне mapper-а
+```
+
+Особенности:
+
+- чтец очищается от служебных parenthesized пометок озвучки вроде `(альтернативная озвучка)`;
+- заголовок очищается от служебных префиксов вроде `Скачать аудиокнигу` и suffix-автора вида `- Николай Грошев`, если автор уже распознан в metadata;
+- `SourceCapabilities.hasTemporaryUrls=true`: abooka URLs считаются временными, поэтому при восстановлении сессии bootstrap обновляет playback metadata через источник перед стартом;
+- если плейлист не даёт длительность главы, `JustAudioEngine` передаёт фактическую длительность из backend-а в `PlaybackController`, чтобы позиция UI не зажималась в `00:00`.
+
 ### Knigavuhe
 
 HTML поиск, BookPlayer, LitRes trial, cookie/new design, full/fragment/limited access.
 
+Статус на 2026-05-27: реализован как Stage 9 connector. Поддержаны HTML search/details, `BookPlayer` playlist parser, direct media, `User-Agent`/`Referer` headers, media allowlist и optional live smoke-test через `SLOVOFON_LIVE_SOURCE_TESTS=1`.
+
+Media allowlist Knigavuhe на 2026-05-27:
+
+```text
+metadata: knigavuhe.org, www.knigavuhe.org
+cover:    knigavuhe.org, www.knigavuhe.org
+media:    knigavuhe.org, www.knigavuhe.org, litres.ru
+```
+
+LitRes media принимаются только для trial-путей (`/audiotrial/`, `/get_mp3_trial/<id>.mp3`) на уровне mapper-а.
+
+Metadata:
+
+- год берётся из явных полей страницы, а если их нет — из даты добавления;
+- рейтинг берётся из aggregate rating, а при его отсутствии строится по likes/dislikes;
+- номер книги в цикле парсится через общий `parseSeriesNumber`, включая дробные номера.
+
 ### Knigoblud
 
 HTML поиск, `KB.playerInit`, audioknigi-like hosts, LitRes trial, строгая media validation.
+
+Статус на 2026-05-27: реализован как Stage 9 connector. Поддержаны HTML search/details, `KB.playerInit` playlist parser, direct media, `User-Agent`/`Referer` headers, media allowlist и optional live smoke-test через `SLOVOFON_LIVE_SOURCE_TESTS=1`.
+
+Media allowlist Knigoblud на 2026-05-27:
+
+```text
+metadata: knigoblud.club, www.knigoblud.club
+cover:    knigoblud.club, www.knigoblud.club, audioknigi.xyz
+media:    audioknigi.xyz, litres.ru
+```
+
+LitRes media принимаются только для trial-путей (`/audiotrial/`, `/get_mp3_trial/<id>.mp3`) на уровне mapper-а.
+
+Metadata:
+
+- автор извлекается как из label-строк, так и из emoji/meta-блоков с `✍`;
+- цикл извлекается из блока `BookSeries`;
+- текущий номер книги в цикле определяется по ссылке текущей книги в списке серии;
+- дробные номера серии сохраняются без склейки цифр.
 
 ---
 

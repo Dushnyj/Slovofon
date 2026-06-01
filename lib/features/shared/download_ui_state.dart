@@ -47,9 +47,13 @@ BookCardDownloadState downloadStateForBook(
 
 BookCardDownloadState downloadStateForChapter(
   DownloadManager manager,
-  AudioPlaybackChapter chapter,
-) {
-  return downloadStateForTask(manager.taskForChapter(chapter.id));
+  AudioPlaybackChapter chapter, {
+  AudioPlaybackBook? book,
+}) {
+  final task = book == null
+      ? manager.taskForChapter(chapter.id)
+      : manager.taskForBookChapter(book, chapter);
+  return downloadStateForTask(task);
 }
 
 BookCardDownloadState downloadStateForTask(DownloadTask? task) {
@@ -88,16 +92,21 @@ double downloadProgressForBook(
 
 double downloadProgressForChapter(
   DownloadManager manager,
-  AudioPlaybackChapter chapter,
-) {
-  return manager.taskForChapter(chapter.id)?.progress ?? 0;
+  AudioPlaybackChapter chapter, {
+  AudioPlaybackBook? book,
+}) {
+  final task = book == null
+      ? manager.taskForChapter(chapter.id)
+      : manager.taskForBookChapter(book, chapter);
+  return task?.progress ?? 0;
 }
 
 bool isChapterDownloaded(
   DownloadManager manager,
-  AudioPlaybackChapter chapter,
-) {
-  return downloadStateForChapter(manager, chapter) ==
+  AudioPlaybackChapter chapter, {
+  AudioPlaybackBook? book,
+}) {
+  return downloadStateForChapter(manager, chapter, book: book) ==
       BookCardDownloadState.downloaded;
 }
 
@@ -166,7 +175,7 @@ Future<void> toggleChapterDownload(
   AudioPlaybackBook book,
   AudioPlaybackChapter chapter,
 ) async {
-  final task = manager.taskForChapter(chapter.id);
+  final task = manager.taskForBookChapter(book, chapter);
   final state = downloadStateForTask(task);
 
   switch (state) {
@@ -191,7 +200,7 @@ Future<void> runChapterCardDownloadAction(
   AudioPlaybackBook book,
   AudioPlaybackChapter chapter,
 ) async {
-  final task = manager.taskForChapter(chapter.id);
+  final task = manager.taskForBookChapter(book, chapter);
   final state = downloadStateForTask(task);
 
   switch (state) {
@@ -228,6 +237,7 @@ Future<void> _resumeBookTasks(
     }
     await manager.resumeChapter(book, chapter);
   }
+  await manager.enqueueMissingChapters(book);
 }
 
 Future<void> _retryBookTasks(
@@ -235,7 +245,6 @@ Future<void> _retryBookTasks(
   AudioPlaybackBook book,
   List<DownloadTask> tasks,
 ) async {
-  var retried = false;
   for (final task in tasks) {
     if (task.status != DownloadTaskStatus.failed) {
       continue;
@@ -244,13 +253,10 @@ Future<void> _retryBookTasks(
     if (chapter == null) {
       continue;
     }
-    retried = true;
     await manager.retryChapter(book, chapter);
   }
 
-  if (!retried) {
-    await manager.enqueueMissingChapters(book);
-  }
+  await manager.enqueueMissingChapters(book);
 }
 
 bool _allBookChaptersCompleted(

@@ -119,6 +119,16 @@ class SearchHistoryStore {
     return List.unmodifiable(entries);
   }
 
+  Future<List<SearchHistoryEntry>> delete(String query, SearchKind kind) async {
+    final key = _key(query, kind);
+    final entries = [
+      for (final entry in await load())
+        if (_key(entry.query, entry.kind) != key) entry,
+    ];
+    await _save(entries);
+    return List.unmodifiable(entries);
+  }
+
   Future<void> _save(List<SearchHistoryEntry> entries) async {
     final file = await _fileFactory();
     await file.parent.create(recursive: true);

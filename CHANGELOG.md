@@ -5,6 +5,12 @@
 ## [Unreleased]
 
 ### Added
+- Добавлен Stage 9 `YaknigaSourceConnector`: public GraphQL search/details, chapters через `chapters.collection`, `fileUrl` как direct media source, `User-Agent`/`Referer` headers, media allowlist и health check.
+- Добавлены Stage 9 тесты Yakniga для GraphQL client/transport, mapper, source connector, media headers и optional live smoke-test против `yakniga.org`.
+- Добавлен Stage 9 `KnigavuheSourceConnector`: HTML search/details, `BookPlayer` playlist parser, media headers, allowlist для `*.knigavuhe.org` и разрешённых LitRes trial URL, health check и optional live smoke-test.
+- Добавлен Stage 9 `KnigobludSourceConnector`: HTML search/details, `KB.playerInit` playlist parser, media headers, allowlist для `*.audioknigi.xyz` и разрешённых LitRes trial URL, health check и optional live smoke-test.
+- Добавлен Stage 9 `BazaKnigSourceConnector`: HTML search/details, `Playerjs(file: [...])` parser, media headers, allowlist для `*.abooka.casa`, фильтрация неразрешённых fallback-hosts и optional live smoke-test.
+- Yakniga, Knigavuhe, Knigoblud и Baza Knig зарегистрированы в default `SourceRegistry`; экран поиска теперь отправляет запрос во все включённые реальные источники.
 - Добавлен Stage 8 `AknigaSourceConnector`: HTML search/details parser, `book id`/`bid`, `ajax/bid` track resolver, LiveStreet security key extraction, CryptoJS/OpenSSL-compatible AES-CBC request hash, Referer/media headers и media allowlist для `*.akniga.club`/`*.audioknigi.xyz`.
 - Добавлены Stage 8 тесты Akniga для security encoder, HTML mapper, client/transport, source connector, media headers, cookie session behavior и optional live smoke-test против `akniga.org`.
 - Akniga зарегистрирован в default `SourceRegistry`; экран поиска теперь отправляет запрос во все включённые источники, а не только в Izib.
@@ -67,7 +73,17 @@
 - Зафиксированы правила версионности, сборки, релизов, источников, безопасности, прокси, тем и ассетов.
 
 ### Changed
-- Search/home/library copy и source chips обновлены под два реальных источника: Izib и Akniga.
+- Главная теперь показывает список всех начатых книг из сохранённого прогресса, сортируя их по последней дате прослушивания сверху вниз.
+- Карточки на главной можно смахнуть влево, чтобы скрыть книгу только с главной страницы без удаления сохранённого прогресса, избранного или скачанных файлов.
+- Карточки книг на главной, в поиске и библиотеке унифицированы под нормализованные source metadata: название до двух строк с ellipsis, авторы/чтецы максимум по два значения, цветная локализованная подпись источника и номер книги в цикле с поддержкой дробных номеров вроде `21.1`.
+- Экран поиска после запуска запроса открывает отдельный экран результатов с кнопкой назад, количеством найденных книг и списком карточек без повторного показа строки поиска и фильтров.
+- Фильтры поиска переведены на compact selectors: multi-select полей поиска (`Название`, `Автор`, `Чтец`, `Цикл`) и multi-select источников вместо ряда отдельных chips.
+- Настройки источников теперь реальные: каждый источник можно включать и выключать, а `SourceRegistry` использует сохранённые настройки.
+- Мини-плеер стал компактнее и показывает обложку, книгу, главу, время текущей главы, процент всей книги и цветную подпись источника.
+- Полный плеер получил более плотный now-playing layout: обложка увеличена, автор и чтец вынесены в отдельные строки с иконками, длительность главы отображается как `1:29:00`, а sleep timer pill скрывается, когда таймер отключён.
+- Полный плеер теперь использует общий download action для всей книги с circular progress/cancel/delete состояниями, показывает источник, цикл и год, а автор/чтец/цикл открывают поиск с нужным фильтром.
+- Search/home/library copy и source chips обновлены под шесть реальных источников: Izib, Akniga, Yakniga, Knigavuhe, Knigoblud и Baza Knig.
+- Маршруты source-книг теперь кодируют `sourceBookId` через `Uri.encodeComponent`, чтобы HTML-источники с `/` в id открывались из поиска, главной, библиотеки и плеера.
 - Карточки книг и глав получили единый borderless icon-action стиль: play/pause, info, favorite, download/delete/retry больше не используют квадратные outlined-кнопки.
 - Favorite-состояние теперь синхронизируется с активной карточкой на главной; выбранное избранное отображается заполненным красным сердцем.
 - Play с карточки поиска остаётся на экране поиска, показывает loading только до старта текущей книги и затем переключается в pause для активного аудио.
@@ -97,6 +113,14 @@
 - Убрано рабочее имя `Auralib` из технического ТЗ.
 
 ### Fixed
+- Bottom sheet фильтров поиска больше не переполняется над мини-плеером/нижней навигацией: списки выбора стали ограниченными по высоте, прокручиваемыми, а кнопка применения остаётся закреплённой снизу.
+- Карточки поиска больше не считают одинаковыми разные результаты с похожими названием и автором: active/loading/playback state привязывается только к точным `sourceBookId`/`versionId`/стабильным id, поэтому запуск одной версии не включает пачку соседних карточек.
+- Запуск книги из поиска, библиотеки и главной продолжает её с сохранённой главы и позиции, если по книге уже есть `PlaybackProgress`.
+- `PlaybackController` больше не откатывает автозапуск source-книги в `paused`, если audio backend после `play()` присылает поздний `idle`/`ready` snapshot с `isPlaying=false`; карточка и мини-плеер остаются в активном play-состоянии до подтверждённой паузы, ошибки или завершения.
+- Knigavuhe дополнительно нормализует год и рейтинг из данных страницы, включая fallback на год добавления и рейтинг из likes/dislikes, когда aggregate rating отсутствует.
+- Baza Knig очищает служебные пометки озвучки вроде `(альтернативная озвучка)` из имени чтеца, убирает служебный префикс `Скачать аудиокнигу`/автора из live-заголовков и принимает `archive.org/download/*.mp3` как строгий media fallback для страниц, где источник отдаёт такой PlayerJS playlist.
+- Baza Knig помечен как источник с временными media URL: восстановление сессии обновляет playback metadata через `SourceCatalogService`, а неизвестная длительность главы дообновляется из `just_audio`, чтобы UI-позиция не застывала на `00:00`.
+- Knigoblud извлекает автора из emoji/meta-блоков, а цикл и номер книги в цикле — из блока серии на странице details.
 - Akniga HTTP transport сохраняет cookies между page GET и `ajax/bid` POST, как session в reference implementation; без этого живой `ajax/bid` возвращал не-JSON ответ.
 - Последняя активная книга теперь восстанавливается после обновления/перезапуска приложения: `PlaybackController` сохраняет metadata активной книги и bootstrap поднимает `PlaybackSession` без автозапуска аудио.
 - Экран загрузок после перезапуска больше не деградирует до `izib-book-*`: `DownloadManager` восстанавливает контекст книги, обложку, автора, чтеца, главы и media metadata из сохранённого `metadata.json`.

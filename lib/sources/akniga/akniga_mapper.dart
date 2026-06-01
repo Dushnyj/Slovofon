@@ -35,11 +35,12 @@ class AknigaMapper {
     final sourceUri = ref.sourceUri ?? sourceBaseUri.resolve(ref.sourceBookId);
     final slug = _slugFromUri(sourceUri) ?? ref.sourceBookId;
     final bid = bookIdFromHtml(html);
-    final authors = _peopleForIcon(document, 'icon--author');
+    final pageAuthors = _peopleForIcon(document, 'icon--author');
     final jsonLd = _jsonLdAudiobook(document);
     final rawTitle = _text(document, '.caption__article-main').isNotEmpty
         ? _text(document, '.caption__article-main')
         : _string(jsonLd['name']);
+    final authors = _authorNamesFromTitlePrefix(rawTitle, pageAuthors);
     final title = _titleWithoutAuthorPrefix(rawTitle, authors);
     final description = _description(document).isNotEmpty
         ? _description(document)
@@ -53,6 +54,7 @@ class AknigaMapper {
           ? _text(document, '.section__title span')
           : _text(document, '.section__title'),
     );
+    final seriesRaw = _seriesRaw(document);
 
     return BookVersionDetails(
       ref: SourceBookRef(
@@ -65,7 +67,8 @@ class AknigaMapper {
         normalizedTitle: SourceParserHelpers.normalizeTitle(title),
         displayTitle: title,
         authors: authors,
-        seriesTitle: _series(document),
+        seriesTitle: _seriesFromRaw(seriesRaw),
+        seriesNumber: _seriesNumberFromRaw(seriesRaw),
         year: _yearLabel(document, ['Год издания', 'Год публикации']),
         bestCoverUrl: _coverUri(document, jsonLd)?.toString(),
         bestDescription: description,
@@ -82,7 +85,8 @@ class AknigaMapper {
         normalizedTitle: SourceParserHelpers.normalizeTitle(title),
         authors: authors,
         narrators: _narrators(document, jsonLd),
-        seriesTitle: _series(document),
+        seriesTitle: _seriesFromRaw(seriesRaw),
+        seriesNumber: _seriesNumberFromRaw(seriesRaw),
         genres: genres,
         description: description,
         coverUrl: _coverUri(document, jsonLd)?.toString(),
@@ -193,10 +197,11 @@ class AknigaMapper {
       return null;
     }
 
-    final authors = _peopleForIcon(item, 'icon--author');
+    final pageAuthors = _peopleForIcon(item, 'icon--author');
     final rawTitle = _text(item, '.caption__article-main').isNotEmpty
         ? _text(item, '.caption__article-main')
         : _text(item, '.caption__article-preview');
+    final authors = _authorNamesFromTitlePrefix(rawTitle, pageAuthors);
     final title = _titleWithoutAuthorPrefix(rawTitle, authors);
     if (title.isEmpty) {
       return null;
@@ -208,6 +213,7 @@ class AknigaMapper {
     final isFragment =
         item.querySelector('[href="https://akniga.org/paid/"]') != null ||
         _text(item, '.caption__article-preview').contains('Фрагмент');
+    final seriesRaw = _seriesRaw(item);
 
     return BookSearchResult(
       ref: SourceBookRef(
@@ -219,10 +225,13 @@ class AknigaMapper {
       title: title,
       author: authors.join(', '),
       narrator: _peopleForIcon(item, 'icon--performer').join(', '),
-      series: _text(item, '.book-series a'),
+      series: _seriesFromRaw(seriesRaw),
+      seriesNumber: _seriesNumberFromRaw(seriesRaw),
       coverUri: _coverUri(item, const {}),
       duration: duration,
-      year: _searchResultYear(item),
+      year: _searchResultYear(item, slug),
+      ratingValue: _rating(item),
+      ratingCount: _ratingCount(item),
       isFull: !isFragment,
       isFree: !isFragment,
       accessType: isFragment ? AccessType.unknown : AccessType.free,
@@ -336,7 +345,7 @@ class AknigaMapper {
     return SourceParserHelpers.safeResolveUri(sourceBaseUri, value);
   }
 
-  static int? _searchResultYear(Object root) {
+  static int? _searchResultYear(Object root, String slug) {
     final value = _firstNonEmpty([
       _text(root, '.link__action--label--year'),
       _text(root, '.link__action--label--date'),
@@ -344,7 +353,8 @@ class AknigaMapper {
       _labelValue(root, 'Год издания'),
       _labelValue(root, 'Год публикации'),
     ]);
-    return SourceParserHelpers.parseYear(value);
+    return SourceParserHelpers.parseYear(value) ??
+        SourceParserHelpers.parseYear(slug);
   }
 
   static List<String> _narrators(
@@ -429,13 +439,65 @@ class AknigaMapper {
         : title;
   }
 
-  static String _series(Object root) {
-    final raw = _text(root, '.link__series[href]').isNotEmpty
+  static List<String> _authorNamesFromTitlePrefix(
+    String rawTitle,
+    List<String> authors,
+  ) {
+    final existing = [
+      for (final author in authors)
+        if (author.trim().isNotEmpty) author.trim(),
+    ];
+    final prefix = _authorPrefixFromTitle(rawTitle);
+    if (prefix.isEmpty) {
+      return existing;
+    }
+
+    final prefixPeople = _splitPeople(prefix);
+    if (existing.isEmpty) {
+      return prefixPeople;
+    }
+
+    final knownAuthorsAreInPrefix = existing.every((author) {
+      final normalizedAuthor = SourceParserHelpers.normalizeTitle(author);
+      return prefixPeople.any(
+        (prefixName) =>
+            SourceParserHelpers.normalizeTitle(prefixName) == normalizedAuthor,
+      );
+    });
+
+    return knownAuthorsAreInPrefix ? prefixPeople : existing;
+  }
+
+  static String _authorPrefixFromTitle(String rawTitle) {
+    final title = SourceParserHelpers.normalizeWhitespace(rawTitle);
+    final match = RegExp(r'^(.{2,180}?)\s*[–—-]\s*(.+)$').firstMatch(title);
+    if (match == null) {
+      return '';
+    }
+    final prefix = SourceParserHelpers.normalizeWhitespace(match.group(1)!);
+    return RegExp(r'[а-яё]', caseSensitive: false).hasMatch(prefix)
+        ? prefix
+        : '';
+  }
+
+  static String _seriesRaw(Object root) {
+    return _text(root, '.link__series[href]').isNotEmpty
         ? _text(root, '.link__series[href]')
         : _text(root, '.book-series a');
+  }
+
+  static String _seriesFromRaw(String raw) {
     return SourceParserHelpers.normalizeWhitespace(
       raw.replaceFirst(RegExp(r'\(\d+(?:[.,]\d+)*\)\s*$'), ''),
     );
+  }
+
+  static double? _seriesNumberFromRaw(String raw) {
+    final match = RegExp(r'\((\d+(?:[.,]\d+)*)\)\s*$').firstMatch(raw);
+    if (match == null) {
+      return null;
+    }
+    return SourceParserHelpers.parseSeriesNumber(match.group(1)!);
   }
 
   static int? _yearLabel(Object root, List<String> labels) {
@@ -476,9 +538,9 @@ class AknigaMapper {
     return '';
   }
 
-  static double? _rating(dom.Document document) {
-    final likes = _voteCount(document, '1');
-    final dislikes = _voteCount(document, '-1');
+  static double? _rating(Object root) {
+    final likes = _voteCount(root, '1');
+    final dislikes = _voteCount(root, '-1');
     final total = likes + dislikes;
     if (total <= 0) {
       return null;
@@ -486,17 +548,14 @@ class AknigaMapper {
     return double.parse(((likes / total) * 5).toStringAsFixed(1));
   }
 
-  static int? _ratingCount(dom.Document document) {
-    final total = _voteCount(document, '1') + _voteCount(document, '-1');
+  static int? _ratingCount(Object root) {
+    final total = _voteCount(root, '1') + _voteCount(root, '-1');
     return total <= 0 ? null : total;
   }
 
-  static int _voteCount(dom.Document document, String value) {
+  static int _voteCount(Object root, String value) {
     return _humanCount(
-      _text(
-        document,
-        '.ls-vote-item[data-vote-value="$value"] .counter-number',
-      ),
+      _text(root, '.ls-vote-item[data-vote-value="$value"] .counter-number'),
     );
   }
 

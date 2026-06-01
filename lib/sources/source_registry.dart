@@ -56,35 +56,52 @@ class SourceRegistry {
   }
 
   Future<SourceSearchResponse> search(SearchRequest request) async {
+    final searches = [
+      for (final connector in enabledConnectors)
+        if (request.allowsSource(connector.id))
+          _searchConnector(connector, request),
+    ];
+    final responses = await Future.wait(searches);
     final results = <BookSearchResult>[];
     final failures = <SourceFailure>[];
-
-    for (final connector in enabledConnectors) {
-      if (!request.allowsSource(connector.id)) {
-        continue;
-      }
-      if (!connector.capabilities.supportsSearch) {
-        failures.add(
-          SourceFailure(
-            sourceId: connector.id,
-            kind: SourceErrorKind.unsupported,
-            message: 'Source does not support search.',
-          ),
-        );
-        continue;
-      }
-
-      try {
-        results.addAll(await connector.search(request));
-      } on Object catch (error) {
-        failures.add(SourceFailure.fromError(connector.id, error));
-      }
+    for (final response in responses) {
+      results.addAll(response.results);
+      failures.addAll(response.failures);
     }
 
     return SourceSearchResponse(
       results: List.unmodifiable(results),
       failures: List.unmodifiable(failures),
     );
+  }
+
+  Future<SourceSearchResponse> _searchConnector(
+    SourceConnector connector,
+    SearchRequest request,
+  ) async {
+    if (!connector.capabilities.supportsSearch) {
+      return SourceSearchResponse(
+        results: const [],
+        failures: [
+          SourceFailure(
+            sourceId: connector.id,
+            kind: SourceErrorKind.unsupported,
+            message: 'Source does not support search.',
+          ),
+        ],
+      );
+    }
+
+    try {
+      return SourceSearchResponse(
+        results: List.unmodifiable(await connector.search(request)),
+      );
+    } on Object catch (error) {
+      return SourceSearchResponse(
+        results: const [],
+        failures: [SourceFailure.fromError(connector.id, error)],
+      );
+    }
   }
 
   Future<List<SourceHealth>> checkHealth({Set<String>? sourceIds}) async {

@@ -151,11 +151,20 @@ notification, lock screen и media buttons.
 - `AknigaMapper` переводит HTML search/details и ajax tracks в `BookSearchResult`, `BookVersionDetails`, `Chapter` и `AudioTrack`;
 - media URL Akniga проходят `SourceMediaValidator` по allowlist до передачи в playback/download.
 
+Текущая реализация Stage 9:
+
+- `YaknigaSourceConnector` живёт в `lib/sources/yakniga/` и является третьим реальным сетевым источником;
+- `YaknigaGraphQlClient` изолирует public GraphQL endpoint `https://yakniga.org/graphql`, headers и безопасные `SourceException`;
+- `YaknigaMapper` переводит GraphQL search/details/chapters в `BookSearchResult`, `BookVersionDetails`, `Chapter` и `AudioTrack`;
+- `KnigavuheSourceConnector`, `KnigobludSourceConnector` и `BazaKnigSourceConnector` живут в `lib/sources/knigavuhe/`, `lib/sources/knigoblud/` и `lib/sources/baza_knig/`;
+- HTML-источники изолируют search/details transport, page parsers (`BookPlayer`, `KB.playerInit`, `Playerjs`) и `User-Agent`/`Referer` media headers;
+- media URL Yakniga и HTML-источников проходят `SourceMediaValidator` по allowlist до передачи в playback/download.
+
 ### 3.5 SourceCatalogService
 
 App-level слой между feature UI и `SourceRegistry`.
 
-Текущая реализация Stage 8 находится в `lib/services/sources/`.
+Текущая реализация Stage 9 находится в `lib/services/sources/`.
 
 Обязанности:
 
@@ -227,7 +236,7 @@ SearchScreen
 -> UI results
 ```
 
-Stage 8: поиск запускается только по search action/кнопке, история запросов сохраняется через `SearchHistoryStore`, `SourceRegistry` запрашивает включённые источники Izib и Akniga, а `SourceCatalogService` фильтрует результаты по выбранному полю (`title`, `author`, `narrator`, `series`) или по всем полям. Позднее поверх этого потока добавляются deduplication и cache.
+Stage 9: поиск запускается только по search action/кнопке, история запросов сохраняется через `SearchHistoryStore`, `SourceRegistry` запрашивает включённые источники Izib, Akniga, Yakniga, Knigavuhe, Knigoblud и Baza Knig, а `SourceCatalogService` фильтрует результаты по одному или нескольким выбранным полям (`title`, `author`, `narrator`, `series`) и выбранным source ids. `sourceBookId` кодируется в маршрутах, чтобы HTML-источники с `/` в id открывались через details screen. Позднее поверх этого потока добавляются deduplication и cache.
 
 ### 5.2 Открытие книги
 

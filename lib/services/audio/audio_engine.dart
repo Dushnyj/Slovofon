@@ -39,6 +39,20 @@ abstract interface class AudioEngine {
   Future<void> dispose();
 }
 
+class AudioEngineChapterNavigationCallbacks {
+  const AudioEngineChapterNavigationCallbacks({
+    this.onPreviousChapter,
+    this.onNextChapter,
+  });
+
+  final Future<void> Function()? onPreviousChapter;
+  final Future<void> Function()? onNextChapter;
+}
+
+abstract interface class AudioEngineChapterNavigationBinding {
+  void bindChapterNavigation(AudioEngineChapterNavigationCallbacks callbacks);
+}
+
 enum AudioEngineProcessingState {
   idle,
   loading,
@@ -53,12 +67,14 @@ class AudioEngineSnapshot {
     required this.position,
     required this.processingState,
     required this.isPlaying,
+    this.duration,
     this.errorMessage,
   });
 
   final Duration position;
   final AudioEngineProcessingState processingState;
   final bool isPlaying;
+  final Duration? duration;
   final String? errorMessage;
 }
 
@@ -134,7 +150,8 @@ class InMemoryAudioEngine implements AudioEngine {
   }
 }
 
-class SwitchingAudioEngine implements AudioEngine {
+class SwitchingAudioEngine
+    implements AudioEngine, AudioEngineChapterNavigationBinding {
   SwitchingAudioEngine({
     required AudioEngine primary,
     required AudioEngine fallback,
@@ -202,5 +219,21 @@ class SwitchingAudioEngine implements AudioEngine {
   @override
   Future<void> setSpeed(double speed) {
     return _active.setSpeed(speed);
+  }
+
+  @override
+  void bindChapterNavigation(AudioEngineChapterNavigationCallbacks callbacks) {
+    final primary = _primary;
+    if (primary is AudioEngineChapterNavigationBinding) {
+      (primary as AudioEngineChapterNavigationBinding).bindChapterNavigation(
+        callbacks,
+      );
+    }
+    final fallback = _fallback;
+    if (fallback is AudioEngineChapterNavigationBinding) {
+      (fallback as AudioEngineChapterNavigationBinding).bindChapterNavigation(
+        callbacks,
+      );
+    }
   }
 }

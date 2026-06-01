@@ -89,6 +89,7 @@ class AppIconActionButton extends StatelessWidget {
     this.backgroundColor,
     this.iconSize = 24,
     this.buttonSize = 44,
+    this.buttonKey,
     super.key,
   });
 
@@ -99,11 +100,13 @@ class AppIconActionButton extends StatelessWidget {
   final Color? backgroundColor;
   final double iconSize;
   final double buttonSize;
+  final Key? buttonKey;
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     return IconButton(
+      key: buttonKey,
       tooltip: tooltip,
       onPressed: onPressed,
       style: IconButton.styleFrom(
@@ -113,6 +116,7 @@ class AppIconActionButton extends StatelessWidget {
         shape: const CircleBorder(),
         backgroundColor: backgroundColor ?? Colors.transparent,
         foregroundColor: foregroundColor ?? colorScheme.onSurfaceVariant,
+        overlayColor: Colors.transparent,
         disabledForegroundColor: colorScheme.onSurface.withValues(alpha: 0.38),
       ),
       icon: AppIcon(iconAsset, size: iconSize),

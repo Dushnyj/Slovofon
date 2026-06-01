@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -9,11 +11,14 @@ import 'package:slovofon/domain/models/audio_book.dart';
 import 'package:slovofon/domain/models/audio_track.dart';
 import 'package:slovofon/domain/models/book_version.dart';
 import 'package:slovofon/domain/models/chapter.dart';
+import 'package:slovofon/domain/models/playback_session.dart';
 import 'package:slovofon/services/audio/audio_engine.dart';
+import 'package:slovofon/services/audio/audio_persistence.dart';
 import 'package:slovofon/services/audio/audio_state.dart';
 import 'package:slovofon/services/audio/playback_controller.dart';
 import 'package:slovofon/services/audio/playback_controller_provider.dart';
 import 'package:slovofon/domain/models/download_task.dart';
+import 'package:slovofon/services/deep_links/app_deep_links.dart';
 import 'package:slovofon/services/downloads/download_client.dart';
 import 'package:slovofon/services/downloads/download_manager.dart';
 import 'package:slovofon/services/downloads/download_manager_provider.dart';
@@ -181,7 +186,7 @@ void main() {
     expect(find.text('Глава 01. Артем'), findsOneWidget);
     expect(find.text('002'), findsOneWidget);
 
-    await tester.tap(find.byTooltip('Play').first);
+    await tester.tap(find.byKey(const ValueKey('source-details-play')));
     await _pumpFrames(tester, frames: 40);
 
     expect(playbackController.state.book?.sourceId, 'izib');
@@ -192,17 +197,7 @@ void main() {
       'https://audio.izib.uk/books/2033/001.mp3',
     );
     expect(find.text('Метро 2033'), findsWidgets);
-    expect(find.textContaining('1/2'), findsOneWidget);
-    expect(find.byTooltip('Sleep timer'), findsOneWidget);
-
-    await tester.drag(find.byType(TabBarView), const Offset(-360, 0));
-    await _pumpFrames(tester);
-    await tester.drag(find.byType(TabBarView), const Offset(-360, 0));
-    await _pumpFrames(tester);
-    await tester.drag(find.byType(TabBarView), const Offset(-360, 0));
-    await _pumpFrames(tester);
-
-    expect(find.text('Information'), findsOneWidget);
+    expect(find.byTooltip('Pause'), findsWidgets);
     expect(find.text('Izib'), findsWidgets);
     expect(find.text('Михаил Булгаков'), findsNothing);
   });
@@ -288,6 +283,9 @@ void main() {
     expect(find.text('Метро 2033'), findsWidgets);
     expect(find.text('Дмитрий Глуховский'), findsWidgets);
     expect(find.text('Петр Иващенко'), findsWidgets);
+    expect(find.text('Метро'), findsWidgets);
+    expect(find.text('4.5 из 5'), findsOneWidget);
+    expect(find.text('2020'), findsWidgets);
     expect(find.text('Izib'), findsWidgets);
     expect(find.textContaining('size is being calculated'), findsOneWidget);
     expect(find.text('Глава 01. Артем'), findsNothing);
@@ -355,7 +353,9 @@ void main() {
       await _pumpFrames(tester, frames: 40);
 
       expect(find.text('Метро 2033'), findsOneWidget);
-      await tester.tap(find.byTooltip('Add to favorites').first);
+      await tester.tap(
+        find.byKey(const ValueKey('book-card-favorite-izib-2033')),
+      );
       await _pumpFrames(tester, frames: 6);
       expect(find.text('Added to favorites'), findsOneWidget);
       expect(find.byTooltip('Remove from favorites'), findsOneWidget);
@@ -368,13 +368,15 @@ void main() {
       await tester.tap(find.text('Search'));
       await _pumpFrames(tester, frames: 12);
 
-      await tester.tap(find.byTooltip('Download').first);
+      await tester.tap(
+        find.byKey(const ValueKey('book-card-download-izib-2033')),
+      );
       await _pumpFrames(tester, frames: 120);
       expect(downloadManager.tasks, hasLength(2));
       expect(find.text('Book added to downloads'), findsOneWidget);
-      expect(find.byTooltip('Cancel download'), findsOneWidget);
+      expect(find.byTooltip('Cancel download'), findsWidgets);
 
-      await tester.tap(find.byTooltip('Play').first);
+      await tester.tap(find.byKey(const ValueKey('book-card-play-izib-2033')));
       await _pumpFrames(tester, frames: 60);
 
       expect(playbackController.state.book?.sourceId, 'izib');
@@ -389,6 +391,54 @@ void main() {
       expect(find.byTooltip('Remove from favorites'), findsOneWidget);
     },
   );
+
+  testWidgets('search submit opens a clean result view with back navigation', (
+    tester,
+  ) async {
+    final playbackController = PlaybackController(
+      engine: InMemoryAudioEngine(),
+    );
+    final sourceRegistry = SourceRegistry([_TwoChapterIzibSearchConnector()]);
+    addTearDown(playbackController.dispose);
+
+    appRouter.go('/search');
+    tester.view.physicalSize = const Size(430, 932);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sourceRegistryProvider.overrideWith((ref) => sourceRegistry),
+          playbackControllerProvider.overrideWith((ref) => playbackController),
+          searchHistoryStoreProvider.overrideWith(
+            (ref) => MemorySearchHistoryStore(),
+          ),
+        ],
+        child: const SlovofonApp(),
+      ),
+    );
+    await _pumpFrames(tester);
+
+    await tester.showKeyboard(find.byType(TextField));
+    await tester.enterText(find.byType(TextField), 'метро');
+    await tester.tap(find.byKey(const ValueKey('search-submit')));
+    await _pumpFrames(tester, frames: 100);
+
+    expect(find.text('1 results'), findsOneWidget);
+    expect(find.text('Метро 2033'), findsOneWidget);
+    expect(find.byType(TextField), findsNothing);
+    expect(find.text('Title'), findsNothing);
+    expect(find.text('Sort: relevance'), findsNothing);
+
+    await tester.binding.handlePopRoute();
+    await _pumpFrames(tester, frames: 12);
+
+    expect(find.byType(TextField), findsOneWidget);
+    expect(find.text('Title'), findsWidgets);
+    expect(find.text('Метро 2033'), findsNothing);
+  });
 
   testWidgets('search result play button shows loading while Izib book loads', (
     tester,
@@ -431,7 +481,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('search-submit')));
     await _pumpFrames(tester, frames: 20);
 
-    await tester.tap(find.byTooltip('Play').first);
+    await tester.tap(find.byKey(const ValueKey('book-card-play-izib-2033')));
     await tester.pump(const Duration(milliseconds: 50));
 
     expect(
@@ -440,7 +490,7 @@ void main() {
     );
     expect(playbackController.state.book, isNull);
 
-    await _pumpFrames(tester, frames: 30);
+    await _pumpFrames(tester, frames: 100);
 
     expect(playbackController.state.book?.sourceId, 'izib');
     expect(find.byKey(const ValueKey('book-card-play-loading')), findsNothing);
@@ -483,12 +533,119 @@ void main() {
     await _pumpFrames(tester, frames: 30);
 
     expect(find.text('Полураспад'), findsOneWidget);
-    await tester.tap(find.byTooltip('Play').first);
+    await tester.tap(
+      find.byKey(const ValueKey('book-card-play-izib-search-id')),
+    );
     await _pumpFrames(tester, frames: 40);
 
     expect(playbackController.state.book?.sourceBookId, 'search-id');
     expect(find.byKey(const ValueKey('book-card-play-loading')), findsNothing);
     expect(find.byTooltip('Pause'), findsNWidgets(2));
+  });
+
+  testWidgets(
+    'search result playback state only marks the exact duplicate result active',
+    (tester) async {
+      final playbackController = PlaybackController(
+        engine: InMemoryAudioEngine(),
+      );
+      final sourceRegistry = SourceRegistry([_DuplicateTitleIzibConnector()]);
+      addTearDown(playbackController.dispose);
+
+      appRouter.go('/search');
+      tester.view.physicalSize = const Size(430, 932);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            sourceRegistryProvider.overrideWith((ref) => sourceRegistry),
+            playbackControllerProvider.overrideWith(
+              (ref) => playbackController,
+            ),
+            searchHistoryStoreProvider.overrideWith(
+              (ref) => MemorySearchHistoryStore(),
+            ),
+          ],
+          child: const SlovofonApp(),
+        ),
+      );
+      await _pumpFrames(tester);
+
+      await tester.showKeyboard(find.byType(TextField));
+      await tester.enterText(find.byType(TextField), 'дубликат');
+      await tester.tap(find.byKey(const ValueKey('search-submit')));
+      await _pumpFrames(tester, frames: 30);
+
+      expect(find.text('Дубликат'), findsNWidgets(2));
+      await tester.tap(
+        find.byKey(const ValueKey('book-card-play-izib-second-id')),
+      );
+      await _pumpFrames(tester, frames: 40);
+
+      expect(playbackController.state.book?.sourceBookId, 'second-id');
+      expect(find.byTooltip('Pause'), findsNWidgets(2));
+    },
+  );
+
+  testWidgets('search result play resumes saved chapter position', (
+    tester,
+  ) async {
+    final playbackController = PlaybackController(
+      engine: InMemoryAudioEngine(),
+    );
+    final sourceRegistry = SourceRegistry([_TwoChapterResumeConnector()]);
+    final progressStore = _StaticPlaybackPersistenceStore([
+      PlaybackProgressSnapshot(
+        bookId: 'izib-book-resume-id',
+        bookVersionId: 'izib-resume-id',
+        currentChapterId: 'resume-chapter-2',
+        currentPositionMs: 120000,
+        maxReachedGlobalPositionMs: 720000,
+        totalDurationMs: 1200000,
+        listenedDurationMs: 720000,
+        percent: 60,
+        isFinished: false,
+        lastPlayedAt: DateTime(2026, 5, 29),
+      ),
+    ]);
+    addTearDown(playbackController.dispose);
+
+    appRouter.go('/search');
+    tester.view.physicalSize = const Size(430, 932);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sourceRegistryProvider.overrideWith((ref) => sourceRegistry),
+          playbackControllerProvider.overrideWith((ref) => playbackController),
+          playbackPersistenceStoreProvider.overrideWith((ref) => progressStore),
+          searchHistoryStoreProvider.overrideWith(
+            (ref) => MemorySearchHistoryStore(),
+          ),
+        ],
+        child: const SlovofonApp(),
+      ),
+    );
+    await _pumpFrames(tester);
+
+    await tester.showKeyboard(find.byType(TextField));
+    await tester.enterText(find.byType(TextField), 'продолжить');
+    await tester.tap(find.byKey(const ValueKey('search-submit')));
+    await _pumpFrames(tester, frames: 30);
+    await tester.tap(
+      find.byKey(const ValueKey('book-card-play-izib-resume-id')),
+    );
+    await _pumpFrames(tester, frames: 40);
+
+    expect(playbackController.state.chapterIndex, 1);
+    expect(playbackController.state.position, const Duration(minutes: 2));
+    expect(playbackController.state.bookProgress, closeTo(0.6, 0.001));
   });
 
   testWidgets('search result card updates to play after pausing playback', (
@@ -525,12 +682,16 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('search-submit')));
     await _pumpFrames(tester, frames: 30);
 
-    await tester.tap(find.byTooltip('Play').first);
+    await tester.tap(
+      find.byKey(const ValueKey('book-card-play-izib-search-id')),
+    );
     await _pumpFrames(tester, frames: 40);
     expect(playbackController.state.isPlaying, isTrue);
     expect(find.byTooltip('Pause'), findsNWidgets(2));
 
-    await tester.tap(find.byTooltip('Pause').first);
+    await tester.tap(
+      find.byKey(const ValueKey('book-card-play-izib-search-id')),
+    );
     await _pumpFrames(tester, frames: 12);
 
     expect(playbackController.state.isPlaying, isFalse);
@@ -585,13 +746,156 @@ void main() {
     await _pumpFrames(tester);
 
     expect(find.text('Полураспад'), findsOneWidget);
-    await tester.tap(find.byTooltip('Play').first);
+    await tester.tap(
+      find.byKey(const ValueKey('book-card-play-izib-search-id')),
+    );
     await _pumpFrames(tester, frames: 40);
 
     expect(playbackController.state.book?.sourceId, 'izib');
     expect(playbackController.state.book?.sourceBookId, 'search-id');
     expect(playbackController.state.isPlaying, isTrue);
     expect(find.byTooltip('Pause'), findsWidgets);
+  });
+
+  testWidgets('library favorite cover shows saved listening progress', (
+    tester,
+  ) async {
+    final playbackController = PlaybackController(
+      engine: InMemoryAudioEngine(),
+    );
+    final sourceRegistry = SourceRegistry([_TwoChapterResumeConnector()]);
+    final progressStore = _StaticPlaybackPersistenceStore([
+      PlaybackProgressSnapshot(
+        bookId: 'izib-book-resume-id',
+        bookVersionId: 'izib-resume-id',
+        currentChapterId: 'resume-chapter-2',
+        currentPositionMs: 120000,
+        maxReachedGlobalPositionMs: 720000,
+        totalDurationMs: 1200000,
+        listenedDurationMs: 720000,
+        percent: 60,
+        isFinished: false,
+        lastPlayedAt: DateTime(2026, 5, 29),
+      ),
+    ]);
+    final libraryStore = LibraryStore(MemoryLibraryPersistenceStore());
+    await libraryStore.toggleFavorite(
+      const AudioBook(
+        id: 'izib-book-resume-id',
+        sourceBookId: 'resume-id',
+        title: 'Продолжить',
+        author: 'Автор',
+        narrator: 'Чтец',
+        sourceId: 'izib',
+        sourceName: 'Izib',
+        durationLabel: '20 мин',
+        chapterCount: 2,
+        progress: 0,
+        access: BookAccess.free,
+      ),
+    );
+    addTearDown(playbackController.dispose);
+
+    appRouter.go('/library');
+    tester.view.physicalSize = const Size(430, 932);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sourceRegistryProvider.overrideWith((ref) => sourceRegistry),
+          playbackControllerProvider.overrideWith((ref) => playbackController),
+          playbackPersistenceStoreProvider.overrideWith((ref) => progressStore),
+          libraryStoreProvider.overrideWith((ref) => libraryStore),
+          searchHistoryStoreProvider.overrideWith(
+            (ref) => MemorySearchHistoryStore(),
+          ),
+        ],
+        child: const SlovofonApp(),
+      ),
+    );
+    await _pumpFrames(tester);
+
+    expect(find.text('Продолжить'), findsOneWidget);
+    expect(find.text('60%'), findsOneWidget);
+  });
+
+  testWidgets('library favorite cover shows live player progress', (
+    tester,
+  ) async {
+    final playbackController = PlaybackController(
+      engine: InMemoryAudioEngine(),
+    );
+    await playbackController.loadBook(
+      const AudioPlaybackBook(
+        id: 'izib-book-live-id',
+        versionId: 'izib-live-id',
+        sourceId: 'izib',
+        sourceBookId: 'live-id',
+        title: 'Живой прогресс',
+        author: 'Автор',
+        narrator: 'Чтец',
+        sourceName: 'Izib',
+        chapters: [
+          AudioPlaybackChapter(
+            id: 'live-chapter-1',
+            index: 0,
+            title: 'Глава 1',
+            duration: Duration(minutes: 10),
+          ),
+          AudioPlaybackChapter(
+            id: 'live-chapter-2',
+            index: 1,
+            title: 'Глава 2',
+            duration: Duration(minutes: 10),
+          ),
+        ],
+      ),
+      chapterIndex: 1,
+      position: const Duration(minutes: 2),
+    );
+    final libraryStore = LibraryStore(MemoryLibraryPersistenceStore());
+    await libraryStore.toggleFavorite(
+      const AudioBook(
+        id: 'izib-book-live-id',
+        sourceBookId: 'live-id',
+        title: 'Живой прогресс',
+        author: 'Автор',
+        narrator: 'Чтец',
+        sourceId: 'izib',
+        sourceName: 'Izib',
+        durationLabel: '20 мин',
+        chapterCount: 2,
+        progress: 0,
+        access: BookAccess.free,
+      ),
+    );
+    addTearDown(playbackController.dispose);
+
+    appRouter.go('/library');
+    tester.view.physicalSize = const Size(430, 932);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          playbackControllerProvider.overrideWith((ref) => playbackController),
+          libraryStoreProvider.overrideWith((ref) => libraryStore),
+          searchHistoryStoreProvider.overrideWith(
+            (ref) => MemorySearchHistoryStore(),
+          ),
+        ],
+        child: const SlovofonApp(),
+      ),
+    );
+    await _pumpFrames(tester);
+
+    expect(find.text('Живой прогресс'), findsWidgets);
+    expect(find.text('60%'), findsOneWidget);
   });
 
   testWidgets('search result treats partial completed downloads as resumable', (
@@ -652,6 +956,121 @@ void main() {
     expect(find.byTooltip('Delete downloaded'), findsNothing);
   });
 
+  testWidgets('search result cover shows saved listening progress', (
+    tester,
+  ) async {
+    final playbackController = PlaybackController(
+      engine: InMemoryAudioEngine(),
+    );
+    final sourceRegistry = SourceRegistry([_TwoChapterIzibSearchConnector()]);
+    final progressStore = _StaticPlaybackPersistenceStore([
+      PlaybackProgressSnapshot(
+        bookId: 'izib-book-2033',
+        bookVersionId: 'izib-2033',
+        currentChapterId: 'izib-2033-001',
+        currentPositionMs: 120000,
+        maxReachedGlobalPositionMs: 120000,
+        totalDurationMs: 600000,
+        listenedDurationMs: 120000,
+        percent: 20,
+        isFinished: false,
+        lastPlayedAt: DateTime(2026, 5, 29),
+      ),
+    ]);
+    addTearDown(playbackController.dispose);
+
+    appRouter.go('/search');
+    tester.view.physicalSize = const Size(430, 932);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sourceRegistryProvider.overrideWith((ref) => sourceRegistry),
+          playbackControllerProvider.overrideWith((ref) => playbackController),
+          playbackPersistenceStoreProvider.overrideWith((ref) => progressStore),
+          searchHistoryStoreProvider.overrideWith(
+            (ref) => MemorySearchHistoryStore(),
+          ),
+        ],
+        child: const SlovofonApp(),
+      ),
+    );
+    await _pumpFrames(tester);
+
+    await tester.showKeyboard(find.byType(TextField));
+    await tester.enterText(find.byType(TextField), 'метро');
+    await tester.tap(find.byKey(const ValueKey('search-submit')));
+    await _pumpFrames(tester, frames: 40);
+
+    expect(find.text('20%'), findsOneWidget);
+  });
+
+  testWidgets('search result matches Akniga download state by version id', (
+    tester,
+  ) async {
+    final playbackController = PlaybackController(
+      engine: InMemoryAudioEngine(),
+    );
+    final sourceRegistry = SourceRegistry([_SingleAknigaSearchConnector()]);
+    final downloadManager = _MemoryDownloadManager()
+      ..seedTask(
+        DownloadTask(
+          id: 'chapter:akniga-aleksandr-zorich-poluraspad-stalker-2010:chapter-1',
+          bookId: 'akniga-book-aleksandr-zorich-poluraspad-stalker-2010',
+          bookVersionId: 'akniga-aleksandr-zorich-poluraspad-stalker-2010',
+          chapterId: 'chapter-1',
+          sourceId: 'akniga',
+          type: DownloadTaskType.chapter,
+          status: DownloadTaskStatus.completed,
+          progress: 1,
+          downloadedBytes: 10,
+          totalBytes: 10,
+          createdAt: DateTime(2026, 5, 26),
+          updatedAt: DateTime(2026, 5, 26),
+        ),
+      );
+    addTearDown(playbackController.dispose);
+    addTearDown(downloadManager.dispose);
+
+    appRouter.go('/search');
+    tester.view.physicalSize = const Size(430, 932);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sourceRegistryProvider.overrideWith((ref) => sourceRegistry),
+          playbackControllerProvider.overrideWith((ref) => playbackController),
+          downloadManagerProvider.overrideWith((ref) => downloadManager),
+          searchHistoryStoreProvider.overrideWith(
+            (ref) => MemorySearchHistoryStore(),
+          ),
+        ],
+        child: const SlovofonApp(),
+      ),
+    );
+    await _pumpFrames(tester);
+
+    await tester.showKeyboard(find.byType(TextField));
+    await tester.enterText(find.byType(TextField), 'полураспад');
+    await tester.tap(find.byKey(const ValueKey('search-submit')));
+    await _pumpFrames(tester, frames: 40);
+
+    expect(find.text('Полураспад'), findsOneWidget);
+    expect(find.text('Зорич Александр'), findsOneWidget);
+    expect(find.text('Чайцын Александр'), findsOneWidget);
+    expect(find.text('S.T.A.L.K.E.R.'), findsOneWidget);
+    expect(find.text('4.6 из 5'), findsOneWidget);
+    expect(find.text('2010'), findsOneWidget);
+    expect(find.byTooltip('Delete downloaded'), findsOneWidget);
+    expect(find.byTooltip('Download'), findsNothing);
+  });
+
   testWidgets('source book details keeps chapters collapsed after first five', (
     tester,
   ) async {
@@ -689,6 +1108,160 @@ void main() {
     expect(find.text('Chapter 006'), findsOneWidget);
     expect(find.text('Chapter 007'), findsOneWidget);
     expect(find.text('Collapse chapters'), findsOneWidget);
+  });
+
+  testWidgets(
+    'source book details syncs actions and exposes source facts plus share links',
+    (tester) async {
+      final playbackController = PlaybackController(
+        engine: InMemoryAudioEngine(),
+      );
+      final sourceRegistry = SourceRegistry([_DetailedBookConnector()]);
+      final tempDir = Directory(
+        '${Directory.systemTemp.path}/slovofon-details-cache-${DateTime.now().microsecondsSinceEpoch}',
+      );
+      tempDir.createSync(recursive: true);
+      final downloadStorage = FileDownloadStorage(rootDirectory: tempDir);
+      final downloadManager = _MemoryDownloadManager(storage: downloadStorage);
+      final libraryStore = LibraryStore(MemoryLibraryPersistenceStore());
+      addTearDown(playbackController.dispose);
+      addTearDown(downloadManager.dispose);
+      addTearDown(() {
+        if (tempDir.existsSync()) {
+          tempDir.deleteSync(recursive: true);
+        }
+      });
+
+      appRouter.go('/source-book/izib/2033');
+      tester.view.physicalSize = const Size(430, 932);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            sourceRegistryProvider.overrideWith((ref) => sourceRegistry),
+            playbackControllerProvider.overrideWith((ref) {
+              return playbackController;
+            }),
+            downloadManagerProvider.overrideWith((ref) => downloadManager),
+            downloadStorageProvider.overrideWith((ref) => downloadStorage),
+            libraryStoreProvider.overrideWith((ref) => libraryStore),
+          ],
+          child: const SlovofonApp(),
+        ),
+      );
+      await _pumpFrames(tester, frames: 30);
+
+      expect(
+        find.byKey(const ValueKey('mobile-navigation-bar')),
+        findsOneWidget,
+      );
+      expect(find.text('Home'), findsOneWidget);
+      expect(find.text('Search'), findsOneWidget);
+      expect(find.text('Library'), findsOneWidget);
+      expect(find.text('Downloads'), findsOneWidget);
+      expect(find.text('Settings'), findsOneWidget);
+      expect(find.text('S.T.A.L.K.E.R. Дыхание зоны'), findsOneWidget);
+      expect(find.text('Николай Грошев'), findsOneWidget);
+      expect(find.text('Соавтор Второй'), findsOneWidget);
+      expect(find.text('Олег Шубин'), findsOneWidget);
+      expect(find.text('Тимофей Зобнин'), findsOneWidget);
+      expect(find.text('Велес #1'), findsOneWidget);
+      expect(find.text('4.3 из 5'), findsOneWidget);
+      expect(find.text('Source page'), findsOneWidget);
+      expect(find.text('https://izib.uk/art2033'), findsOneWidget);
+      expect(find.text('Genre'), findsOneWidget);
+      expect(find.text('Фантастика, S.T.A.L.K.E.R.'), findsOneWidget);
+      expect(find.text('Source stats'), findsOneWidget);
+      expect(find.text('12 843'), findsOneWidget);
+      expect(find.text('412'), findsOneWidget);
+      expect(find.text('21'), findsOneWidget);
+      expect(find.text('Availability'), findsNothing);
+      expect(find.text('Progress'), findsNothing);
+
+      expect(find.textContaining('финальная часть описания'), findsNothing);
+      await tester.tap(find.text('Show full description'));
+      await _pumpFrames(tester, frames: 4);
+      expect(find.textContaining('финальная часть описания'), findsOneWidget);
+      expect(find.text('Hide description'), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('source-details-favorite')));
+      await _pumpFrames(tester, frames: 8);
+      expect(find.byTooltip('Remove from favorites'), findsOneWidget);
+      expect(libraryStore.favorites.single.book.sourceBookId, '2033');
+
+      await tester.tap(find.byKey(const ValueKey('source-details-download')));
+      await _pumpFrames(tester, frames: 20);
+      expect(downloadManager.tasks, hasLength(6));
+      expect(find.byTooltip('Cancel download'), findsWidgets);
+
+      await tester.tap(find.byKey(const ValueKey('source-details-share')));
+      await _pumpFrames(tester, frames: 4);
+      expect(find.text('Slovofon link'), findsOneWidget);
+      expect(find.text('Source link'), findsOneWidget);
+      expect(
+        find.text('slovofon://book?source=izib&book=2033'),
+        findsOneWidget,
+      );
+      await tester.tapAt(const Offset(12, 120));
+      await _pumpFrames(tester, frames: 8);
+      expect(find.text('Source link'), findsNothing);
+
+      await tester.tap(find.byKey(const ValueKey('source-details-play')));
+      await _pumpFrames(tester, frames: 20);
+      expect(playbackController.state.status, AudioPlaybackStatus.playing);
+      expect(playbackController.state.book?.sourceBookId, '2033');
+      expect(find.byTooltip('Pause'), findsWidgets);
+
+      await tester.tap(find.byKey(const ValueKey('source-details-play')));
+      await _pumpFrames(tester, frames: 8);
+      expect(playbackController.state.status, AudioPlaybackStatus.paused);
+      expect(find.byTooltip('Play'), findsWidgets);
+
+      await tester.tap(find.text('Николай Грошев'));
+      await _pumpFrames(tester, frames: 30);
+      expect(appRouter.state.uri.path, '/scoped-search');
+      expect(appRouter.state.uri.queryParameters['q'], 'Николай Грошев');
+      expect(appRouter.state.uri.queryParameters['kind'], 'author');
+      expect(appRouter.state.uri.queryParameters['run'], '1');
+
+      await tester.binding.handlePopRoute();
+      await _pumpFrames(tester, frames: 12);
+      expect(find.text('Book details'), findsOneWidget);
+      expect(find.text('S.T.A.L.K.E.R. Дыхание зоны'), findsWidgets);
+    },
+  );
+
+  testWidgets('runtime Slovofon link opens source book details', (
+    tester,
+  ) async {
+    final deepLinks = _TestDeepLinkSource();
+    final sourceRegistry = SourceRegistry([_DetailedBookConnector()]);
+
+    appRouter.go('/');
+    tester.view.physicalSize = const Size(430, 932);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(deepLinks.dispose);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sourceRegistryProvider.overrideWith((ref) => sourceRegistry),
+        ],
+        child: SlovofonApp(deepLinks: deepLinks),
+      ),
+    );
+    await _pumpFrames(tester, frames: 8);
+
+    deepLinks.open(Uri.parse('slovofon://book?source=izib&book=2033'));
+    await _pumpFrames(tester, frames: 30);
+
+    expect(appRouter.state.uri.path, '/source-book/izib/2033');
+    expect(find.text('S.T.A.L.K.E.R. Дыхание зоны'), findsOneWidget);
   });
 
   testWidgets('source book details returns to search with back and swipe', (
@@ -740,7 +1313,8 @@ void main() {
 
     await tester.binding.handlePopRoute();
     await _pumpFrames(tester, frames: 20);
-    expect(find.text('Search'), findsWidgets);
+    expect(find.text('1 results'), findsOneWidget);
+    expect(find.byType(TextField), findsNothing);
     expect(find.text('Метро 2033'), findsOneWidget);
 
     await tester.tap(find.text('Метро 2033').first);
@@ -951,6 +1525,249 @@ class _TwoChapterIzibSearchConnector implements SourceConnector {
   }
 }
 
+class _DuplicateTitleIzibConnector implements SourceConnector {
+  @override
+  String get id => 'izib';
+
+  @override
+  String get name => 'Izib';
+
+  @override
+  String get host => 'https://izib.uk';
+
+  @override
+  String get color => '#2F6FED';
+
+  @override
+  SourceCapabilities get capabilities => const SourceCapabilities(
+    supportsSearch: true,
+    supportsSearchByTitle: true,
+    supportsDetails: true,
+    supportsChapters: true,
+    supportsDirectAudio: true,
+  );
+
+  @override
+  SourceMediaPolicy get mediaPolicy =>
+      const SourceMediaPolicy(mediaHosts: {'audio.izib.uk'});
+
+  @override
+  Future<List<BookSearchResult>> search(SearchRequest request) async {
+    return [_duplicateResult('first-id'), _duplicateResult('second-id')];
+  }
+
+  BookSearchResult _duplicateResult(String sourceBookId) {
+    return BookSearchResult(
+      ref: SourceBookRef(sourceId: id, sourceBookId: sourceBookId),
+      sourceName: name,
+      title: 'Дубликат',
+      author: 'Николай Грошев',
+      narrator: 'Олег Шубин',
+      duration: const Duration(minutes: 10),
+      chapterCount: 1,
+      accessType: AccessType.free,
+    );
+  }
+
+  @override
+  Future<BookVersionDetails> getBookDetails(SourceBookRef ref) async {
+    final now = DateTime(2026, 5, 26);
+    return BookVersionDetails(
+      ref: ref,
+      version: BookVersion(
+        id: 'izib-${ref.sourceBookId}',
+        bookId: 'izib-book-${ref.sourceBookId}',
+        sourceId: id,
+        sourceBookId: ref.sourceBookId,
+        title: 'Дубликат',
+        normalizedTitle: 'дубликат',
+        authors: const ['Николай Грошев'],
+        narrators: const ['Олег Шубин'],
+        durationText: '10 мин',
+        accessType: AccessType.free,
+        playbackAccess: PlaybackAccess.streamAndDownload,
+        canStream: true,
+        canDownload: true,
+        createdAt: now,
+        updatedAt: now,
+      ),
+    );
+  }
+
+  @override
+  Future<List<Chapter>> getChapters(SourceBookRef ref) async {
+    final now = DateTime(2026, 5, 26);
+    return [
+      Chapter(
+        id: '${ref.sourceBookId}-chapter-1',
+        bookVersionId: 'izib-${ref.sourceBookId}',
+        sourceId: id,
+        sourceBookId: ref.sourceBookId,
+        index: 0,
+        title: 'Глава 1',
+        normalizedTitle: 'глава 1',
+        durationMs: 10 * 60 * 1000,
+        streamRef: 'https://audio.izib.uk/books/${ref.sourceBookId}/001.mp3',
+        createdAt: now,
+        updatedAt: now,
+      ),
+    ];
+  }
+
+  @override
+  Future<List<AudioTrack>> getAudioTracks(SourceBookRef ref) async {
+    return const [];
+  }
+
+  @override
+  Future<ResolvedMedia> resolveMedia(
+    Chapter chapter,
+    MediaResolvePurpose purpose,
+  ) async {
+    return ResolvedMedia(
+      sourceId: id,
+      sourceBookId: chapter.sourceBookId,
+      chapterId: chapter.id,
+      mediaSource: AudioMediaSource.url(Uri.parse(chapter.streamRef!)),
+      originalUri: Uri.parse(chapter.streamRef!),
+      resolvedAt: DateTime(2026, 5, 26),
+      supportsRange: true,
+    );
+  }
+
+  @override
+  Future<SourceHealth> checkHealth() async {
+    return SourceHealth.working(sourceId: id);
+  }
+}
+
+class _TwoChapterResumeConnector implements SourceConnector {
+  @override
+  String get id => 'izib';
+
+  @override
+  String get name => 'Izib';
+
+  @override
+  String get host => 'https://izib.uk';
+
+  @override
+  String get color => '#2F6FED';
+
+  @override
+  SourceCapabilities get capabilities => const SourceCapabilities(
+    supportsSearch: true,
+    supportsSearchByTitle: true,
+    supportsDetails: true,
+    supportsChapters: true,
+    supportsDirectAudio: true,
+  );
+
+  @override
+  SourceMediaPolicy get mediaPolicy =>
+      const SourceMediaPolicy(mediaHosts: {'audio.izib.uk'});
+
+  @override
+  Future<List<BookSearchResult>> search(SearchRequest request) async {
+    return [
+      BookSearchResult(
+        ref: const SourceBookRef(sourceId: 'izib', sourceBookId: 'resume-id'),
+        sourceName: name,
+        title: 'Продолжить',
+        author: 'Автор',
+        narrator: 'Чтец',
+        duration: const Duration(minutes: 20),
+        chapterCount: 2,
+        accessType: AccessType.free,
+      ),
+    ];
+  }
+
+  @override
+  Future<BookVersionDetails> getBookDetails(SourceBookRef ref) async {
+    final now = DateTime(2026, 5, 26);
+    return BookVersionDetails(
+      ref: ref,
+      version: BookVersion(
+        id: 'izib-resume-id',
+        bookId: 'izib-book-resume-id',
+        sourceId: id,
+        sourceBookId: ref.sourceBookId,
+        title: 'Продолжить',
+        normalizedTitle: 'продолжить',
+        authors: const ['Автор'],
+        narrators: const ['Чтец'],
+        durationText: '20 мин',
+        accessType: AccessType.free,
+        playbackAccess: PlaybackAccess.streamAndDownload,
+        canStream: true,
+        canDownload: true,
+        createdAt: now,
+        updatedAt: now,
+      ),
+    );
+  }
+
+  @override
+  Future<List<Chapter>> getChapters(SourceBookRef ref) async {
+    final now = DateTime(2026, 5, 26);
+    return [
+      Chapter(
+        id: 'resume-chapter-1',
+        bookVersionId: 'izib-resume-id',
+        sourceId: id,
+        sourceBookId: ref.sourceBookId,
+        index: 0,
+        title: 'Глава 1',
+        normalizedTitle: 'глава 1',
+        durationMs: 10 * 60 * 1000,
+        streamRef: 'https://audio.izib.uk/books/resume/001.mp3',
+        createdAt: now,
+        updatedAt: now,
+      ),
+      Chapter(
+        id: 'resume-chapter-2',
+        bookVersionId: 'izib-resume-id',
+        sourceId: id,
+        sourceBookId: ref.sourceBookId,
+        index: 1,
+        title: 'Глава 2',
+        normalizedTitle: 'глава 2',
+        durationMs: 10 * 60 * 1000,
+        streamRef: 'https://audio.izib.uk/books/resume/002.mp3',
+        createdAt: now,
+        updatedAt: now,
+      ),
+    ];
+  }
+
+  @override
+  Future<List<AudioTrack>> getAudioTracks(SourceBookRef ref) async {
+    return const [];
+  }
+
+  @override
+  Future<ResolvedMedia> resolveMedia(
+    Chapter chapter,
+    MediaResolvePurpose purpose,
+  ) async {
+    return ResolvedMedia(
+      sourceId: id,
+      sourceBookId: chapter.sourceBookId,
+      chapterId: chapter.id,
+      mediaSource: AudioMediaSource.url(Uri.parse(chapter.streamRef!)),
+      originalUri: Uri.parse(chapter.streamRef!),
+      resolvedAt: DateTime(2026, 5, 26),
+      supportsRange: true,
+    );
+  }
+
+  @override
+  Future<SourceHealth> checkHealth() async {
+    return SourceHealth.working(sourceId: id);
+  }
+}
+
 class QueueIzibTransport implements IzibGraphQlTransport {
   QueueIzibTransport(this.responses, {this.responseDelay = Duration.zero});
 
@@ -973,6 +1790,82 @@ class QueueIzibTransport implements IzibGraphQlTransport {
       statusCode: 200,
       body: responses.removeAt(0),
     );
+  }
+}
+
+class _SingleAknigaSearchConnector implements SourceConnector {
+  @override
+  String get id => 'akniga';
+
+  @override
+  String get name => 'Akniga';
+
+  @override
+  String get host => 'https://akniga.org';
+
+  @override
+  String get color => '#247a4d';
+
+  @override
+  SourceCapabilities get capabilities =>
+      const SourceCapabilities(supportsSearch: true);
+
+  @override
+  SourceMediaPolicy get mediaPolicy =>
+      const SourceMediaPolicy(mediaHosts: {'akniga.club'});
+
+  @override
+  Future<List<BookSearchResult>> search(SearchRequest request) async {
+    return [
+      BookSearchResult(
+        ref: SourceBookRef(
+          sourceId: id,
+          sourceBookId: 'aleksandr-zorich-poluraspad-stalker-2010',
+          sourceUri: Uri.parse(
+            'https://akniga.org/aleksandr-zorich-poluraspad-stalker-2010',
+          ),
+        ),
+        sourceName: name,
+        title: 'Полураспад',
+        author: 'Зорич Александр',
+        narrator: 'Чайцын Александр',
+        series: 'S.T.A.L.K.E.R.',
+        duration: const Duration(hours: 11, minutes: 49),
+        year: 2010,
+        ratingValue: 4.6,
+        ratingCount: 62,
+        chapterCount: 1,
+        accessType: AccessType.free,
+      ),
+    ];
+  }
+
+  @override
+  Future<BookVersionDetails> getBookDetails(SourceBookRef ref) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<List<Chapter>> getChapters(SourceBookRef ref) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<List<AudioTrack>> getAudioTracks(SourceBookRef ref) async {
+    return const [];
+  }
+
+  @override
+  Future<ResolvedMedia> resolveMedia(
+    Chapter chapter,
+    MediaResolvePurpose purpose,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SourceHealth> checkHealth() async {
+    return SourceHealth.working(sourceId: id);
   }
 }
 
@@ -1070,6 +1963,151 @@ class _ManyChaptersSourceConnector implements SourceConnector {
   }
 }
 
+class _DetailedBookConnector implements SourceConnector {
+  @override
+  String get id => 'izib';
+
+  @override
+  String get name => 'Izib';
+
+  @override
+  String get host => 'https://izib.uk';
+
+  @override
+  String get color => '#2F6FED';
+
+  @override
+  SourceCapabilities get capabilities => const SourceCapabilities(
+    supportsDetails: true,
+    supportsChapters: true,
+    supportsDirectAudio: true,
+    supportsDownload: true,
+    supportsDescription: true,
+    supportsRating: true,
+  );
+
+  @override
+  SourceMediaPolicy get mediaPolicy =>
+      const SourceMediaPolicy(mediaHosts: {'audio.izib.uk'});
+
+  @override
+  Future<List<BookSearchResult>> search(SearchRequest request) async {
+    return const [];
+  }
+
+  @override
+  Future<BookVersionDetails> getBookDetails(SourceBookRef ref) async {
+    final now = DateTime(2026, 5, 29);
+    return BookVersionDetails(
+      ref: ref,
+      version: BookVersion(
+        id: 'izib-2033',
+        bookId: 'izib-book-2033',
+        sourceId: id,
+        sourceBookId: '2033',
+        sourceUrl: 'https://izib.uk/art2033',
+        title: 'S.T.A.L.K.E.R. Дыхание зоны',
+        normalizedTitle: 'stalker дыхание зоны',
+        authors: const ['Николай Грошев', 'Соавтор Второй'],
+        narrators: const ['Олег Шубин', 'Тимофей Зобнин'],
+        seriesTitle: 'Велес',
+        seriesNumber: 1,
+        genres: const ['Фантастика', 'S.T.A.L.K.E.R.'],
+        description:
+            'Сталкеры возвращаются в Зону, где старые маршруты уже не работают. '
+            'Эта финальная часть описания должна быть скрыта до раскрытия.',
+        coverUrl: 'https://izib.uk/covers/zone.jpg',
+        durationMs: const Duration(hours: 18, minutes: 1).inMilliseconds,
+        durationText: '18 ч 1 мин',
+        publishedYear: 2019,
+        ratingValue: 4.3,
+        ratingCount: 433,
+        accessType: AccessType.free,
+        playbackAccess: PlaybackAccess.streamAndDownload,
+        isFull: true,
+        isAccessibleForFree: true,
+        canStream: true,
+        canDownload: true,
+        rawSourceDataJson: jsonEncode({
+          'views': 12843,
+          'likes': 412,
+          'dislikes': 21,
+        }),
+        createdAt: now,
+        updatedAt: now,
+      ),
+    );
+  }
+
+  @override
+  Future<List<Chapter>> getChapters(SourceBookRef ref) async {
+    final now = DateTime(2026, 5, 29);
+    return [
+      for (var index = 1; index <= 6; index++)
+        Chapter(
+          id: 'izib-2033-chapter-$index',
+          bookVersionId: 'izib-2033',
+          sourceId: id,
+          sourceBookId: '2033',
+          sourceChapterId: '$index',
+          index: index,
+          title: 'Глава ${index.toString().padLeft(2, '0')}',
+          normalizedTitle: 'глава $index',
+          durationMs: const Duration(minutes: 10).inMilliseconds,
+          streamRef: 'https://audio.izib.uk/books/2033/$index.mp3',
+          createdAt: now,
+          updatedAt: now,
+        ),
+    ];
+  }
+
+  @override
+  Future<List<AudioTrack>> getAudioTracks(SourceBookRef ref) async {
+    return const [];
+  }
+
+  @override
+  Future<ResolvedMedia> resolveMedia(
+    Chapter chapter,
+    MediaResolvePurpose purpose,
+  ) async {
+    return ResolvedMedia(
+      sourceId: id,
+      sourceBookId: chapter.sourceBookId,
+      chapterId: chapter.id,
+      mediaSource: AudioMediaSource.url(Uri.parse(chapter.streamRef!)),
+      originalUri: Uri.parse(chapter.streamRef!),
+      resolvedAt: DateTime(2026, 5, 29),
+      supportsRange: true,
+    );
+  }
+
+  @override
+  Future<SourceHealth> checkHealth() async {
+    return SourceHealth.working(sourceId: id);
+  }
+}
+
+class _TestDeepLinkSource implements AppDeepLinkSource {
+  final _controller = StreamController<Uri>.broadcast();
+
+  @override
+  Future<Uri?> getInitialLink() async {
+    return null;
+  }
+
+  @override
+  Stream<Uri> get links => _controller.stream;
+
+  void open(Uri uri) {
+    _controller.add(uri);
+  }
+
+  void dispose() {
+    _controller.close();
+  }
+}
+
 class _NoopDownloadClient implements DownloadClient {
   @override
   Future<DownloadClientResponse> open(
@@ -1089,14 +2127,16 @@ class _NoopDownloadClient implements DownloadClient {
 }
 
 class _MemoryDownloadManager extends DownloadManager {
-  _MemoryDownloadManager()
+  _MemoryDownloadManager({FileDownloadStorage? storage})
     : super(
         client: _NoopDownloadClient(),
-        storage: FileDownloadStorage(
-          rootDirectory: Directory(
-            '${Directory.systemTemp.path}/slovofon-stage7-memory-downloads',
-          ),
-        ),
+        storage:
+            storage ??
+            FileDownloadStorage(
+              rootDirectory: Directory(
+                '${Directory.systemTemp.path}/slovofon-stage7-memory-downloads',
+              ),
+            ),
         persistence: MemoryDownloadPersistenceStore(),
       );
 
@@ -1214,4 +2254,29 @@ Future<void> _pumpFrames(
 
 String _fixtureText(String name) {
   return File('test/sources/izib/fixtures/$name').readAsStringSync();
+}
+
+class _StaticPlaybackPersistenceStore implements PlaybackPersistenceStore {
+  _StaticPlaybackPersistenceStore(this.progress);
+
+  final List<PlaybackProgressSnapshot> progress;
+  final savedSessions = <PlaybackSession>[];
+
+  @override
+  Future<PlaybackSession?> loadSession({String id = 'active'}) async {
+    return savedSessions.where((session) => session.id == id).lastOrNull;
+  }
+
+  @override
+  Future<List<PlaybackProgressSnapshot>> loadProgress() async {
+    return progress;
+  }
+
+  @override
+  Future<void> saveProgress(PlaybackProgressSnapshot progress) async {}
+
+  @override
+  Future<void> saveSession(PlaybackSession session) async {
+    savedSessions.add(session);
+  }
 }

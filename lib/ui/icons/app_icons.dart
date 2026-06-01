@@ -28,6 +28,10 @@ abstract final class AppIconAssets {
   static const bookSubscription = 'assets/icons/book/subscription.svg';
   static const bookUnknownAccess = 'assets/icons/book/unknown_access.svg';
 
+  static const sourceViews = 'assets/icons/source/views.svg';
+  static const sourceLikes = 'assets/icons/source/likes.svg';
+  static const sourceDislikes = 'assets/icons/source/dislikes.svg';
+
   static const playerPlay = 'assets/icons/player/play.svg';
   static const playerAudio = 'assets/icons/player/audio.svg';
   static const playerPause = 'assets/icons/player/pause.svg';
@@ -69,6 +73,9 @@ abstract final class AppIconAssets {
   static const systemCheck = 'assets/icons/system/check.svg';
   static const systemWarning = 'assets/icons/system/warning.svg';
   static const systemInfo = 'assets/icons/system/info.svg';
+  static const systemCache = 'assets/icons/system/cache.svg';
+  static const systemGithub = 'assets/icons/system/github.svg';
+  static const systemTelegram = 'assets/icons/system/telegram.svg';
   static const systemNotification = 'assets/icons/system/notification.svg';
   static const systemProxy = 'assets/icons/system/proxy.svg';
   static const systemTheme = 'assets/icons/system/theme.svg';

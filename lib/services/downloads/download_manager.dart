@@ -13,7 +13,7 @@ class DownloadManager extends ChangeNotifier {
     required FileDownloadStorage storage,
     required DownloadPersistenceStore persistence,
     DateTime Function()? clock,
-    int maxConcurrentDownloads = 2,
+    int maxConcurrentDownloads = 3,
   }) : _client = client,
        _storage = storage,
        _persistence = persistence,
@@ -56,9 +56,42 @@ class DownloadManager extends ChangeNotifier {
     }
   }
 
+  Future<void> cacheBookMetadata(AudioPlaybackBook book) async {
+    await _storage.writeMetadata(book);
+    attachBookContext(book);
+    for (final task in _tasks.values) {
+      if (!_taskMatchesBook(task, book)) {
+        continue;
+      }
+      final chapter = _chapterForTask(book, task);
+      if (chapter == null) {
+        continue;
+      }
+      _jobs[task.id] = _DownloadJob(book: book, chapter: chapter);
+    }
+    _notify();
+  }
+
   DownloadTask? taskForChapter(String chapterId) {
     for (final task in _tasks.values) {
       if (task.chapterId == chapterId) {
+        return task;
+      }
+    }
+    return null;
+  }
+
+  DownloadTask? taskForBookChapter(
+    AudioPlaybackBook book,
+    AudioPlaybackChapter chapter,
+  ) {
+    final exactTask = _tasks[_taskId(book, chapter)];
+    if (exactTask != null) {
+      return exactTask;
+    }
+
+    for (final task in _tasks.values) {
+      if (task.chapterId == chapter.id && _taskMatchesBook(task, book)) {
         return task;
       }
     }
@@ -376,6 +409,15 @@ class DownloadManager extends ChangeNotifier {
     return null;
   }
 
+  bool _taskMatchesBook(DownloadTask task, AudioPlaybackBook book) {
+    if (task.sourceId != book.sourceId) {
+      return false;
+    }
+    return task.bookId == book.id ||
+        task.bookVersionId == book.versionId ||
+        (book.sourceBookId != null && task.bookVersionId == book.sourceBookId);
+  }
+
   DownloadTask? _nextQueuedTask() {
     final queued =
         _tasks.values
@@ -425,27 +467,40 @@ class DownloadManager extends ChangeNotifier {
 
       var downloaded = response.shouldAppend ? startByte : 0;
       final total = response.totalBytes;
+      var lastProgressSaveAt = startedAt;
+      var lastProgressSaveBytes = downloaded;
       try {
         await for (final chunk in response.bytes) {
           if (token.isCanceled) {
             break;
           }
           sink.add(chunk);
-          await sink.flush();
           downloaded += chunk.length;
-          await _saveTask(
-            _copyTask(
-              _tasks[taskId]!,
-              status: DownloadTaskStatus.running,
-              progress: _progress(downloaded, total),
-              downloadedBytes: downloaded,
-              totalBytes: total,
-              speedBytesPerSecond: _speed(downloaded, startedAt),
-              updatedAt: _clock(),
-            ),
-          );
+          final now = _clock();
+          if (_shouldSaveProgress(
+            downloadedBytes: downloaded,
+            totalBytes: total,
+            lastSavedBytes: lastProgressSaveBytes,
+            lastSavedAt: lastProgressSaveAt,
+            now: now,
+          )) {
+            await _saveTask(
+              _copyTask(
+                _tasks[taskId]!,
+                status: DownloadTaskStatus.running,
+                progress: _progress(downloaded, total),
+                downloadedBytes: downloaded,
+                totalBytes: total,
+                speedBytesPerSecond: _speed(downloaded, startedAt),
+                updatedAt: now,
+              ),
+            );
+            lastProgressSaveAt = now;
+            lastProgressSaveBytes = downloaded;
+          }
         }
       } finally {
+        await sink.flush();
         await sink.close();
       }
 
@@ -574,6 +629,24 @@ class DownloadManager extends ChangeNotifier {
       return 0;
     }
     return (downloadedBytes / totalBytes).clamp(0, 1).toDouble();
+  }
+
+  bool _shouldSaveProgress({
+    required int downloadedBytes,
+    required int? totalBytes,
+    required int lastSavedBytes,
+    required DateTime lastSavedAt,
+    required DateTime now,
+  }) {
+    const minBytesBetweenSaves = 1024 * 1024;
+    const minDurationBetweenSaves = Duration(seconds: 1);
+
+    final completed =
+        totalBytes != null && totalBytes > 0 && downloadedBytes >= totalBytes;
+    final enoughBytes =
+        downloadedBytes - lastSavedBytes >= minBytesBetweenSaves;
+    final enoughTime = now.difference(lastSavedAt) >= minDurationBetweenSaves;
+    return completed || enoughBytes || enoughTime;
   }
 
   int _speed(int downloadedBytes, DateTime startedAt) {

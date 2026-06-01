@@ -10,6 +10,7 @@ import 'audio_engine.dart';
 import 'just_audio_engine.dart';
 import 'playback_controller.dart';
 import 'slovofon_audio_handler.dart';
+import '../downloads/download_manager_provider.dart';
 
 final audioEngineProvider = Provider<AudioEngine>((ref) {
   final engine = InMemoryAudioEngine();
@@ -23,12 +24,28 @@ final playbackPersistenceStoreProvider = Provider<PlaybackPersistenceStore?>((
   return null;
 });
 
+final playbackProgressSnapshotsProvider =
+    FutureProvider<List<PlaybackProgressSnapshot>>((ref) async {
+      final store = ref.watch(playbackPersistenceStoreProvider);
+      return store?.loadProgress() ?? const <PlaybackProgressSnapshot>[];
+    });
+
 final playbackControllerProvider = Provider<PlaybackController>((ref) {
   final service = PlaybackController(
     engine: ref.watch(audioEngineProvider),
     persistence: ref.watch(playbackPersistenceStoreProvider),
+    bookMetadataStore: ref.watch(downloadStorageProvider),
+    playbackBookResolver: (book) {
+      return ref.read(downloadStorageProvider).offlinePlaybackBook(book);
+    },
   );
+  final sleepTimerTicker = Timer.periodic(const Duration(seconds: 1), (_) {
+    if (service.state.isPlaying && service.state.sleepTimerRemaining != null) {
+      unawaited(service.tick(const Duration(seconds: 1)));
+    }
+  });
 
+  ref.onDispose(sleepTimerTicker.cancel);
   ref.onDispose(service.dispose);
   return service;
 });
@@ -55,6 +72,8 @@ Future<AudioEngine> createPlatformAudioEngine({
         androidNotificationChannelName: 'Slovofon playback',
         androidNotificationOngoing: true,
         androidStopForegroundOnPause: true,
+        fastForwardInterval: Duration(seconds: 30),
+        rewindInterval: Duration(seconds: 30),
       ),
     );
 

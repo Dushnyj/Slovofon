@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../app/theme/app_color_tokens.dart';
 import 'download_action_button.dart';
 
 class ChapterTile extends StatelessWidget {
@@ -31,10 +32,11 @@ class ChapterTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final tokens = Theme.of(context).extension<AppColorTokens>()!;
     final boundedProgress = progress.clamp(0, 1).toDouble();
 
     return Card(
-      color: isCurrent ? colorScheme.secondaryContainer : null,
+      color: isCurrent ? tokens.selected : null,
       child: InkWell(
         borderRadius: BorderRadius.circular(8),
         onTap: onTap,
@@ -42,11 +44,35 @@ class ChapterTile extends StatelessWidget {
           padding: const EdgeInsets.all(12),
           child: Row(
             children: [
-              CircleAvatar(
-                radius: 18,
-                backgroundColor: colorScheme.primaryContainer,
-                foregroundColor: colorScheme.onPrimaryContainer,
-                child: Text('$index'),
+              SizedBox.square(
+                dimension: 38,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: isCurrent
+                        ? colorScheme.primary
+                        : colorScheme.primaryContainer,
+                  ),
+                  child: Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(5),
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          '$index',
+                          maxLines: 1,
+                          style: Theme.of(context).textTheme.labelLarge
+                              ?.copyWith(
+                                color: isCurrent
+                                    ? colorScheme.onPrimary
+                                    : colorScheme.onPrimaryContainer,
+                                fontWeight: FontWeight.w700,
+                              ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(

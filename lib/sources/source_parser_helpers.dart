@@ -2,7 +2,11 @@ class SourceParserHelpers {
   const SourceParserHelpers._();
 
   static String normalizeWhitespace(String input) {
-    return input.replaceAll(RegExp(r'[\s\u00A0]+'), ' ').trim();
+    final withoutFormatMarks = input.replaceAll(
+      RegExp(r'[\u200B-\u200D\uFE0E\uFE0F\uFEFF]'),
+      '',
+    );
+    return withoutFormatMarks.replaceAll(RegExp(r'[\s\u00A0]+'), ' ').trim();
   }
 
   static String normalizeTitle(String input) {
@@ -32,6 +36,15 @@ class SourceParserHelpers {
     }
 
     return int.tryParse(match.group(2)!);
+  }
+
+  static double? parseSeriesNumber(String input) {
+    final normalized = normalizeWhitespace(input).replaceAll(',', '.');
+    final match = RegExp(r'\d+(?:\.\d+)*').firstMatch(normalized);
+    if (match == null) {
+      return null;
+    }
+    return double.tryParse(match.group(0)!);
   }
 
   static Duration? parseDuration(String input) {

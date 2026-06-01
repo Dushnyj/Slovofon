@@ -41,6 +41,14 @@ class MemorySearchHistoryStore extends SearchHistoryStore {
     return load();
   }
 
+  @override
+  Future<List<SearchHistoryEntry>> delete(String query, SearchKind kind) async {
+    _entries.removeWhere(
+      (entry) => _key(entry.query, entry.kind) == _key(query, kind),
+    );
+    return load();
+  }
+
   String _key(String query, SearchKind kind) {
     return '${kind.name}:${query.trim().toLowerCase()}';
   }

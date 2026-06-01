@@ -67,6 +67,24 @@ class LibraryStore extends ChangeNotifier {
     return nextFavorite;
   }
 
+  Future<void> refreshFavoriteMetadata(AudioBook book) async {
+    await load();
+    final key = _bookKey(book);
+    final current = _entries[key];
+    if (current == null || !current.isFavorite) {
+      return;
+    }
+
+    final refreshed = LibraryBookEntry(
+      book: book,
+      isFavorite: true,
+      updatedAt: current.updatedAt,
+    );
+    await _persistence.saveFavorite(refreshed);
+    _entries[key] = refreshed;
+    notifyListeners();
+  }
+
   static String _bookKey(AudioBook book) {
     return '${book.sourceId}:${book.sourceBookId ?? book.id}';
   }

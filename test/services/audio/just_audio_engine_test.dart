@@ -41,7 +41,10 @@ void main() {
         const Duration(seconds: 42),
       );
       expect(adapter.speedValues, [1.25]);
-      expect(adapter.seekPositions, [const Duration(minutes: 2)]);
+      expect(adapter.seekPositions, [
+        const Duration(seconds: 42),
+        const Duration(minutes: 2),
+      ]);
       expect(adapter.playCount, 1);
       expect(adapter.pauseCount, 1);
     });
@@ -61,6 +64,76 @@ void main() {
       );
     });
 
+    test(
+      'emits requested playback state immediately for play and pause',
+      () async {
+        final adapter = RecordingJustAudioPlayerAdapter();
+        final engine = JustAudioEngine(player: adapter);
+        final snapshots = <AudioEngineSnapshot>[];
+        final subscription = engine.snapshots.listen(snapshots.add);
+
+        await engine.play();
+        await Future<void>.delayed(Duration.zero);
+
+        expect(adapter.playCount, 1);
+        expect(snapshots.last.isPlaying, isTrue);
+
+        await engine.pause();
+        await Future<void>.delayed(Duration.zero);
+
+        expect(adapter.pauseCount, 1);
+        expect(snapshots.last.isPlaying, isFalse);
+
+        await subscription.cancel();
+      },
+    );
+
+    test('forwards runtime duration discovered by the player', () async {
+      final adapter = RecordingJustAudioPlayerAdapter();
+      final engine = JustAudioEngine(player: adapter);
+      final snapshots = <AudioEngineSnapshot>[];
+      final subscription = engine.snapshots.listen(snapshots.add);
+      final chapter = AudioPlaybackChapter(
+        id: 'chapter-1',
+        index: 1,
+        title: 'Глава 1',
+        duration: Duration.zero,
+        mediaSource: AudioMediaSource.url(
+          Uri.parse('https://media.example.test/chapter-1.mp3'),
+        ),
+      );
+
+      await engine.load(chapter, position: Duration.zero);
+      adapter.emitDuration(const Duration(minutes: 11, seconds: 30));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(snapshots.last.duration, const Duration(minutes: 11, seconds: 30));
+
+      await subscription.cancel();
+    });
+
+    test('coalesces high frequency position ticks', () async {
+      final adapter = RecordingJustAudioPlayerAdapter();
+      final engine = JustAudioEngine(player: adapter);
+      final snapshots = <AudioEngineSnapshot>[];
+      final subscription = engine.snapshots.listen(snapshots.add);
+
+      adapter.emitPosition(Duration.zero);
+      adapter.emitPosition(const Duration(milliseconds: 160));
+      adapter.emitPosition(const Duration(milliseconds: 420));
+      adapter.emitPosition(const Duration(milliseconds: 740));
+      adapter.emitPosition(const Duration(milliseconds: 990));
+      adapter.emitPosition(const Duration(seconds: 1));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(snapshots.map((snapshot) => snapshot.position), [
+        Duration.zero,
+        const Duration(seconds: 1),
+      ]);
+
+      await subscription.cancel();
+    });
+
     test('disposes the adapter only once when disposed repeatedly', () async {
       final adapter = RecordingJustAudioPlayerAdapter();
       final engine = JustAudioEngine(player: adapter);
@@ -75,6 +148,7 @@ void main() {
 
 class RecordingJustAudioPlayerAdapter implements JustAudioPlayerAdapter {
   final _positions = StreamController<Duration>.broadcast();
+  final _durations = StreamController<Duration?>.broadcast();
   final _snapshots = StreamController<JustAudioAdapterSnapshot>.broadcast();
   final requests = <AudioLoadRequest>[];
   final speedValues = <double>[];
@@ -88,13 +162,25 @@ class RecordingJustAudioPlayerAdapter implements JustAudioPlayerAdapter {
   Stream<JustAudioAdapterSnapshot> get playbackSnapshots => _snapshots.stream;
 
   @override
+  Stream<Duration?> get durationStream => _durations.stream;
+
+  @override
   Stream<Duration> get positionStream => _positions.stream;
+
+  void emitDuration(Duration? duration) {
+    _durations.add(duration);
+  }
+
+  void emitPosition(Duration position) {
+    _positions.add(position);
+  }
 
   @override
   Future<void> dispose() async {
     disposeCount++;
     disposed = true;
     await _positions.close();
+    await _durations.close();
     await _snapshots.close();
   }
 

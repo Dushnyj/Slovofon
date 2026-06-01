@@ -171,29 +171,49 @@ class AknigaSourceConnector implements SourceConnector {
   }
 
   Future<String> _bookHtml(SourceBookRef ref) {
-    return _bookHtmlCache.putIfAbsent(ref.sourceBookId, () {
-      return _client.bookHtml(ref);
+    final cached = _bookHtmlCache[ref.sourceBookId];
+    if (cached != null) {
+      return cached;
+    }
+    late final Future<String> future;
+    future = _client.bookHtml(ref).catchError((Object error) {
+      _bookHtmlCache.remove(ref.sourceBookId);
+      throw error;
     });
+    _bookHtmlCache[ref.sourceBookId] = future;
+    return future;
   }
 
   Future<List<Map<String, Object?>>> _tracks(SourceBookRef ref, String html) {
-    return _tracksCache.putIfAbsent(ref.sourceBookId, () async {
-      final bid = _mapper.bookIdFromHtml(html);
-      if (bid.isEmpty) {
-        throw const SourceException(
-          sourceId: 'akniga',
-          kind: SourceErrorKind.parser,
-          message: 'Akniga book has no ajax/bid id.',
-        );
-      }
-      final referer =
-          ref.sourceUri ?? AknigaMapper.sourceBaseUri.resolve(ref.sourceBookId);
-      return _client.ajaxBidTracks(
-        bookId: bid,
-        referer: referer,
-        securityKey: _securityKeyFromBookHtml(html),
-      );
-    });
+    final cached = _tracksCache[ref.sourceBookId];
+    if (cached != null) {
+      return cached;
+    }
+    late final Future<List<Map<String, Object?>>> future;
+    future =
+        (() async {
+          final bid = _mapper.bookIdFromHtml(html);
+          if (bid.isEmpty) {
+            throw const SourceException(
+              sourceId: 'akniga',
+              kind: SourceErrorKind.parser,
+              message: 'Akniga book has no ajax/bid id.',
+            );
+          }
+          final referer =
+              ref.sourceUri ??
+              AknigaMapper.sourceBaseUri.resolve(ref.sourceBookId);
+          return _client.ajaxBidTracks(
+            bookId: bid,
+            referer: referer,
+            securityKey: _securityKeyFromBookHtml(html),
+          );
+        })().catchError((Object error) {
+          _tracksCache.remove(ref.sourceBookId);
+          throw error;
+        });
+    _tracksCache[ref.sourceBookId] = future;
+    return future;
   }
 
   String? _securityKeyFromBookHtml(String html) {

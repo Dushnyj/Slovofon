@@ -20,6 +20,7 @@ class DownloadActionButton extends StatelessWidget {
     this.progress = 0,
     this.isResolving = false,
     this.size = 44,
+    this.buttonKey,
     super.key,
   });
 
@@ -28,6 +29,7 @@ class DownloadActionButton extends StatelessWidget {
   final double progress;
   final bool isResolving;
   final double size;
+  final Key? buttonKey;
 
   @override
   Widget build(BuildContext context) {
@@ -38,6 +40,7 @@ class DownloadActionButton extends StatelessWidget {
       return Tooltip(
         message: strings.download,
         child: SizedBox.square(
+          key: buttonKey,
           dimension: size,
           child: Center(
             child: SizedBox.square(
@@ -59,6 +62,7 @@ class DownloadActionButton extends StatelessWidget {
       final isIndeterminate =
           state == BookCardDownloadState.downloading && boundedProgress <= 0;
       return SizedBox.square(
+        key: buttonKey,
         dimension: size,
         child: Stack(
           alignment: Alignment.center,
@@ -78,6 +82,7 @@ class DownloadActionButton extends StatelessWidget {
               onPressed: onPressed,
               iconSize: 18,
               buttonSize: size,
+              buttonKey: buttonKey,
               foregroundColor: colorScheme.error,
             ),
           ],
@@ -90,6 +95,7 @@ class DownloadActionButton extends StatelessWidget {
       iconAsset: _icon(state),
       onPressed: onPressed,
       buttonSize: size,
+      buttonKey: buttonKey,
       foregroundColor: _foreground(colorScheme, state),
     );
   }

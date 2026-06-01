@@ -2,7 +2,7 @@ import '../domain/models/book.dart';
 import '../domain/models/book_version.dart';
 import '../services/audio/audio_state.dart';
 
-enum SearchKind { all, title, author, narrator, series }
+enum SearchKind { all, title, author, narrator, series, genre }
 
 enum MediaResolvePurpose { playback, download, probe }
 
@@ -34,6 +34,7 @@ class SearchRequest {
   const SearchRequest({
     required this.query,
     this.kind = SearchKind.all,
+    this.kinds = const {},
     this.page = 1,
     this.pageSize = 20,
     this.sourceIds = const {},
@@ -41,9 +42,27 @@ class SearchRequest {
 
   final String query;
   final SearchKind kind;
+  final Set<SearchKind> kinds;
   final int page;
   final int pageSize;
   final Set<String> sourceIds;
+
+  Set<SearchKind> get effectiveKinds {
+    final selected = kinds.where((kind) => kind != SearchKind.all).toSet();
+    if (selected.isNotEmpty) {
+      return Set.unmodifiable(selected);
+    }
+    if (kind == SearchKind.all) {
+      return const {
+        SearchKind.title,
+        SearchKind.author,
+        SearchKind.narrator,
+        SearchKind.series,
+        SearchKind.genre,
+      };
+    }
+    return {kind};
+  }
 
   bool allowsSource(String sourceId) {
     return sourceIds.isEmpty || sourceIds.contains(sourceId);
@@ -52,6 +71,7 @@ class SearchRequest {
   SearchRequest copyWith({
     String? query,
     SearchKind? kind,
+    Set<SearchKind>? kinds,
     int? page,
     int? pageSize,
     Set<String>? sourceIds,
@@ -59,6 +79,7 @@ class SearchRequest {
     return SearchRequest(
       query: query ?? this.query,
       kind: kind ?? this.kind,
+      kinds: kinds ?? this.kinds,
       page: page ?? this.page,
       pageSize: pageSize ?? this.pageSize,
       sourceIds: sourceIds ?? this.sourceIds,
@@ -86,6 +107,8 @@ class BookSearchResult {
     this.author,
     this.narrator,
     this.series,
+    this.seriesNumber,
+    this.genres = const [],
     this.coverUri,
     this.duration,
     this.year,
@@ -94,6 +117,8 @@ class BookSearchResult {
     this.isFull,
     this.isFree,
     this.accessType = AccessType.unknown,
+    this.ratingValue,
+    this.ratingCount,
     this.score,
   });
 
@@ -103,6 +128,8 @@ class BookSearchResult {
   final String? author;
   final String? narrator;
   final String? series;
+  final double? seriesNumber;
+  final List<String> genres;
   final Uri? coverUri;
   final Duration? duration;
   final int? year;
@@ -111,6 +138,8 @@ class BookSearchResult {
   final bool? isFull;
   final bool? isFree;
   final AccessType accessType;
+  final double? ratingValue;
+  final int? ratingCount;
   final double? score;
 
   String get sourceId => ref.sourceId;
@@ -122,11 +151,13 @@ class BookVersionDetails {
     required this.ref,
     required this.version,
     this.book,
+    this.alternatives = const [],
   });
 
   final SourceBookRef ref;
   final BookVersion version;
   final Book? book;
+  final List<BookSearchResult> alternatives;
 }
 
 class SourceCapabilities {

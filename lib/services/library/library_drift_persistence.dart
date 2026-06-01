@@ -63,6 +63,8 @@ class DriftLibraryPersistenceStore implements LibraryPersistenceStore {
               normalizedTitle: Value(_normalizeTitle(book.title)),
               displayTitle: Value(book.title),
               authorsJson: Value(jsonEncode(authors)),
+              seriesTitle: Value(book.seriesTitle),
+              seriesNumber: Value(book.seriesNumber),
               year: Value(book.year),
               bestCoverUrl: Value(book.coverUrl),
               bestDescription: Value(book.description),
@@ -82,10 +84,14 @@ class DriftLibraryPersistenceStore implements LibraryPersistenceStore {
               normalizedTitle: Value(_normalizeTitle(book.title)),
               authorsJson: Value(jsonEncode(authors)),
               narratorsJson: Value(jsonEncode(narrators)),
+              seriesTitle: Value(book.seriesTitle),
+              seriesNumber: Value(book.seriesNumber),
               description: Value(book.description),
               coverUrl: Value(book.coverUrl),
               durationText: Value(book.durationLabel),
               publishedYear: Value(book.year),
+              ratingValue: Value(book.ratingValue),
+              ratingCount: Value(book.ratingCount),
               accessType: Value(_accessTypeName(book.access)),
               playbackAccess: const Value('unknown'),
               rawSourceDataJson: Value(metadataJson),
@@ -129,6 +135,10 @@ class DriftLibraryPersistenceStore implements LibraryPersistenceStore {
       access: _bookAccess(version.accessType),
       coverUrl: version.coverUrl,
       description: version.description,
+      seriesTitle: version.seriesTitle,
+      seriesNumber: version.seriesNumber,
+      ratingValue: version.ratingValue,
+      ratingCount: version.ratingCount,
       year: version.publishedYear,
     );
   }
@@ -154,7 +164,11 @@ class DriftLibraryPersistenceStore implements LibraryPersistenceStore {
     if (trimmed.isEmpty) {
       return const [];
     }
-    return [trimmed];
+    return trimmed
+        .split(RegExp(r'\s*,\s*'))
+        .map((part) => part.trim())
+        .where((part) => part.isNotEmpty)
+        .toList();
   }
 
   List<String> _decodePeople(String jsonText) {

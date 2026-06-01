@@ -13,7 +13,40 @@ class SlovofonAudioHandler extends background_audio.BaseAudioHandler
   }
 
   final AudioEngine _engine;
+  static const _seekStep = Duration(seconds: 30);
+  static const _appName = 'Словофон';
+  static const _previousChapterControl = background_audio.MediaControl(
+    androidIcon: 'drawable/audio_service_previous',
+    label: 'Предыдущая глава',
+    action: background_audio.MediaAction.skipToPrevious,
+  );
+  static const _playControl = background_audio.MediaControl(
+    androidIcon: 'drawable/audio_service_play',
+    label: 'Воспроизвести',
+    action: background_audio.MediaAction.play,
+  );
+  static const _pauseControl = background_audio.MediaControl(
+    androidIcon: 'drawable/audio_service_pause',
+    label: 'Пауза',
+    action: background_audio.MediaAction.pause,
+  );
+  static const _rewind30Control = background_audio.MediaControl(
+    androidIcon: 'drawable/audio_service_rewind',
+    label: 'Перемотать назад',
+    action: background_audio.MediaAction.rewind,
+  );
+  static const _forward30Control = background_audio.MediaControl(
+    androidIcon: 'drawable/audio_service_forward',
+    label: 'Перемотать вперёд',
+    action: background_audio.MediaAction.fastForward,
+  );
+  static const _nextChapterControl = background_audio.MediaControl(
+    androidIcon: 'drawable/audio_service_next',
+    label: 'Следующая глава',
+    action: background_audio.MediaAction.skipToNext,
+  );
   late final StreamSubscription<AudioEngineSnapshot> _engineSubscription;
+  AudioEngineChapterNavigationCallbacks? _chapterNavigation;
   bool _disposed = false;
 
   Stream<AudioEngineSnapshot> get snapshots => _engine.snapshots;
@@ -27,12 +60,14 @@ class SlovofonAudioHandler extends background_audio.BaseAudioHandler
 
     mediaItem.add(
       background_audio.MediaItem(
-        id: chapter.id,
-        album: book.title,
-        title: chapter.title,
-        artist: book.author,
+        id: '${book.versionId}:${chapter.id}',
+        album: _appName,
+        title: book.title,
+        artist: _chapterNotificationTitle(chapter),
+        artUri: _artUri(book.coverUrl),
         displayTitle: book.title,
-        displaySubtitle: book.narrator,
+        displaySubtitle: _chapterNotificationTitle(chapter),
+        displayDescription: _appName,
         duration: chapter.duration,
         extras: {
           'bookId': book.id,
@@ -66,14 +101,59 @@ class SlovofonAudioHandler extends background_audio.BaseAudioHandler
 
   @override
   Future<void> seek(Duration position) async {
-    await _engine.seek(position);
-    playbackState.add(_state(updatePosition: position));
+    final target = _clampPosition(position);
+    await _engine.seek(target);
+    playbackState.add(_state(updatePosition: target));
   }
 
   @override
   Future<void> setSpeed(double speed) async {
     await _engine.setSpeed(speed);
     playbackState.add(_state(speed: speed));
+  }
+
+  @override
+  Future<void> rewind() async {
+    await seek(_currentPosition() - _seekStep);
+  }
+
+  @override
+  Future<void> fastForward() async {
+    await seek(_currentPosition() + _seekStep);
+  }
+
+  @override
+  Future<void> stop() async {
+    final position = _currentPosition();
+    await _engine.pause();
+    playbackState.add(
+      _state(
+        playing: false,
+        updatePosition: position,
+        processingState: background_audio.AudioProcessingState.idle,
+      ),
+    );
+    await super.stop();
+  }
+
+  void bindChapterNavigation(AudioEngineChapterNavigationCallbacks callbacks) {
+    _chapterNavigation = callbacks;
+  }
+
+  @override
+  Future<void> skipToPrevious() async {
+    final callback = _chapterNavigation?.onPreviousChapter;
+    if (callback != null) {
+      await callback();
+    }
+  }
+
+  @override
+  Future<void> skipToNext() async {
+    final callback = _chapterNavigation?.onNextChapter;
+    if (callback != null) {
+      await callback();
+    }
   }
 
   Future<void> dispose() async {
@@ -96,13 +176,13 @@ class SlovofonAudioHandler extends background_audio.BaseAudioHandler
 
     return background_audio.PlaybackState(
       controls: [
-        background_audio.MediaControl.skipToPrevious,
-        isPlaying
-            ? background_audio.MediaControl.pause
-            : background_audio.MediaControl.play,
-        background_audio.MediaControl.skipToNext,
+        _previousChapterControl,
+        _rewind30Control,
+        isPlaying ? _pauseControl : _playControl,
+        _forward30Control,
+        _nextChapterControl,
       ],
-      androidCompactActionIndices: const [0, 1, 2],
+      androidCompactActionIndices: const [0, 2, 4],
       processingState:
           processingState ??
           current?.processingState ??
@@ -112,6 +192,10 @@ class SlovofonAudioHandler extends background_audio.BaseAudioHandler
       updatePosition:
           updatePosition ?? current?.updatePosition ?? Duration.zero,
       systemActions: const {
+        background_audio.MediaAction.rewind,
+        background_audio.MediaAction.fastForward,
+        background_audio.MediaAction.skipToPrevious,
+        background_audio.MediaAction.skipToNext,
         background_audio.MediaAction.seek,
         background_audio.MediaAction.seekForward,
         background_audio.MediaAction.seekBackward,
@@ -147,9 +231,42 @@ class SlovofonAudioHandler extends background_audio.BaseAudioHandler
         return background_audio.AudioProcessingState.error;
     }
   }
+
+  Uri? _artUri(String? coverUrl) {
+    final value = coverUrl?.trim();
+    if (value == null || value.isEmpty) {
+      return null;
+    }
+    return Uri.tryParse(value);
+  }
+
+  String _chapterNotificationTitle(AudioPlaybackChapter chapter) {
+    final title = chapter.title.trim();
+    if (title.isEmpty) {
+      return 'Текущая глава';
+    }
+    return title;
+  }
+
+  Duration _currentPosition() {
+    final state = playbackState.valueOrNull;
+    return state?.position ?? state?.updatePosition ?? Duration.zero;
+  }
+
+  Duration _clampPosition(Duration position) {
+    if (position <= Duration.zero) {
+      return Duration.zero;
+    }
+    final duration = mediaItem.valueOrNull?.duration;
+    if (duration != null && duration > Duration.zero && position > duration) {
+      return duration;
+    }
+    return position;
+  }
 }
 
-class AudioHandlerEngine implements AudioEngine {
+class AudioHandlerEngine
+    implements AudioEngine, AudioEngineChapterNavigationBinding {
   AudioHandlerEngine(this._handler);
 
   final SlovofonAudioHandler _handler;
@@ -196,5 +313,10 @@ class AudioHandlerEngine implements AudioEngine {
   @override
   Future<void> setSpeed(double speed) {
     return _handler.setSpeed(speed);
+  }
+
+  @override
+  void bindChapterNavigation(AudioEngineChapterNavigationCallbacks callbacks) {
+    _handler.bindChapterNavigation(callbacks);
   }
 }

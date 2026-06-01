@@ -7,22 +7,41 @@ import 'package:go_router/go_router.dart';
 import '../../app/localization/app_strings.dart';
 import '../../domain/models/audio_book.dart';
 import '../../domain/models/download_task.dart';
+import '../../services/audio/audio_persistence.dart';
 import '../../services/audio/audio_state.dart';
 import '../../services/audio/playback_controller_provider.dart';
 import '../../services/downloads/download_manager.dart';
 import '../../services/downloads/download_manager_provider.dart';
+import '../../services/home/home_listening_visibility_store.dart';
 import '../../services/library/library_store.dart';
 import '../../services/search/search_history_store.dart';
+import '../../services/sources/source_book_cache.dart';
 import '../../services/sources/source_catalog_provider.dart';
+import '../../services/sources/source_catalog_service.dart';
 import '../../sources/sources.dart';
 import '../../ui/components/book_card.dart';
+import '../../ui/components/filter_picker_sheet.dart';
 import '../../ui/components/section_header.dart';
 import '../../ui/components/state_placeholder.dart';
 import '../../ui/icons/app_icons.dart';
 import '../shared/download_ui_state.dart';
+import '../shared/playback_resume.dart';
 
 class SearchScreen extends ConsumerStatefulWidget {
-  const SearchScreen({super.key});
+  const SearchScreen({
+    this.initialQuery,
+    this.initialKinds,
+    this.submitInitialSearch = false,
+    this.popOnResultsBack = false,
+    this.resetToken,
+    super.key,
+  });
+
+  final String? initialQuery;
+  final Set<SearchKind>? initialKinds;
+  final bool submitInitialSearch;
+  final bool popOnResultsBack;
+  final String? resetToken;
 
   @override
   ConsumerState<SearchScreen> createState() => _SearchScreenState();
@@ -31,17 +50,27 @@ class SearchScreen extends ConsumerStatefulWidget {
 class _SearchScreenState extends ConsumerState<SearchScreen> {
   final _controller = TextEditingController();
 
-  SearchKind _kind = SearchKind.title;
+  Set<SearchKind> _selectedKinds = const {SearchKind.title};
+  Set<String> _selectedSourceIds = const {};
   String _activeQuery = '';
   Future<SourceSearchResponse>? _searchFuture;
   List<SearchHistoryEntry> _history = const [];
+  bool _showResultsPage = false;
   final _playLoadingIds = <String>{};
   final _downloadLoadingIds = <String>{};
+  String? _appliedInitialRouteKey;
 
   @override
   void initState() {
     super.initState();
+    _applyInitialRoute(rebuild: false);
     _loadHistory();
+  }
+
+  @override
+  void didUpdateWidget(covariant SearchScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _applyInitialRoute(rebuild: true);
   }
 
   @override
@@ -54,6 +83,60 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   Widget build(BuildContext context) {
     final strings = context.strings;
     final libraryStore = ref.watch(libraryStoreProvider);
+
+    if (_showResultsPage) {
+      return BackButtonListener(
+        onBackButtonPressed: () async {
+          if (!_isSearchRouteCurrent(context)) {
+            return false;
+          }
+          _handleResultsBack(context);
+          return true;
+        },
+        child: GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onHorizontalDragEnd: (details) {
+            if ((details.primaryVelocity ?? 0) > 520) {
+              _handleResultsBack(context);
+            }
+          },
+          child: CustomScrollView(
+            slivers: [
+              SliverAppBar(
+                floating: true,
+                automaticallyImplyLeading: false,
+                leading: IconButton(
+                  tooltip: MaterialLocalizations.of(context).backButtonTooltip,
+                  onPressed: () => _handleResultsBack(context),
+                  icon: const AppIcon(AppIconAssets.systemBack),
+                ),
+                title: _SearchResultsTitle(searchFuture: _searchFuture),
+              ),
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                sliver: SliverList(
+                  delegate: SliverChildListDelegate([
+                    _SearchResults(
+                      query: _activeQuery,
+                      searchFuture: _searchFuture,
+                      libraryStore: libraryStore,
+                      playLoadingIds: _playLoadingIds,
+                      downloadLoadingIds: _downloadLoadingIds,
+                      history: _history,
+                      onHistoryTap: _runHistorySearch,
+                      onHistoryDelete: _deleteHistoryEntry,
+                      onFavoriteToggle: _toggleFavorite,
+                      onPlayPressed: _playResult,
+                      onDownloadPressed: _downloadResult,
+                    ),
+                  ]),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
 
     return CustomScrollView(
       slivers: [
@@ -82,8 +165,14 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
               ),
               const SizedBox(height: 12),
               _SearchFilters(
-                selectedKind: _kind,
-                onKindChanged: (kind) => setState(() => _kind = kind),
+                selectedKinds: _selectedKinds,
+                selectedSourceIds: _selectedSourceIds,
+                onKindsChanged: (kinds) {
+                  setState(() => _selectedKinds = kinds);
+                },
+                onSourcesChanged: (sourceIds) {
+                  setState(() => _selectedSourceIds = sourceIds);
+                },
               ),
               const SizedBox(height: 16),
               _SearchResults(
@@ -94,6 +183,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                 downloadLoadingIds: _downloadLoadingIds,
                 history: _history,
                 onHistoryTap: _runHistorySearch,
+                onHistoryDelete: _deleteHistoryEntry,
                 onFavoriteToggle: _toggleFavorite,
                 onPlayPressed: _playResult,
                 onDownloadPressed: _downloadResult,
@@ -112,19 +202,77 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     }
   }
 
-  Future<void> _submitSearch([String? submittedQuery]) async {
+  void _applyInitialRoute({required bool rebuild}) {
+    final query = widget.initialQuery?.trim() ?? '';
+    final initialKinds = widget.initialKinds;
+    final initialKindNames = initialKinds?.map((kind) => kind.name).toList()
+      ?..sort();
+    final routeKey = [
+      query,
+      ...?initialKindNames,
+      widget.submitInitialSearch ? 'run' : 'idle',
+      widget.resetToken ?? '',
+    ].join('|');
+    if (_appliedInitialRouteKey == routeKey) {
+      return;
+    }
+    _appliedInitialRouteKey = routeKey;
+
+    void apply() {
+      if ((widget.resetToken ?? '').isNotEmpty && query.isEmpty) {
+        _controller.clear();
+        _activeQuery = '';
+        _searchFuture = null;
+        _showResultsPage = false;
+        return;
+      }
+      if (query.isNotEmpty) {
+        _controller.text = query;
+        _controller.selection = TextSelection.collapsed(offset: query.length);
+      }
+    }
+
+    if (rebuild) {
+      setState(apply);
+    } else {
+      apply();
+    }
+
+    if (widget.submitInitialSearch && query.length >= 2) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _submitSearchWithKinds(query, searchKindsOverride: initialKinds);
+        }
+      });
+    }
+  }
+
+  Future<void> _submitSearch([String? submittedQuery]) {
+    return _submitSearchWithKinds(submittedQuery);
+  }
+
+  Future<void> _submitSearchWithKinds(
+    String? submittedQuery, {
+    Set<SearchKind>? searchKindsOverride,
+  }) async {
     final query = (submittedQuery ?? _controller.text).trim();
     if (query.length < 2) {
       setState(() {
         _activeQuery = query;
         _searchFuture = null;
+        _showResultsPage = false;
       });
       return;
     }
 
+    final searchKinds =
+        searchKindsOverride != null && searchKindsOverride.isNotEmpty
+        ? Set<SearchKind>.unmodifiable(searchKindsOverride)
+        : _selectedKinds;
+    final historyKind = _historyKindFor(searchKinds);
     final history = await ref
         .read(searchHistoryStoreProvider)
-        .record(query, _kind);
+        .record(query, historyKind);
     if (!mounted) {
       return;
     }
@@ -132,9 +280,17 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     setState(() {
       _history = history;
       _activeQuery = query;
+      _showResultsPage = true;
       _searchFuture = ref
           .read(sourceCatalogServiceProvider)
-          .search(SearchRequest(query: query, kind: _kind));
+          .search(
+            SearchRequest(
+              query: query,
+              kind: historyKind,
+              kinds: searchKinds,
+              sourceIds: _selectedSourceIds,
+            ),
+          );
     });
   }
 
@@ -142,13 +298,57 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     _controller.text = entry.query;
     _controller.selection = TextSelection.collapsed(offset: entry.query.length);
     setState(() {
-      _kind = entry.kind;
+      _selectedKinds = entry.kind == SearchKind.all
+          ? const {
+              SearchKind.title,
+              SearchKind.author,
+              SearchKind.narrator,
+              SearchKind.series,
+              SearchKind.genre,
+            }
+          : {entry.kind};
     });
     _submitSearch();
   }
 
+  Future<void> _deleteHistoryEntry(SearchHistoryEntry entry) async {
+    final history = await ref
+        .read(searchHistoryStoreProvider)
+        .delete(entry.query, entry.kind);
+    if (mounted) {
+      setState(() => _history = history);
+    }
+  }
+
+  void _closeResultsPage() {
+    if (!mounted || !_showResultsPage) {
+      return;
+    }
+    setState(() {
+      _showResultsPage = false;
+      _activeQuery = '';
+      _searchFuture = null;
+    });
+  }
+
+  void _handleResultsBack(BuildContext context) {
+    if (widget.popOnResultsBack && Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
+      return;
+    }
+    _closeResultsPage();
+  }
+
+  bool _isSearchRouteCurrent(BuildContext context) {
+    final path = GoRouter.of(context).state.uri.path;
+    return path == '/search' || path == '/scoped-search';
+  }
+
   Future<void> _toggleFavorite(AudioBook book) async {
     final added = await ref.read(libraryStoreProvider).toggleFavorite(book);
+    if (added) {
+      _cacheFavoriteDetails(book);
+    }
     if (!mounted) {
       return;
     }
@@ -180,7 +380,28 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       final snapshot = await ref
           .read(sourceCatalogServiceProvider)
           .loadBook(result.ref);
-      await playbackController.loadBook(snapshot.playbackBook, autoPlay: true);
+      unawaited(_cacheSnapshot(snapshot));
+      final playbackBook = await ref
+          .read(downloadManagerProvider)
+          .offlinePlaybackBook(snapshot.playbackBook);
+      final progressSnapshots =
+          await ref.read(playbackPersistenceStoreProvider)?.loadProgress() ??
+          const <PlaybackProgressSnapshot>[];
+      final resumePoint = playbackResumePointForBook(
+        playbackBook,
+        progressSnapshots,
+        fallbackVersionId: _resultVersionId(result),
+      );
+      await playbackController.loadBook(
+        playbackBook,
+        chapterIndex: resumePoint.chapterIndex,
+        position: resumePoint.position,
+        autoPlay: true,
+      );
+      await ref
+          .read(homeListeningVisibilityStoreProvider)
+          .show(homeListeningBookKeyFor(playbackBook));
+      ref.invalidate(playbackProgressSnapshotsProvider);
       if (mounted) {
         setState(() => _playLoadingIds.remove(id));
       }
@@ -219,6 +440,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
             .read(sourceCatalogServiceProvider)
             .loadBook(result.ref);
         await runBookCardDownloadAction(downloadManager, snapshot.playbackBook);
+        unawaited(_cacheSnapshot(snapshot));
         added = true;
       }
       if (mounted && added) {
@@ -238,46 +460,73 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       }
     }
   }
+
+  Future<SourceBookSnapshot> _cacheSnapshot(SourceBookSnapshot snapshot) async {
+    try {
+      return await SourceBookCache(
+        downloadStorage: ref.read(downloadStorageProvider),
+        downloadManager: ref.read(downloadManagerProvider),
+        libraryStore: ref.read(libraryStoreProvider),
+      ).refresh(snapshot);
+    } catch (error) {
+      debugPrint('Failed to cache source book metadata: $error');
+      return snapshot;
+    }
+  }
+
+  void _cacheFavoriteDetails(AudioBook book) {
+    final sourceBookId = book.sourceBookId;
+    if (sourceBookId == null || sourceBookId.isEmpty) {
+      return;
+    }
+    unawaited(
+      ref
+          .read(sourceCatalogServiceProvider)
+          .loadBook(
+            SourceBookRef(sourceId: book.sourceId, sourceBookId: sourceBookId),
+          )
+          .then((snapshot) => unawaited(_cacheSnapshot(snapshot)))
+          .catchError((Object error, StackTrace stackTrace) {
+            debugPrint('Failed to cache favorite source book metadata: $error');
+          }),
+    );
+  }
 }
 
 class _SearchFilters extends StatelessWidget {
   const _SearchFilters({
-    required this.selectedKind,
-    required this.onKindChanged,
+    required this.selectedKinds,
+    required this.selectedSourceIds,
+    required this.onKindsChanged,
+    required this.onSourcesChanged,
   });
 
-  final SearchKind selectedKind;
-  final ValueChanged<SearchKind> onKindChanged;
+  final Set<SearchKind> selectedKinds;
+  final Set<String> selectedSourceIds;
+  final ValueChanged<Set<SearchKind>> onKindsChanged;
+  final ValueChanged<Set<String>> onSourcesChanged;
 
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
-    final options = [
-      (SearchKind.title, strings.searchByTitle),
-      (SearchKind.author, strings.searchByAuthor),
-      (SearchKind.narrator, strings.searchByNarrator),
-      (SearchKind.series, strings.searchBySeries),
-    ];
 
     return Wrap(
       spacing: 8,
       runSpacing: 8,
       children: [
-        for (final option in options)
-          ChoiceChip(
-            selected: selectedKind == option.$1,
-            label: Text(option.$2),
-            onSelected: (_) => onKindChanged(option.$1),
+        InputChip(
+          avatar: const AppIcon(AppIconAssets.systemFilter, size: 16),
+          label: Text(
+            '${strings.searchScope}: ${_kindsLabel(context, selectedKinds)}',
           ),
-        FilterChip(
-          selected: true,
-          label: const Text('Izib'),
-          onSelected: (_) {},
+          onPressed: () => _pickKinds(context),
         ),
-        FilterChip(
-          selected: true,
-          label: const Text('Akniga'),
-          onSelected: (_) {},
+        InputChip(
+          avatar: const AppIcon(AppIconAssets.bookSource, size: 16),
+          label: Text(
+            '${strings.sourceFilter}: ${_sourcesLabel(context, selectedSourceIds)}',
+          ),
+          onPressed: () => _pickSources(context),
         ),
         InputChip(
           avatar: const AppIcon(AppIconAssets.systemSort, size: 16),
@@ -285,6 +534,124 @@ class _SearchFilters extends StatelessWidget {
           onPressed: () {},
         ),
       ],
+    );
+  }
+
+  Future<void> _pickKinds(BuildContext context) async {
+    final next = await showModalBottomSheet<Set<SearchKind>>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) {
+        var draft = selectedKinds.toSet();
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return FilterPickerSheet(
+              options: [
+                for (final kind in _searchKindOptions)
+                  CheckboxListTile(
+                    value: draft.contains(kind),
+                    visualDensity: VisualDensity.compact,
+                    title: Text(_kindLabel(context, kind)),
+                    onChanged: (value) {
+                      setModalState(() {
+                        final nextDraft = draft.toSet();
+                        if (value == true) {
+                          nextDraft.add(kind);
+                        } else if (nextDraft.length > 1) {
+                          nextDraft.remove(kind);
+                        }
+                        draft = nextDraft;
+                      });
+                    },
+                  ),
+              ],
+              action: FilledButton(
+                onPressed: () => Navigator.of(context).pop(draft),
+                child: Text(context.strings.apply),
+              ),
+            );
+          },
+        );
+      },
+    );
+    if (next != null && next.isNotEmpty) {
+      onKindsChanged(Set.unmodifiable(next));
+    }
+  }
+
+  Future<void> _pickSources(BuildContext context) async {
+    final next = await showModalBottomSheet<Set<String>>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) {
+        var draft = selectedSourceIds.isEmpty
+            ? _allSearchSourceIds.toSet()
+            : selectedSourceIds.toSet();
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return FilterPickerSheet(
+              options: [
+                for (final sourceId in _allSearchSourceIds)
+                  CheckboxListTile(
+                    value: draft.contains(sourceId),
+                    visualDensity: VisualDensity.compact,
+                    title: Text(context.strings.sourceDisplayName(sourceId)),
+                    onChanged: (value) {
+                      setModalState(() {
+                        final nextDraft = draft.toSet();
+                        if (value == true) {
+                          nextDraft.add(sourceId);
+                        } else if (nextDraft.length > 1) {
+                          nextDraft.remove(sourceId);
+                        }
+                        draft = nextDraft;
+                      });
+                    },
+                  ),
+              ],
+              action: FilledButton(
+                onPressed: () {
+                  final selectedAll =
+                      draft.length == _allSearchSourceIds.length;
+                  Navigator.of(context).pop(selectedAll ? <String>{} : draft);
+                },
+                child: Text(context.strings.apply),
+              ),
+            );
+          },
+        );
+      },
+    );
+    if (next != null) {
+      onSourcesChanged(Set.unmodifiable(next));
+    }
+  }
+}
+
+class _SearchResultsTitle extends StatelessWidget {
+  const _SearchResultsTitle({required this.searchFuture});
+
+  final Future<SourceSearchResponse>? searchFuture;
+
+  @override
+  Widget build(BuildContext context) {
+    final future = searchFuture;
+    if (future == null) {
+      return Text(context.strings.search);
+    }
+
+    return FutureBuilder<SourceSearchResponse>(
+      future: future,
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) {
+          return Text(context.strings.searchingSources);
+        }
+        return Text(
+          context.strings.sourceResultsCount(snapshot.data!.results.length),
+        );
+      },
     );
   }
 }
@@ -298,6 +665,7 @@ class _SearchResults extends ConsumerWidget {
     required this.downloadLoadingIds,
     required this.history,
     required this.onHistoryTap,
+    required this.onHistoryDelete,
     required this.onFavoriteToggle,
     required this.onPlayPressed,
     required this.onDownloadPressed,
@@ -310,6 +678,7 @@ class _SearchResults extends ConsumerWidget {
   final Set<String> downloadLoadingIds;
   final List<SearchHistoryEntry> history;
   final ValueChanged<SearchHistoryEntry> onHistoryTap;
+  final ValueChanged<SearchHistoryEntry> onHistoryDelete;
   final Future<void> Function(AudioBook book) onFavoriteToggle;
   final ValueChanged<BookSearchResult> onPlayPressed;
   final ValueChanged<BookSearchResult> onDownloadPressed;
@@ -320,9 +689,16 @@ class _SearchResults extends ConsumerWidget {
     final future = searchFuture;
     final downloadManager = ref.watch(downloadManagerProvider);
     final playbackController = ref.watch(playbackControllerProvider);
+    final progressSnapshots =
+        ref.watch(playbackProgressSnapshotsProvider).asData?.value ??
+        const <PlaybackProgressSnapshot>[];
 
     if (query.isEmpty) {
-      return _SearchHistory(history: history, onTap: onHistoryTap);
+      return _SearchHistory(
+        history: history,
+        onTap: onHistoryTap,
+        onDelete: onHistoryDelete,
+      );
     }
 
     if (future == null) {
@@ -370,7 +746,6 @@ class _SearchResults extends ConsumerWidget {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              SectionHeader(title: strings.sourceResultsCount(results.length)),
               if (response?.failures.isNotEmpty == true)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 8),
@@ -386,9 +761,15 @@ class _SearchResults extends ConsumerWidget {
                   padding: const EdgeInsets.only(bottom: 12),
                   child: Builder(
                     builder: (context) {
-                      final audioBook = catalog.audioBookForSearchResult(
-                        result,
-                      );
+                      final audioBook = catalog
+                          .audioBookForSearchResult(result)
+                          .copyWith(
+                            progress: _progressForResult(
+                              playbackController.state,
+                              progressSnapshots,
+                              result,
+                            ),
+                          );
                       final key = _resultKey(result);
                       final isCurrentBook = _playbackBookMatchesResult(
                         playbackController.state.book,
@@ -423,7 +804,7 @@ class _SearchResults extends ConsumerWidget {
                         onPlay: () => onPlayPressed(result),
                         onTap: () => unawaited(
                           context.push(
-                            '/source-book/${result.sourceId}/${result.sourceBookId}',
+                            '/source-book/${result.sourceId}/${Uri.encodeComponent(result.sourceBookId)}',
                           ),
                         ),
                       );
@@ -439,10 +820,15 @@ class _SearchResults extends ConsumerWidget {
 }
 
 class _SearchHistory extends StatelessWidget {
-  const _SearchHistory({required this.history, required this.onTap});
+  const _SearchHistory({
+    required this.history,
+    required this.onTap,
+    required this.onDelete,
+  });
 
   final List<SearchHistoryEntry> history;
   final ValueChanged<SearchHistoryEntry> onTap;
+  final ValueChanged<SearchHistoryEntry> onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -464,7 +850,21 @@ class _SearchHistory extends StatelessWidget {
             leading: const AppIcon(AppIconAssets.navSearch),
             title: Text(entry.query),
             subtitle: Text(_kindLabel(context, entry.kind)),
-            trailing: Text('${entry.usageCount}'),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('${entry.usageCount}'),
+                const SizedBox(width: 4),
+                IconButton(
+                  tooltip: strings.deleteSearchHistoryEntry,
+                  onPressed: () => onDelete(entry),
+                  icon: AppIcon(
+                    AppIconAssets.systemClose,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
             onTap: () => onTap(entry),
           ),
       ],
@@ -476,11 +876,82 @@ String _resultKey(BookSearchResult result) {
   return '${result.sourceId}:${result.sourceBookId}';
 }
 
+const _searchKindOptions = [
+  SearchKind.title,
+  SearchKind.author,
+  SearchKind.narrator,
+  SearchKind.series,
+  SearchKind.genre,
+];
+
+const _allSearchSourceIds = [
+  'izib',
+  'akniga',
+  'yakniga',
+  'knigavuhe',
+  'knigoblud',
+  'baza_knig',
+];
+
 String _resultVersionId(BookSearchResult result) {
   return switch (result.sourceId) {
     'izib' => 'izib-${result.sourceBookId}',
+    'akniga' => 'akniga-${result.sourceBookId}',
+    'yakniga' => 'yakniga-${result.sourceBookId}',
+    'knigavuhe' => 'knigavuhe-${_versionIdSegment(result.sourceBookId)}',
+    'knigoblud' => 'knigoblud-${result.sourceBookId}',
+    'baza_knig' => 'baza-knig-${_versionIdSegment(result.sourceBookId)}',
     _ => result.sourceBookId,
   };
+}
+
+String _versionIdSegment(String sourceBookId) {
+  return sourceBookId
+      .replaceAll(RegExp(r'[^0-9A-Za-zА-Яа-яЁё]+'), '-')
+      .replaceAll(RegExp(r'-+'), '-')
+      .replaceAll(RegExp(r'^-|-$'), '')
+      .toLowerCase();
+}
+
+SearchKind _historyKindFor(Set<SearchKind> selectedKinds) {
+  return selectedKinds.length == 1 ? selectedKinds.single : SearchKind.all;
+}
+
+String _kindsLabel(BuildContext context, Set<SearchKind> kinds) {
+  final selected = kinds.isEmpty ? const {SearchKind.title} : kinds;
+  if (selected.length == _searchKindOptions.length) {
+    return context.strings.all;
+  }
+  return selected.map((kind) => _kindLabel(context, kind)).join(', ');
+}
+
+String _sourcesLabel(BuildContext context, Set<String> selectedSourceIds) {
+  if (selectedSourceIds.isEmpty ||
+      selectedSourceIds.length == _allSearchSourceIds.length) {
+    return context.strings.allSources;
+  }
+  if (selectedSourceIds.length == 1) {
+    return context.strings.sourceDisplayName(selectedSourceIds.single);
+  }
+  return '${selectedSourceIds.length}';
+}
+
+double _progressForResult(
+  AudioPlaybackState playbackState,
+  List<PlaybackProgressSnapshot> snapshots,
+  BookSearchResult result,
+) {
+  if (_playbackBookMatchesResult(playbackState.book, result)) {
+    return playbackState.bookProgress;
+  }
+
+  final versionId = _resultVersionId(result);
+  for (final snapshot in snapshots) {
+    if (snapshot.bookVersionId == versionId) {
+      return (snapshot.percent / 100).clamp(0, 1).toDouble();
+    }
+  }
+  return 0;
 }
 
 BookCardDownloadState _downloadStateForResult(
@@ -583,36 +1054,7 @@ bool _playbackBookMatchesResult(
   return book.sourceBookId == result.sourceBookId ||
       book.versionId == _resultVersionId(result) ||
       book.id == 'izib-book-${result.sourceBookId}' ||
-      book.id == result.sourceBookId ||
-      (_looselySameText(book.title, result.title) &&
-          _looselySamePerson(book.author, result.author));
-}
-
-bool _looselySamePerson(String bookPerson, String? resultPerson) {
-  final normalizedResult = _normalizeLoose(resultPerson ?? '');
-  if (normalizedResult.isEmpty) {
-    return true;
-  }
-  return _looselySameText(bookPerson, normalizedResult);
-}
-
-bool _looselySameText(String left, String right) {
-  final normalizedLeft = _normalizeLoose(left);
-  final normalizedRight = _normalizeLoose(right);
-  if (normalizedLeft.isEmpty || normalizedRight.isEmpty) {
-    return false;
-  }
-  return normalizedLeft == normalizedRight ||
-      normalizedLeft.contains(normalizedRight) ||
-      normalizedRight.contains(normalizedLeft);
-}
-
-String _normalizeLoose(String value) {
-  return value
-      .toLowerCase()
-      .replaceAll(RegExp(r'[^a-zа-яё0-9]+', unicode: true), ' ')
-      .replaceAll(RegExp(r'\s+'), ' ')
-      .trim();
+      book.id == result.sourceBookId;
 }
 
 String _kindLabel(BuildContext context, SearchKind kind) {
@@ -622,6 +1064,7 @@ String _kindLabel(BuildContext context, SearchKind kind) {
     SearchKind.author => strings.searchByAuthor,
     SearchKind.narrator => strings.searchByNarrator,
     SearchKind.series => strings.searchBySeries,
+    SearchKind.genre => strings.searchByGenre,
     SearchKind.all => strings.search,
   };
 }

@@ -224,6 +224,7 @@ class MockSourceConnector implements SourceConnector {
             title: book.title,
             author: book.author,
             narrator: book.narrator,
+            genres: [book.genre],
             duration: SourceParserHelpers.parseDuration(book.durationLabel),
             year: book.year,
             audioYear: book.audioYear,
@@ -267,17 +268,20 @@ class MockSourceConnector implements SourceConnector {
     final author = SourceParserHelpers.normalizeTitle(book.author);
     final narrator = SourceParserHelpers.normalizeTitle(book.narrator);
     final series = SourceParserHelpers.normalizeTitle(book.series);
+    final genre = SourceParserHelpers.normalizeTitle(book.genre);
 
     return switch (kind) {
       SearchKind.title => title.contains(normalizedQuery),
       SearchKind.author => author.contains(normalizedQuery),
       SearchKind.narrator => narrator.contains(normalizedQuery),
       SearchKind.series => series.contains(normalizedQuery),
+      SearchKind.genre => genre.contains(normalizedQuery),
       SearchKind.all =>
         title.contains(normalizedQuery) ||
             author.contains(normalizedQuery) ||
             narrator.contains(normalizedQuery) ||
-            series.contains(normalizedQuery),
+            series.contains(normalizedQuery) ||
+            genre.contains(normalizedQuery),
     };
   }
 

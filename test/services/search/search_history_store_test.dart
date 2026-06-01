@@ -30,4 +30,27 @@ void main() {
     expect(history.last.query, 'Дыхание зоны');
     expect(history.last.usageCount, 2);
   });
+
+  test('SearchHistoryStore deletes one query without clearing history', () async {
+    final directory = Directory(
+      '${Directory.systemTemp.path}/slovofon-search-history-delete-${DateTime.now().microsecondsSinceEpoch}',
+    )..createSync(recursive: true);
+    addTearDown(() {
+      if (directory.existsSync()) {
+        directory.deleteSync(recursive: true);
+      }
+    });
+
+    final file = File('${directory.path}/history.json');
+    final store = SearchHistoryStore(fileFactory: () async => file);
+
+    await store.record('Дыхание зоны', SearchKind.title);
+    await store.record('Грошев', SearchKind.author);
+
+    final remaining = await store.delete('Дыхание зоны', SearchKind.title);
+
+    expect(remaining, hasLength(1));
+    expect(remaining.single.query, 'Грошев');
+    expect((await store.load()).single.query, 'Грошев');
+  });
 }

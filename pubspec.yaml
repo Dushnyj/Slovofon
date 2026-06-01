@@ -9,6 +9,7 @@ environment:
   sdk: ">=3.8.0 <4.0.0"
 
 dependencies:
+  app_links: ^7.1.1
   audio_service: ^0.18.18
   audio_session: ^0.2.3
   crypto: ^3.0.7
@@ -28,6 +29,7 @@ dependencies:
   path_provider: ^2.1.5
   pointycastle: ^4.0.0
   sqlite3_flutter_libs: 0.5.40
+  url_launcher: ^6.3.2
 
 dev_dependencies:
   flutter_test:

@@ -11,6 +11,7 @@ import '../features/search/search_screen.dart';
 import '../features/settings/settings_screen.dart';
 import '../features/source_books/source_book_details_screen.dart';
 import '../features/theme_preview/theme_preview_screen.dart';
+import '../services/deep_links/slovofon_deep_link.dart';
 import '../sources/sources.dart';
 import '../ui/adaptive/slovofon_shell.dart';
 
@@ -36,7 +37,18 @@ final GoRouter appRouter = GoRouter(
           routes: [
             GoRoute(
               path: '/search',
-              builder: (context, state) => const SearchScreen(),
+              builder: (context, state) {
+                final query = state.uri.queryParameters['q'];
+                final kind = _searchKindFromQuery(
+                  state.uri.queryParameters['kind'],
+                );
+                return SearchScreen(
+                  initialQuery: query,
+                  initialKinds: kind == null ? null : {kind},
+                  submitInitialSearch: state.uri.queryParameters['run'] == '1',
+                  resetToken: state.uri.queryParameters['reset'],
+                );
+              },
             ),
           ],
         ),
@@ -67,6 +79,12 @@ final GoRouter appRouter = GoRouter(
       ],
     ),
     GoRoute(
+      path: '/book',
+      redirect: (context, state) {
+        return sourceBookLocationFromDeepLink(state.uri) ?? '/';
+      },
+    ),
+    GoRoute(
       path: '/book/:bookId',
       builder: (context, state) {
         final book = mockBookById(state.pathParameters['bookId']);
@@ -79,7 +97,25 @@ final GoRouter appRouter = GoRouter(
         return SourceBookDetailsScreen(
           ref: SourceBookRef(
             sourceId: state.pathParameters['sourceId']!,
-            sourceBookId: state.pathParameters['sourceBookId']!,
+            sourceBookId: Uri.decodeComponent(
+              state.pathParameters['sourceBookId']!,
+            ),
+          ),
+        );
+      },
+    ),
+    GoRoute(
+      path: '/scoped-search',
+      builder: (context, state) {
+        final query = state.uri.queryParameters['q'];
+        final kind = _searchKindFromQuery(state.uri.queryParameters['kind']);
+        return Scaffold(
+          body: SearchScreen(
+            initialQuery: query,
+            initialKinds: kind == null ? null : {kind},
+            submitInitialSearch: state.uri.queryParameters['run'] == '1',
+            popOnResultsBack: true,
+            resetToken: state.uri.queryParameters['reset'],
           ),
         );
       },
@@ -94,3 +130,15 @@ final GoRouter appRouter = GoRouter(
     ),
   ],
 );
+
+SearchKind? _searchKindFromQuery(String? value) {
+  return switch (value) {
+    'title' => SearchKind.title,
+    'author' => SearchKind.author,
+    'narrator' => SearchKind.narrator,
+    'series' => SearchKind.series,
+    'genre' => SearchKind.genre,
+    'all' => SearchKind.all,
+    _ => null,
+  };
+}

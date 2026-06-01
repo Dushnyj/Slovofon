@@ -87,5 +87,29 @@ void main() {
         expect(rows.single.percent, 6.66);
       },
     );
+
+    test('loads persisted playback progress for search cards', () async {
+      final now = DateTime.utc(2026, 5, 26, 10);
+      await store.saveProgress(
+        PlaybackProgressSnapshot(
+          bookId: 'izib-book-2033',
+          bookVersionId: 'izib-2033',
+          currentChapterId: 'chapter-1',
+          currentPositionMs: 120000,
+          maxReachedGlobalPositionMs: 120000,
+          totalDurationMs: 600000,
+          listenedDurationMs: 120000,
+          percent: 20,
+          isFinished: false,
+          lastPlayedAt: now,
+        ),
+      );
+
+      final progress = await store.loadProgress();
+
+      expect(progress, hasLength(1));
+      expect(progress.single.bookVersionId, 'izib-2033');
+      expect(progress.single.percent, 20);
+    });
   });
 }

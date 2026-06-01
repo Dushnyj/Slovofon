@@ -703,6 +703,7 @@ SourceCapabilities
 SearchRequest
 - query
 - kind: all | title | author | narrator | series
+- kinds[]: multi-select subset title | author | narrator | series
 - page
 - pageSize
 - sourceIds[]
@@ -758,7 +759,7 @@ BookSearchResult
 - media URL должен валидироваться по allowlist;
 - есть авторы, чтецы, серии, rating, price/access flags.
 
-Реализовывать в составе этапа 9 после Izib и Akniga.
+Статус на 2026-05-27: реализован как первый источник Stage 9 в `lib/sources/yakniga/`. Используется public GraphQL endpoint `https://yakniga.org/graphql`, search/details/chapters, `chapters.collection[].fileUrl` как direct media source, `User-Agent`/`Referer` headers, media allowlist и optional live smoke-test через `SLOVOFON_LIVE_SOURCE_TESTS=1`.
 
 #### Izib
 
@@ -809,6 +810,10 @@ BookSearchResult
 - нужен fallback host resolver;
 - может требовать Referer/Origin.
 
+Статус на 2026-05-29: реализован Stage 9 connector в `lib/sources/baza_knig/`. Поддержаны HTML search/details, `Playerjs(file: [...])` parser, `*.abooka.casa` direct media, строгий `archive.org/download/*.mp3` fallback, Referer/media headers, media allowlist и optional live smoke-test через `SLOVOFON_LIVE_SOURCE_TESTS=1`.
+
+Пометка: источник считать рабочим, но оставить caveat по аудио. На отдельных страницах Baza Knig может оказаться нестабильным или отдавать только неразрешённый fallback/закодированный поток; подтверждённый `archive.org/download/*.mp3` fallback разрешён, остальные fallback-hosts фиксировать по live-факту.
+
 #### Knigavuhe
 
 Из архива:
@@ -819,6 +824,8 @@ BookSearchResult
 - нужна cookie/new design настройка;
 - поддерживать full/fragment/limited access.
 
+Статус на 2026-05-27: реализован Stage 9 connector в `lib/sources/knigavuhe/`. Поддержаны HTML search/details, `BookPlayer` playlist parser, direct media, Referer/media headers, media allowlist для `*.knigavuhe.org` и разрешённых LitRes trial URL, health check и optional live smoke-test.
+
 #### Knigoblud
 
 Из архива:
@@ -828,6 +835,8 @@ BookSearchResult
 - audio через audioknigi-like hosts;
 - может быть LitRes trial;
 - нужна строгая media validation.
+
+Статус на 2026-05-27: реализован Stage 9 connector в `lib/sources/knigoblud/`. Поддержаны HTML search/details, `KB.playerInit` playlist parser, direct media, Referer/media headers, media allowlist для `*.audioknigi.xyz` и разрешённых LitRes trial URL, health check и optional live smoke-test.
 
 ### 8.7 Порядок переноса источников
 
@@ -2237,8 +2246,10 @@ UndoSnackbar
 ```text
 Akniga      Работает
 Yakniga     Работает
+Knigavuhe   Работает
+Knigoblud   Работает
 Izib        Ошибка API
-Baza Knig   Аудио недоступно
+Baza Knig   Работает, аудио caveat
 ```
 
 ---
@@ -2549,10 +2560,10 @@ Codex должен работать поэтапно. Не делать всё �
 ### Этап 9. Остальные источники
 
 ```text
-- Yakniga
-- Knigavuhe
-- Knigoblud
-- Baza Knig
+- Yakniga — реализовано: GraphQL search/details/chapters, direct media, allowlist, registry/UI integration, tests, optional live smoke
+- Knigavuhe — реализовано: HTML search/details, BookPlayer parser, direct media, allowlist, registry/UI integration, tests, optional live smoke
+- Knigoblud — реализовано: HTML search/details, KB.playerInit parser, direct media, allowlist, registry/UI integration, tests, optional live smoke
+- Baza Knig — реализовано: HTML search/details, Playerjs parser, abooka media allowlist, registry/UI integration, tests, optional live smoke; caveat по возможной нестабильности аудио оставить и фиксировать только по live-факту
 ```
 
 ### Этап 10. Android integration

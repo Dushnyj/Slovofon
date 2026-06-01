@@ -5,6 +5,7 @@ import 'package:slovofon/app/theme/app_focus_tokens.dart';
 import 'package:slovofon/app/theme/app_radii_tokens.dart';
 import 'package:slovofon/app/theme/app_spacing_tokens.dart';
 import 'package:slovofon/app/theme/app_theme.dart';
+import 'package:slovofon/ui/components/source_badge.dart';
 
 void main() {
   test('themes expose Stage 2 token extensions', () {
@@ -40,6 +41,94 @@ void main() {
       );
     }
   });
+
+  test('accent colors do not tint neutral surfaces', () {
+    final blue = AppTheme.light(accent: const Color(0xFF2563EB)).colorScheme;
+    final red = AppTheme.light(accent: const Color(0xFFDC2626)).colorScheme;
+    final darkBlue = AppTheme.dark(accent: const Color(0xFF2563EB)).colorScheme;
+    final darkRed = AppTheme.dark(accent: const Color(0xFFDC2626)).colorScheme;
+
+    expect(blue.primary, isNot(red.primary));
+    expect(blue.surface, red.surface);
+    expect(blue.surfaceContainerHigh, red.surfaceContainerHigh);
+    expect(blue.onSurface, red.onSurface);
+    expect(darkBlue.primary, isNot(darkRed.primary));
+    expect(darkBlue.surface, darkRed.surface);
+    expect(darkBlue.surfaceContainerHigh, darkRed.surfaceContainerHigh);
+    expect(darkBlue.onSurface, darkRed.onSurface);
+  });
+
+  test('dark red accent stays saturated and readable', () {
+    final scheme = AppTheme.dark(accent: const Color(0xFFB42318)).colorScheme;
+
+    expect(scheme.primary.r, greaterThan(scheme.primary.g));
+    expect(scheme.primary.r, greaterThan(scheme.primary.b));
+    expect(
+      AppColorTokens.contrastRatio(scheme.primary, scheme.surface),
+      greaterThanOrEqualTo(3),
+    );
+    expect(
+      AppColorTokens.contrastRatio(scheme.primary, scheme.primaryContainer),
+      greaterThanOrEqualTo(2.4),
+    );
+  });
+
+  test('player surface stays neutral while controls use accent', () {
+    final blue = AppTheme.light(
+      accent: const Color(0xFF2563EB),
+    ).extension<AppColorTokens>()!;
+    final red = AppTheme.light(
+      accent: const Color(0xFFDC2626),
+    ).extension<AppColorTokens>()!;
+    final dark = AppTheme.dark(
+      accent: const Color(0xFFDC2626),
+    ).extension<AppColorTokens>()!;
+
+    expect(blue.playerSurface, red.playerSurface);
+    expect(
+      AppColorTokens.contrastRatio(blue.playerSurface, blue.onPlayerSurface),
+      greaterThanOrEqualTo(4.5),
+    );
+    expect(
+      AppColorTokens.contrastRatio(dark.playerSurface, dark.onPlayerSurface),
+      greaterThanOrEqualTo(4.5),
+    );
+  });
+
+  test(
+    'source colors remain distinct and readable in light and dark themes',
+    () {
+      const sourceIds = [
+        'izib',
+        'akniga',
+        'yakniga',
+        'knigavuhe',
+        'knigoblud',
+        'baza_knig',
+      ];
+      final schemes = [
+        AppTheme.light().colorScheme,
+        AppTheme.dark().colorScheme,
+      ];
+
+      for (final scheme in schemes) {
+        final colors = {
+          for (final sourceId in sourceIds) sourceColorForId(sourceId, scheme),
+        };
+        expect(colors.length, sourceIds.length);
+        for (final sourceId in sourceIds) {
+          expect(
+            AppColorTokens.contrastRatio(
+              sourceColorForId(sourceId, scheme),
+              scheme.surfaceContainer,
+            ),
+            greaterThanOrEqualTo(3.2),
+            reason: '$sourceId should read on ${scheme.brightness.name} cards',
+          );
+        }
+      }
+    },
+  );
 
   test('interactive controls keep minimum touch target size', () {
     final theme = AppTheme.light();

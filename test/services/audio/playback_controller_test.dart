@@ -48,27 +48,125 @@ void main() {
     );
 
     test(
-      'seeks, advances time, and calculates chapter and book progress',
+      'keeps autoplay active while the engine settles after loading',
       () async {
-        final engine = RecordingAudioEngine();
+        final engine = StreamingAudioEngine();
         final service = PlaybackController(engine: engine);
 
-        await service.loadBook(_book);
-        await service.seek(const Duration(minutes: 5));
+        await service.loadBook(_book, autoPlay: true);
+        engine.emit(
+          const AudioEngineSnapshot(
+            position: Duration.zero,
+            processingState: AudioEngineProcessingState.idle,
+            isPlaying: false,
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
 
-        expect(service.state.position, const Duration(minutes: 5));
-        expect(service.state.chapterProgress, closeTo(0.5, 0.001));
-        expect(service.state.bookProgress, closeTo(0.166, 0.01));
-        expect(engine.seekPositions, [const Duration(minutes: 5)]);
+        expect(service.state.status, AudioPlaybackStatus.playing);
 
-        await service.play();
-        await service.tick(const Duration(minutes: 6));
+        engine.emit(
+          const AudioEngineSnapshot(
+            position: Duration.zero,
+            processingState: AudioEngineProcessingState.ready,
+            isPlaying: false,
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
 
-        expect(service.state.currentChapter?.id, 'chapter-2');
-        expect(service.state.position, const Duration(minutes: 1));
-        expect(service.state.bookProgress, closeTo(0.366, 0.01));
+        expect(service.state.status, AudioPlaybackStatus.playing);
+
+        engine.emit(
+          const AudioEngineSnapshot(
+            position: Duration(seconds: 1),
+            processingState: AudioEngineProcessingState.ready,
+            isPlaying: true,
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        expect(service.state.status, AudioPlaybackStatus.playing);
+        expect(service.state.position, const Duration(seconds: 1));
+
+        engine.emit(
+          const AudioEngineSnapshot(
+            position: Duration(seconds: 1),
+            processingState: AudioEngineProcessingState.ready,
+            isPlaying: false,
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        expect(service.state.status, AudioPlaybackStatus.playing);
+
+        await service.pause();
+        engine.emit(
+          const AudioEngineSnapshot(
+            position: Duration(seconds: 1),
+            processingState: AudioEngineProcessingState.ready,
+            isPlaying: false,
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        expect(service.state.status, AudioPlaybackStatus.paused);
       },
     );
+
+    test('seek calculates chapter and book progress', () async {
+      final engine = RecordingAudioEngine();
+      final service = PlaybackController(engine: engine);
+
+      await service.loadBook(_book);
+      await service.seek(const Duration(minutes: 5));
+
+      expect(service.state.position, const Duration(minutes: 5));
+      expect(service.state.chapterProgress, closeTo(0.5, 0.001));
+      expect(service.state.bookProgress, closeTo(0.166, 0.01));
+      expect(engine.seekPositions, [const Duration(minutes: 5)]);
+    });
+
+    test('ignores duplicate engine snapshots', () async {
+      final engine = StreamingAudioEngine();
+      final service = PlaybackController(engine: engine);
+      var notifications = 0;
+
+      await service.loadBook(_book);
+      service.addListener(() => notifications++);
+
+      engine.emit(
+        const AudioEngineSnapshot(
+          position: Duration.zero,
+          processingState: AudioEngineProcessingState.ready,
+          isPlaying: false,
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(notifications, 0);
+
+      engine.emit(
+        const AudioEngineSnapshot(
+          position: Duration(seconds: 1),
+          processingState: AudioEngineProcessingState.ready,
+          isPlaying: false,
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(notifications, 1);
+
+      engine.emit(
+        const AudioEngineSnapshot(
+          position: Duration(seconds: 1),
+          processingState: AudioEngineProcessingState.ready,
+          isPlaying: false,
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(notifications, 1);
+    });
 
     test('moves between chapters and restores saved session', () async {
       final engine = RecordingAudioEngine();
@@ -127,6 +225,185 @@ void main() {
       expect(engine.pauseCount, 1);
     });
 
+    test('sleep timer countdown pauses while playback is paused', () async {
+      final engine = RecordingAudioEngine();
+      final service = PlaybackController(engine: engine);
+
+      await service.loadBook(_book, autoPlay: true);
+      service.setSleepTimer(const Duration(minutes: 30));
+      await service.pause();
+
+      await service.tick(const Duration(minutes: 5));
+
+      expect(service.state.status, AudioPlaybackStatus.paused);
+      expect(service.state.sleepTimerRemaining, const Duration(minutes: 30));
+
+      await service.play();
+      await service.tick(const Duration(minutes: 1));
+
+      expect(service.state.sleepTimerRemaining, const Duration(minutes: 29));
+    });
+
+    test(
+      'sleep timer tick does not seek the audio engine every second',
+      () async {
+        final engine = RecordingAudioEngine();
+        final service = PlaybackController(engine: engine);
+
+        await service.loadBook(_book, autoPlay: true);
+        service.setSleepTimer(const Duration(seconds: 30));
+
+        await service.tick(const Duration(seconds: 1));
+
+        expect(engine.seekPositions, isEmpty);
+        expect(service.state.position, Duration.zero);
+        expect(service.state.sleepTimerRemaining, const Duration(seconds: 29));
+        expect(service.state.status, AudioPlaybackStatus.playing);
+      },
+    );
+
+    test('sleep timer can stop at the end of the current chapter', () async {
+      final engine = RecordingAudioEngine();
+      final service = PlaybackController(engine: engine);
+
+      await service.loadBook(
+        _book,
+        position: const Duration(minutes: 3),
+        autoPlay: true,
+      );
+      service.setSleepTimerToChapterEnd();
+
+      expect(service.state.sleepTimerRemaining, const Duration(minutes: 7));
+
+      await service.tick(const Duration(minutes: 7));
+
+      expect(service.state.status, AudioPlaybackStatus.paused);
+      expect(service.state.sleepTimerRemaining, Duration.zero);
+      expect(engine.pauseCount, 1);
+    });
+
+    test('chapter switches resume saved runtime positions', () async {
+      final engine = RecordingAudioEngine();
+      final service = PlaybackController(engine: engine);
+
+      await service.loadBook(_book);
+      await service.seek(const Duration(minutes: 3));
+      await service.nextChapter();
+      await service.seek(const Duration(minutes: 4));
+
+      await service.previousChapter();
+
+      expect(service.state.currentChapter?.id, 'chapter-1');
+      expect(service.state.position, const Duration(minutes: 3));
+
+      await service.nextChapter();
+
+      expect(service.state.currentChapter?.id, 'chapter-2');
+      expect(service.state.position, const Duration(minutes: 4));
+      expect(engine.loadedPositions, contains(const Duration(minutes: 3)));
+      expect(engine.loadedPositions, contains(const Duration(minutes: 4)));
+    });
+
+    test(
+      'chapter progress exposes remembered runtime position after switching',
+      () async {
+        final engine = RecordingAudioEngine();
+        final service = PlaybackController(engine: engine);
+
+        await service.loadBook(_book);
+        await service.seek(const Duration(minutes: 3));
+        await service.nextChapter();
+
+        expect(service.chapterProgressAt(0), closeTo(0.3, 0.001));
+        expect(service.chapterProgressAt(1), 0);
+
+        await service.seek(const Duration(minutes: 4));
+        await service.previousChapter();
+
+        expect(service.chapterProgressAt(0), closeTo(0.3, 0.001));
+        expect(service.chapterProgressAt(1), closeTo(0.4, 0.001));
+      },
+    );
+
+    test(
+      'refreshes active book through resolver before chapter navigation',
+      () async {
+        final engine = RecordingAudioEngine();
+        final service = PlaybackController(
+          engine: engine,
+          playbackBookResolver: (book) async => _bookWithLocalSecondChapter,
+        );
+
+        await service.loadBook(_book);
+        await service.nextChapter();
+
+        expect(service.state.currentChapter?.id, 'chapter-2');
+        expect(engine.loadedChapterIds, ['chapter-1', 'chapter-2']);
+        expect(engine.loadedMediaSources.last?.type, AudioMediaSourceType.file);
+        expect(service.state.book?.chapters[1].isDownloaded, isTrue);
+      },
+    );
+
+    test(
+      'reloads current chapter when resolver switches playback to a local file',
+      () async {
+        final engine = RecordingAudioEngine();
+        final service = PlaybackController(
+          engine: engine,
+          playbackBookResolver: (book) async => _bookWithLocalFirstChapter,
+        );
+
+        await service.loadBook(_bookWithRemoteFirstChapter);
+        await service.play();
+
+        expect(engine.loadedChapterIds, ['chapter-1', 'chapter-1']);
+        expect(engine.loadedMediaSources.first?.type, AudioMediaSourceType.url);
+        expect(engine.loadedMediaSources.last?.type, AudioMediaSourceType.file);
+        expect(service.state.book?.chapters.first.isDownloaded, isTrue);
+        expect(engine.playCount, 1);
+      },
+    );
+
+    test(
+      'keeps chapter resume positions when refreshed chapter ids differ',
+      () async {
+        final engine = RecordingAudioEngine();
+        final service = PlaybackController(
+          engine: engine,
+          playbackBookResolver: (book) async => _bookWithRefreshedChapterIds,
+        );
+
+        await service.loadBook(_book);
+        await service.seek(const Duration(minutes: 3));
+        await service.nextChapter();
+        await service.previousChapter();
+
+        expect(service.state.chapterIndex, 0);
+        expect(service.state.position, const Duration(minutes: 3));
+      },
+    );
+
+    test(
+      'ignores stale completion snapshots while switching chapters manually',
+      () async {
+        final engine = CompletingDuringLoadAudioEngine();
+        final service = PlaybackController(engine: engine);
+
+        await service.loadBook(_book);
+        await service.seek(const Duration(minutes: 3));
+        await service.nextChapter();
+
+        expect(service.state.currentChapter?.id, 'chapter-2');
+        expect(service.state.position, Duration.zero);
+        expect(service.chapterProgressAt(0), closeTo(0.3, 0.001));
+
+        await service.previousChapter();
+
+        expect(service.state.currentChapter?.id, 'chapter-1');
+        expect(service.state.position, const Duration(minutes: 3));
+      },
+    );
+
     test('keeps a recoverable error state when engine fails to load', () async {
       final service = PlaybackController(
         engine: const FailingAudioEngine(
@@ -184,6 +461,32 @@ void main() {
 
         expect(service.state.status, AudioPlaybackStatus.error);
         expect(service.state.errorMessage, 'Decoder failed.');
+      },
+    );
+
+    test(
+      'learns unknown chapter duration from the engine without freezing position',
+      () async {
+        final engine = StreamingAudioEngine();
+        final service = PlaybackController(engine: engine);
+
+        await service.loadBook(_unknownDurationBook);
+        engine.emit(
+          const AudioEngineSnapshot(
+            position: Duration(seconds: 8),
+            duration: Duration(minutes: 9),
+            processingState: AudioEngineProcessingState.ready,
+            isPlaying: true,
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        expect(service.state.position, const Duration(seconds: 8));
+        expect(
+          service.state.currentChapter?.duration,
+          const Duration(minutes: 9),
+        );
+        expect(service.state.chapterProgress, closeTo(0.014, 0.001));
       },
     );
 
@@ -349,9 +652,98 @@ const _book = AudioPlaybackBook(
   ],
 );
 
+const _unknownDurationBook = AudioPlaybackBook(
+  id: 'book-unknown-duration',
+  versionId: 'version-unknown-duration',
+  sourceId: 'baza_knig',
+  title: 'Дыхание зоны',
+  author: 'Грошев Николай',
+  narrator: 'Орлов Глеб',
+  sourceName: 'Baza Knig',
+  chapters: [
+    AudioPlaybackChapter(
+      id: 'chapter-1',
+      index: 1,
+      title: 'Глава 1',
+      duration: Duration.zero,
+    ),
+  ],
+);
+
+final _bookWithLocalSecondChapter = AudioPlaybackBook(
+  id: _book.id,
+  versionId: _book.versionId,
+  sourceId: _book.sourceId,
+  title: _book.title,
+  author: _book.author,
+  narrator: _book.narrator,
+  sourceName: _book.sourceName,
+  chapters: [
+    _book.chapters[0],
+    _book.chapters[1].copyWith(
+      isDownloaded: true,
+      mediaSource: AudioMediaSource.file('/tmp/chapter-2.mp3'),
+    ),
+    _book.chapters[2],
+  ],
+);
+
+final _bookWithRemoteFirstChapter = AudioPlaybackBook(
+  id: _book.id,
+  versionId: _book.versionId,
+  sourceId: _book.sourceId,
+  title: _book.title,
+  author: _book.author,
+  narrator: _book.narrator,
+  sourceName: _book.sourceName,
+  chapters: [
+    _book.chapters[0].copyWith(
+      mediaSource: AudioMediaSource.url(
+        Uri.parse('https://example.test/chapter-1.mp3'),
+      ),
+    ),
+    _book.chapters[1],
+    _book.chapters[2],
+  ],
+);
+
+final _bookWithLocalFirstChapter = AudioPlaybackBook(
+  id: _book.id,
+  versionId: _book.versionId,
+  sourceId: _book.sourceId,
+  title: _book.title,
+  author: _book.author,
+  narrator: _book.narrator,
+  sourceName: _book.sourceName,
+  chapters: [
+    _book.chapters[0].copyWith(
+      isDownloaded: true,
+      mediaSource: AudioMediaSource.file('/tmp/slovofon/chapter-1.mp3'),
+    ),
+    _book.chapters[1],
+    _book.chapters[2],
+  ],
+);
+
+final _bookWithRefreshedChapterIds = AudioPlaybackBook(
+  id: _book.id,
+  versionId: _book.versionId,
+  sourceId: _book.sourceId,
+  title: _book.title,
+  author: _book.author,
+  narrator: _book.narrator,
+  sourceName: _book.sourceName,
+  chapters: [
+    _book.chapters[0].copyWith(id: 'fresh-chapter-1'),
+    _book.chapters[1].copyWith(id: 'fresh-chapter-2'),
+    _book.chapters[2].copyWith(id: 'fresh-chapter-3'),
+  ],
+);
+
 class RecordingAudioEngine implements AudioEngine {
   final loadedChapterIds = <String>[];
   final loadedPositions = <Duration>[];
+  final loadedMediaSources = <AudioMediaSource?>[];
   final seekPositions = <Duration>[];
   final speedValues = <double>[];
   int playCount = 0;
@@ -368,6 +760,7 @@ class RecordingAudioEngine implements AudioEngine {
   }) async {
     loadedChapterIds.add(chapter.id);
     loadedPositions.add(position);
+    loadedMediaSources.add(chapter.mediaSource);
   }
 
   @override
@@ -392,6 +785,37 @@ class RecordingAudioEngine implements AudioEngine {
 
   @override
   Future<void> dispose() async {}
+}
+
+class CompletingDuringLoadAudioEngine extends RecordingAudioEngine {
+  final _snapshots = StreamController<AudioEngineSnapshot>.broadcast();
+
+  @override
+  Stream<AudioEngineSnapshot> get snapshots => _snapshots.stream;
+
+  @override
+  Future<void> load(
+    AudioPlaybackChapter chapter, {
+    required Duration position,
+    AudioPlaybackBook? book,
+  }) async {
+    await super.load(chapter, position: position, book: book);
+    if (loadedChapterIds.length > 1) {
+      _snapshots.add(
+        const AudioEngineSnapshot(
+          position: Duration(minutes: 10),
+          processingState: AudioEngineProcessingState.completed,
+          isPlaying: false,
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+    }
+  }
+
+  @override
+  Future<void> dispose() async {
+    await _snapshots.close();
+  }
 }
 
 class HangingPlayAudioEngine extends RecordingAudioEngine {
@@ -490,6 +914,11 @@ class RecordingPlaybackPersistenceStore implements PlaybackPersistenceStore {
   @override
   Future<PlaybackSession?> loadSession({String id = 'active'}) async {
     return savedSessions.where((session) => session.id == id).lastOrNull;
+  }
+
+  @override
+  Future<List<PlaybackProgressSnapshot>> loadProgress() async {
+    return savedProgress;
   }
 
   @override

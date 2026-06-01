@@ -35,6 +35,10 @@ void main() {
         'https://izib.uk/covers/metro-2033.jpg',
       );
       expect(results.single.duration, const Duration(hours: 13, minutes: 6));
+      expect(results.single.series, 'Метро');
+      expect(results.single.year, 2020);
+      expect(results.single.ratingValue, 4.5);
+      expect(results.single.ratingCount, 10);
       expect(results.single.isFree, isNull);
       expect(results.single.accessType, AccessType.unknown);
     });

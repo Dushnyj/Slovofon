@@ -15,6 +15,8 @@ class AudioLoadRequest {
 abstract interface class JustAudioPlayerAdapter {
   Stream<Duration> get positionStream;
 
+  Stream<Duration?> get durationStream;
+
   Stream<JustAudioAdapterSnapshot> get playbackSnapshots;
 
   Future<void> load(AudioLoadRequest request);
@@ -88,6 +90,9 @@ class PackageJustAudioPlayerAdapter implements JustAudioPlayerAdapter {
   @override
   Stream<JustAudioAdapterSnapshot> get playbackSnapshots =>
       _playbackSnapshots.stream;
+
+  @override
+  Stream<Duration?> get durationStream => _player.durationStream;
 
   @override
   Stream<Duration> get positionStream => _player.positionStream;
@@ -179,6 +184,12 @@ class JustAudioEngine implements AudioEngine {
     : _player = player ?? PackageJustAudioPlayerAdapter() {
     _positionSubscription = _player.positionStream.listen((position) {
       _position = position;
+      if (_shouldEmitPosition(position)) {
+        _emit();
+      }
+    });
+    _durationSubscription = _player.durationStream.listen((duration) {
+      _duration = duration;
       _emit();
     });
     _playbackSubscription = _player.playbackSnapshots.listen((snapshot) {
@@ -192,12 +203,16 @@ class JustAudioEngine implements AudioEngine {
   final JustAudioPlayerAdapter _player;
   final _snapshots = StreamController<AudioEngineSnapshot>.broadcast();
   late final StreamSubscription<Duration> _positionSubscription;
+  late final StreamSubscription<Duration?> _durationSubscription;
   late final StreamSubscription<JustAudioAdapterSnapshot> _playbackSubscription;
   Duration _position = Duration.zero;
+  Duration? _duration;
+  Duration? _lastEmittedPosition;
   AudioEngineProcessingState _processingState = AudioEngineProcessingState.idle;
   bool _isPlaying = false;
   String? _errorMessage;
   bool _disposed = false;
+  static const _positionEmitInterval = Duration(seconds: 1);
 
   @override
   Stream<AudioEngineSnapshot> get snapshots => _snapshots.stream;
@@ -209,6 +224,7 @@ class JustAudioEngine implements AudioEngine {
     }
     _disposed = true;
     await _positionSubscription.cancel();
+    await _durationSubscription.cancel();
     await _playbackSubscription.cancel();
     await _snapshots.close();
     await _player.dispose();
@@ -230,17 +246,25 @@ class JustAudioEngine implements AudioEngine {
     await _player.load(
       AudioLoadRequest(source: mediaSource, initialPosition: position),
     );
+    if (position > Duration.zero) {
+      await _player.seek(position);
+    }
     _position = position;
+    _duration = chapter.duration > Duration.zero ? chapter.duration : null;
     _emit();
   }
 
   @override
   Future<void> pause() {
+    _isPlaying = false;
+    _emit();
     return _player.pause();
   }
 
   @override
   Future<void> play() {
+    _isPlaying = true;
+    _emit();
     return _player.play();
   }
 
@@ -261,14 +285,32 @@ class JustAudioEngine implements AudioEngine {
       return;
     }
 
+    _lastEmittedPosition = _position;
     _snapshots.add(
       AudioEngineSnapshot(
         position: _position,
         processingState: _processingState,
         isPlaying: _isPlaying,
+        duration: _duration,
         errorMessage: _errorMessage,
       ),
     );
+  }
+
+  bool _shouldEmitPosition(Duration position) {
+    final lastEmitted = _lastEmittedPosition;
+    if (lastEmitted == null) {
+      return true;
+    }
+
+    if ((position - lastEmitted).abs() >= _positionEmitInterval) {
+      return true;
+    }
+
+    final duration = _duration;
+    return duration != null &&
+        duration > Duration.zero &&
+        position >= duration - _positionEmitInterval;
   }
 
   AudioEngineProcessingState _processingStateFromAdapter(

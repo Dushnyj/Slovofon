@@ -66,6 +66,24 @@ class AudioPlaybackChapter {
   final Duration duration;
   final bool isDownloaded;
   final AudioMediaSource? mediaSource;
+
+  AudioPlaybackChapter copyWith({
+    String? id,
+    int? index,
+    String? title,
+    Duration? duration,
+    bool? isDownloaded,
+    AudioMediaSource? mediaSource,
+  }) {
+    return AudioPlaybackChapter(
+      id: id ?? this.id,
+      index: index ?? this.index,
+      title: title ?? this.title,
+      duration: duration ?? this.duration,
+      isDownloaded: isDownloaded ?? this.isDownloaded,
+      mediaSource: mediaSource ?? this.mediaSource,
+    );
+  }
 }
 
 class AudioPlaybackBook {
@@ -82,6 +100,10 @@ class AudioPlaybackBook {
     this.coverUrl,
     this.description,
     this.genre,
+    this.seriesTitle,
+    this.seriesNumber,
+    this.ratingValue,
+    this.ratingCount,
     this.publishedYear,
     this.sourceUrl,
   });
@@ -98,6 +120,10 @@ class AudioPlaybackBook {
   final String? coverUrl;
   final String? description;
   final String? genre;
+  final String? seriesTitle;
+  final double? seriesNumber;
+  final double? ratingValue;
+  final int? ratingCount;
   final int? publishedYear;
   final String? sourceUrl;
 
@@ -105,6 +131,29 @@ class AudioPlaybackBook {
     return chapters.fold(
       Duration.zero,
       (sum, chapter) => sum + chapter.duration,
+    );
+  }
+
+  AudioPlaybackBook copyWith({List<AudioPlaybackChapter>? chapters}) {
+    return AudioPlaybackBook(
+      id: id,
+      versionId: versionId,
+      sourceId: sourceId,
+      title: title,
+      author: author,
+      narrator: narrator,
+      sourceName: sourceName,
+      chapters: chapters ?? this.chapters,
+      sourceBookId: sourceBookId,
+      coverUrl: coverUrl,
+      description: description,
+      genre: genre,
+      seriesTitle: seriesTitle,
+      seriesNumber: seriesNumber,
+      ratingValue: ratingValue,
+      ratingCount: ratingCount,
+      publishedYear: publishedYear,
+      sourceUrl: sourceUrl,
     );
   }
 }

@@ -21,14 +21,34 @@ void main() {
       expect(result.title, 'Метро 2033');
       expect(result.author, 'Дмитрий Глуховский');
       expect(result.narrator, 'Петр Иващенко');
-      expect(result.series, 'Метро (1)');
+      expect(result.series, 'Метро');
       expect(result.duration, const Duration(hours: 13, minutes: 6));
       expect(result.year, 2020);
+      expect(result.ratingValue, 4.0);
+      expect(result.ratingCount, 10);
       expect(result.accessType, AccessType.free);
       expect(
         result.coverUri.toString(),
         'https://akniga.org/covers/metro-search.jpg',
       );
+    });
+
+    test('uses title prefix as author fallback on search cards', () {
+      final results = mapper.searchResults(_searchHtmlWithoutAuthorAction);
+
+      expect(results, hasLength(1));
+      expect(results.single.title, 'Метро 2033');
+      expect(results.single.author, 'Дмитрий Глуховский');
+    });
+
+    test('uses Akniga slug year when search card has no year label', () {
+      final results = mapper.searchResults(_searchHtmlWithSlugYear);
+
+      expect(results, hasLength(1));
+      expect(results.single.title, 'Полураспад');
+      expect(results.single.author, 'Зорич Александр');
+      expect(results.single.series, 'S.T.A.L.K.E.R.: Комбат и Тополь');
+      expect(results.single.year, 2010);
     });
 
     test(
@@ -148,6 +168,49 @@ const _searchHtml = '''
     <span class="link__action--label--time">13 ч 6 мин</span>
     <div class="book-series"><a>Метро (1)</a></div>
     <span class="link__action--label--year">2020</span>
+    <button class="ls-vote-item" data-vote-value="1">
+      <span class="counter-number">8</span>
+    </button>
+    <button class="ls-vote-item" data-vote-value="-1">
+      <span class="counter-number">2</span>
+    </button>
+  </div>
+</body></html>
+''';
+
+const _searchHtmlWithoutAuthorAction = '''
+<html><body>
+  <div class="content__main__articles--item">
+    <a href="https://akniga.org/metro-2033" class="content__article-main-link">
+      <h2 class="caption__article-main">Дмитрий Глуховский – Метро 2033</h2>
+    </a>
+    <span class="link__action">
+      <svg class="icon--performer"></svg>
+      <a href="/performer/ivaschenko/">Петр Иващенко</a>
+    </span>
+  </div>
+</body></html>
+''';
+
+const _searchHtmlWithSlugYear = '''
+<html><body>
+  <div class="content__main__articles--item">
+    <a href="https://akniga.org/aleksandr-zorich-poluraspad-stalker-2010"
+       class="content__article-main-link">
+      <h2 class="caption__article-main">Зорич Александр – Полураспад</h2>
+    </a>
+    <span class="link__action">
+      <svg class="icon--author"></svg>
+      <a href="/author/zorich/">Зорич Александр</a>
+    </span>
+    <span class="link__action">
+      <svg class="icon--performer"></svg>
+      <a href="/performer/chaytsyn/">Чайцын Александр</a>
+    </span>
+    <span class="link__action--label--time">11 часов 49 минут</span>
+    <div class="book-series">
+      <a>S.T.A.L.K.E.R.: Комбат и Тополь (2)</a>
+    </div>
   </div>
 </body></html>
 ''';

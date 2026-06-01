@@ -15,6 +15,10 @@ class AudioBook {
     this.sourceBookId,
     this.coverUrl,
     this.description,
+    this.seriesTitle,
+    this.seriesNumber,
+    this.ratingValue,
+    this.ratingCount,
     this.year,
   });
 
@@ -31,5 +35,51 @@ class AudioBook {
   final String? sourceBookId;
   final String? coverUrl;
   final String? description;
+  final String? seriesTitle;
+  final double? seriesNumber;
+  final double? ratingValue;
+  final int? ratingCount;
   final int? year;
+
+  AudioBook copyWith({
+    String? id,
+    String? title,
+    String? author,
+    String? narrator,
+    String? sourceId,
+    String? sourceName,
+    String? durationLabel,
+    int? chapterCount,
+    double? progress,
+    BookAccess? access,
+    String? sourceBookId,
+    String? coverUrl,
+    String? description,
+    String? seriesTitle,
+    double? seriesNumber,
+    double? ratingValue,
+    int? ratingCount,
+    int? year,
+  }) {
+    return AudioBook(
+      id: id ?? this.id,
+      title: title ?? this.title,
+      author: author ?? this.author,
+      narrator: narrator ?? this.narrator,
+      sourceId: sourceId ?? this.sourceId,
+      sourceName: sourceName ?? this.sourceName,
+      durationLabel: durationLabel ?? this.durationLabel,
+      chapterCount: chapterCount ?? this.chapterCount,
+      progress: progress ?? this.progress,
+      access: access ?? this.access,
+      sourceBookId: sourceBookId ?? this.sourceBookId,
+      coverUrl: coverUrl ?? this.coverUrl,
+      description: description ?? this.description,
+      seriesTitle: seriesTitle ?? this.seriesTitle,
+      seriesNumber: seriesNumber ?? this.seriesNumber,
+      ratingValue: ratingValue ?? this.ratingValue,
+      ratingCount: ratingCount ?? this.ratingCount,
+      year: year ?? this.year,
+    );
+  }
 }

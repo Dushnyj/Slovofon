@@ -10,6 +10,9 @@ AudioPlaybackBook mockAudioPlaybackBook(MockBook book) {
     author: book.author,
     narrator: book.narrator,
     sourceName: book.sourceName,
+    seriesTitle: book.series,
+    ratingValue: double.tryParse(book.ratingLabel.replaceAll(',', '.')),
+    publishedYear: book.year,
     chapters: [
       for (final chapter in book.chapters)
         AudioPlaybackChapter(

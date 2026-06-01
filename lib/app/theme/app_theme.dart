@@ -12,8 +12,8 @@ class AppTheme {
     Color accent = AppColorTokens.defaultAccent,
     bool highContrast = false,
   }) {
-    final colorScheme = ColorScheme.fromSeed(
-      seedColor: accent,
+    final colorScheme = _accentedScheme(
+      seed: accent,
       brightness: Brightness.light,
     );
 
@@ -27,11 +27,9 @@ class AppTheme {
         info: const Color(0xFF275EA8),
         onInfo: const Color(0xFFF8FAFC),
         playerSurface: highContrast
-            ? const Color(0xFF172033)
-            : const Color(0xFFEAF0FF),
-        onPlayerSurface: highContrast
-            ? const Color(0xFFF8FAFC)
-            : const Color(0xFF172033),
+            ? const Color(0xFFE8EDF5)
+            : const Color(0xFFEFF3FA),
+        onPlayerSurface: const Color(0xFF182233),
       ),
     );
   }
@@ -41,8 +39,8 @@ class AppTheme {
     bool highContrast = false,
     bool amoled = false,
   }) {
-    final colorScheme = ColorScheme.fromSeed(
-      seedColor: accent,
+    final colorScheme = _accentedScheme(
+      seed: accent,
       brightness: Brightness.dark,
     );
 
@@ -65,11 +63,9 @@ class AppTheme {
         info: const Color(0xFF8CB9FF),
         onInfo: const Color(0xFF061A3D),
         playerSurface: highContrast
-            ? const Color(0xFFF1F5FF)
-            : const Color(0xFF172033),
-        onPlayerSurface: highContrast
-            ? const Color(0xFF172033)
-            : const Color(0xFFF1F5FF),
+            ? const Color(0xFF202733)
+            : const Color(0xFF171D26),
+        onPlayerSurface: const Color(0xFFEAF0F8),
       ),
     );
   }
@@ -113,7 +109,7 @@ class AppTheme {
         centerTitle: false,
         backgroundColor: colorScheme.surface,
         foregroundColor: colorScheme.onSurface,
-        surfaceTintColor: colorScheme.surfaceTint,
+        surfaceTintColor: Colors.transparent,
       ),
       bottomNavigationBarTheme: BottomNavigationBarThemeData(
         backgroundColor: colorScheme.surface,
@@ -133,7 +129,7 @@ class AppTheme {
       ),
       cardTheme: CardThemeData(
         color: colorScheme.surfaceContainer,
-        surfaceTintColor: colorScheme.surfaceTint,
+        surfaceTintColor: Colors.transparent,
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(radii.md),
@@ -181,6 +177,7 @@ class AppTheme {
       ),
       dialogTheme: DialogThemeData(
         backgroundColor: colorScheme.surfaceContainerHigh,
+        surfaceTintColor: Colors.transparent,
         titleTextStyle: base.textTheme.titleLarge?.copyWith(
           color: colorScheme.onSurface,
         ),
@@ -198,7 +195,7 @@ class AppTheme {
       ),
       bottomSheetTheme: BottomSheetThemeData(
         backgroundColor: colorScheme.surfaceContainerHigh,
-        surfaceTintColor: colorScheme.surfaceTint,
+        surfaceTintColor: Colors.transparent,
         modalBackgroundColor: colorScheme.surfaceContainerHigh,
       ),
       inputDecorationTheme: InputDecorationTheme(
@@ -219,7 +216,8 @@ class AppTheme {
         selectedTileColor: colorTokens.selected,
       ),
       progressIndicatorTheme: ProgressIndicatorThemeData(
-        color: colorTokens.accent,
+        color: colorScheme.primary,
+        circularTrackColor: colorScheme.surfaceContainerHighest,
         linearTrackColor: colorScheme.surfaceContainerHighest,
       ),
       tooltipTheme: TooltipThemeData(
@@ -256,11 +254,122 @@ class AppTheme {
       border: colorScheme.outlineVariant,
       disabled: colorScheme.onSurface.withValues(alpha: 0.38),
       overlay: colorScheme.scrim.withValues(alpha: 0.12),
-      focus: accent,
+      focus: colorScheme.primary,
       hover: colorScheme.primary.withValues(alpha: 0.08),
-      selected: colorScheme.secondaryContainer,
+      selected: colorScheme.primaryContainer,
       playerSurface: colorScheme.surfaceContainerHigh,
       onPlayerSurface: colorScheme.onSurface,
+    );
+  }
+
+  static ColorScheme _accentedScheme({
+    required Color seed,
+    required Brightness brightness,
+  }) {
+    final accent = _accentForBrightness(seed, brightness);
+    final neutral = _withNeutralSurfaces(
+      ColorScheme.fromSeed(seedColor: accent, brightness: brightness),
+    );
+    final primaryContainer = _accentContainer(
+      accent: accent,
+      surface: neutral.surfaceContainerHigh,
+      brightness: brightness,
+    );
+    final secondaryContainer = _accentContainer(
+      accent: accent,
+      surface: neutral.surfaceContainerHighest,
+      brightness: brightness,
+      darkAlpha: 0.18,
+      lightAlpha: 0.12,
+    );
+
+    return neutral.copyWith(
+      primary: accent,
+      onPrimary: AppColorTokens.readableOn(accent),
+      primaryContainer: primaryContainer,
+      onPrimaryContainer: AppColorTokens.readableOn(primaryContainer),
+      secondary: accent,
+      onSecondary: AppColorTokens.readableOn(accent),
+      secondaryContainer: secondaryContainer,
+      onSecondaryContainer: AppColorTokens.readableOn(secondaryContainer),
+      error: brightness == Brightness.dark
+          ? const Color(0xFFFF5A52)
+          : const Color(0xFFC81E1E),
+      onError: brightness == Brightness.dark
+          ? const Color(0xFF2B0504)
+          : const Color(0xFFFFFFFF),
+      errorContainer: brightness == Brightness.dark
+          ? const Color(0xFF5A1411)
+          : const Color(0xFFFFE3E0),
+      onErrorContainer: brightness == Brightness.dark
+          ? const Color(0xFFFFDAD6)
+          : const Color(0xFF5F0B08),
+      surfaceTint: accent,
+      inversePrimary: _accentForBrightness(
+        seed,
+        brightness == Brightness.dark ? Brightness.light : Brightness.dark,
+      ),
+    );
+  }
+
+  static Color _accentForBrightness(Color seed, Brightness brightness) {
+    if (brightness == Brightness.light) {
+      return seed;
+    }
+
+    final hsv = HSVColor.fromColor(seed);
+    return hsv
+        .withSaturation(hsv.saturation.clamp(0.68, 1).toDouble())
+        .withValue(hsv.value.clamp(0.78, 1).toDouble())
+        .toColor();
+  }
+
+  static Color _accentContainer({
+    required Color accent,
+    required Color surface,
+    required Brightness brightness,
+    double darkAlpha = 0.12,
+    double lightAlpha = 0.14,
+  }) {
+    return Color.alphaBlend(
+      accent.withValues(
+        alpha: brightness == Brightness.dark ? darkAlpha : lightAlpha,
+      ),
+      surface,
+    );
+  }
+
+  static ColorScheme _withNeutralSurfaces(ColorScheme scheme) {
+    if (scheme.brightness == Brightness.dark) {
+      return scheme.copyWith(
+        surface: const Color(0xFF131318),
+        surfaceDim: const Color(0xFF131318),
+        surfaceBright: const Color(0xFF39383F),
+        surfaceContainerLowest: const Color(0xFF0E0E13),
+        surfaceContainerLow: const Color(0xFF1B1B20),
+        surfaceContainer: const Color(0xFF211F26),
+        surfaceContainerHigh: const Color(0xFF2B2930),
+        surfaceContainerHighest: const Color(0xFF36343B),
+        onSurface: const Color(0xFFE6E1E9),
+        onSurfaceVariant: const Color(0xFFC9C5D0),
+        outline: const Color(0xFF938F99),
+        outlineVariant: const Color(0xFF49454F),
+      );
+    }
+
+    return scheme.copyWith(
+      surface: const Color(0xFFFFFBFF),
+      surfaceDim: const Color(0xFFDED8E1),
+      surfaceBright: const Color(0xFFFFFBFF),
+      surfaceContainerLowest: const Color(0xFFFFFFFF),
+      surfaceContainerLow: const Color(0xFFF7F2FA),
+      surfaceContainer: const Color(0xFFF1ECF4),
+      surfaceContainerHigh: const Color(0xFFECE6EF),
+      surfaceContainerHighest: const Color(0xFFE6E0E9),
+      onSurface: const Color(0xFF1D1B20),
+      onSurfaceVariant: const Color(0xFF49454F),
+      outline: const Color(0xFF79747E),
+      outlineVariant: const Color(0xFFCAC4D0),
     );
   }
 }

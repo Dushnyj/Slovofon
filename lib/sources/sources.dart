@@ -1,8 +1,12 @@
 export 'akniga/akniga_source_connector.dart';
+export 'baza_knig/baza_knig_source_connector.dart';
 export 'izib/izib_source_connector.dart';
+export 'knigavuhe/knigavuhe_source_connector.dart';
+export 'knigoblud/knigoblud_source_connector.dart';
 export 'mock/mock_source_connector.dart';
 export 'source_connector.dart';
 export 'source_media_validator.dart';
 export 'source_models.dart';
 export 'source_parser_helpers.dart';
 export 'source_registry.dart';
+export 'yakniga/yakniga_source_connector.dart';

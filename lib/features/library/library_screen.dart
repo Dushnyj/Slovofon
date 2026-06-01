@@ -6,19 +6,25 @@ import 'package:go_router/go_router.dart';
 
 import '../../app/localization/app_strings.dart';
 import '../../domain/models/audio_book.dart';
+import '../../services/audio/audio_persistence.dart';
 import '../../services/audio/audio_state.dart';
 import '../../services/audio/playback_controller.dart';
 import '../../services/audio/playback_controller_provider.dart';
 import '../../services/downloads/download_manager.dart';
 import '../../services/downloads/download_manager_provider.dart';
+import '../../services/home/home_listening_visibility_store.dart';
 import '../../services/library/library_store.dart';
+import '../../services/sources/source_book_cache.dart';
 import '../../services/sources/source_catalog_provider.dart';
+import '../../services/sources/source_catalog_service.dart';
 import '../../ui/components/book_card.dart';
+import '../../ui/components/filter_picker_sheet.dart';
 import '../../ui/components/section_header.dart';
 import '../../ui/components/state_placeholder.dart';
 import '../../ui/icons/app_icons.dart';
 import '../../sources/sources.dart';
 import '../shared/download_ui_state.dart';
+import '../shared/playback_resume.dart';
 
 class LibraryScreen extends ConsumerStatefulWidget {
   const LibraryScreen({super.key});
@@ -38,6 +44,9 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
     final libraryStore = ref.watch(libraryStoreProvider);
     final playbackController = ref.watch(playbackControllerProvider);
     final downloadManager = ref.watch(downloadManagerProvider);
+    final progressSnapshots =
+        ref.watch(playbackProgressSnapshotsProvider).asData?.value ??
+        const <PlaybackProgressSnapshot>[];
     final shelves = [
       strings.all,
       strings.listening,
@@ -58,17 +67,13 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
         body: ListView(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
           children: [
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (var index = 0; index < shelves.length; index++)
-                  ChoiceChip(
-                    selected: index == _selectedShelf,
-                    label: Text(shelves[index]),
-                    onSelected: (_) => setState(() => _selectedShelf = index),
-                  ),
-              ],
+            Align(
+              alignment: Alignment.centerLeft,
+              child: InputChip(
+                avatar: const AppIcon(AppIconAssets.systemFilter, size: 16),
+                label: Text('${strings.filter}: $selected'),
+                onPressed: () => _pickShelf(context, shelves),
+              ),
             ),
             const SizedBox(height: 16),
             SectionHeader(
@@ -97,6 +102,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
                     entry: entry,
                     playbackController: playbackController,
                     downloadManager: downloadManager,
+                    progressSnapshots: progressSnapshots,
                     isPlayLoading: _playLoadingKeys.contains(
                       _bookKey(entry.book),
                     ),
@@ -115,6 +121,51 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _pickShelf(BuildContext context, List<String> shelves) async {
+    final next = await showModalBottomSheet<int>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) {
+        var draft = _selectedShelf;
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return FilterPickerSheet(
+              options: [
+                RadioGroup<int>(
+                  groupValue: draft,
+                  onChanged: (value) {
+                    if (value != null) {
+                      setModalState(() => draft = value);
+                    }
+                  },
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      for (var index = 0; index < shelves.length; index++)
+                        RadioListTile<int>(
+                          value: index,
+                          visualDensity: VisualDensity.compact,
+                          title: Text(shelves[index]),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+              action: FilledButton(
+                onPressed: () => Navigator.of(context).pop(draft),
+                child: Text(context.strings.apply),
+              ),
+            );
+          },
+        );
+      },
+    );
+    if (next != null && mounted) {
+      setState(() => _selectedShelf = next);
+    }
   }
 
   List<LibraryBookEntry> _entriesForShelf(
@@ -144,7 +195,23 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
     try {
       final playbackBook = await _loadPlaybackBook(book);
       if (playbackBook != null) {
-        await playbackController.loadBook(playbackBook, autoPlay: true);
+        final progressSnapshots =
+            await ref.read(playbackPersistenceStoreProvider)?.loadProgress() ??
+            const [];
+        final resumePoint = playbackResumePointForBook(
+          playbackBook,
+          progressSnapshots,
+        );
+        await playbackController.loadBook(
+          playbackBook,
+          chapterIndex: resumePoint.chapterIndex,
+          position: resumePoint.position,
+          autoPlay: true,
+        );
+        await ref
+            .read(homeListeningVisibilityStoreProvider)
+            .show(homeListeningBookKeyFor(playbackBook));
+        ref.invalidate(playbackProgressSnapshotsProvider);
       }
     } finally {
       if (mounted) {
@@ -186,12 +253,38 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
     if (sourceBookId == null || sourceBookId.isEmpty) {
       return null;
     }
-    final snapshot = await ref
-        .read(sourceCatalogServiceProvider)
-        .loadBook(
-          SourceBookRef(sourceId: book.sourceId, sourceBookId: sourceBookId),
-        );
-    return snapshot.playbackBook;
+    final downloadManager = ref.read(downloadManagerProvider);
+    try {
+      final snapshot = await ref
+          .read(sourceCatalogServiceProvider)
+          .loadBook(
+            SourceBookRef(sourceId: book.sourceId, sourceBookId: sourceBookId),
+          );
+      _cacheSnapshot(snapshot);
+      return downloadManager.offlinePlaybackBook(snapshot.playbackBook);
+    } catch (_) {
+      for (final cachedBook
+          in await ref.read(downloadStorageProvider).readAllMetadata()) {
+        if (cachedBook.sourceId == book.sourceId &&
+            cachedBook.sourceBookId == sourceBookId) {
+          return downloadManager.offlinePlaybackBook(cachedBook);
+        }
+      }
+      rethrow;
+    }
+  }
+
+  void _cacheSnapshot(SourceBookSnapshot snapshot) {
+    unawaited(
+      SourceBookCache(
+        downloadStorage: ref.read(downloadStorageProvider),
+        downloadManager: ref.read(downloadManagerProvider),
+        libraryStore: ref.read(libraryStoreProvider),
+      ).refresh(snapshot).catchError((Object error, StackTrace stackTrace) {
+        debugPrint('Failed to cache source book metadata: $error');
+        return snapshot;
+      }),
+    );
   }
 
   void _openSourceBook(BuildContext context, AudioBook book) {
@@ -199,7 +292,11 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
     if (sourceBookId == null || sourceBookId.isEmpty) {
       return;
     }
-    unawaited(context.push('/source-book/${book.sourceId}/$sourceBookId'));
+    unawaited(
+      context.push(
+        '/source-book/${book.sourceId}/${Uri.encodeComponent(sourceBookId)}',
+      ),
+    );
   }
 }
 
@@ -208,6 +305,7 @@ class _LibraryBookCard extends StatelessWidget {
     required this.entry,
     required this.playbackController,
     required this.downloadManager,
+    required this.progressSnapshots,
     required this.isPlayLoading,
     required this.isDownloadLoading,
     required this.onPlay,
@@ -219,6 +317,7 @@ class _LibraryBookCard extends StatelessWidget {
   final LibraryBookEntry entry;
   final PlaybackController playbackController;
   final DownloadManager downloadManager;
+  final List<PlaybackProgressSnapshot> progressSnapshots;
   final bool isPlayLoading;
   final bool isDownloadLoading;
   final VoidCallback onPlay;
@@ -229,8 +328,11 @@ class _LibraryBookCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = playbackController.state;
-    final book = entry.book;
+    var book = _bookWithSavedProgress(entry.book, progressSnapshots);
     final isCurrentBook = _playbackMatchesBook(state.book, book);
+    if (isCurrentBook && state.bookProgress > book.progress) {
+      book = book.copyWith(progress: state.bookProgress);
+    }
     final downloadBook = _downloadBookForAudioBook(downloadManager, book);
 
     return BookCard(
@@ -257,6 +359,33 @@ class _LibraryBookCard extends StatelessWidget {
       onTap: onTap,
     );
   }
+}
+
+AudioBook _bookWithSavedProgress(
+  AudioBook book,
+  List<PlaybackProgressSnapshot> snapshots,
+) {
+  PlaybackProgressSnapshot? best;
+  for (final snapshot in snapshots) {
+    if (!_progressMatchesBook(snapshot, book)) {
+      continue;
+    }
+    if (best == null || snapshot.lastPlayedAt.isAfter(best.lastPlayedAt)) {
+      best = snapshot;
+    }
+  }
+  final progress = ((best?.percent ?? 0) / 100).clamp(0, 1).toDouble();
+  return progress <= 0 ? book : book.copyWith(progress: progress);
+}
+
+bool _progressMatchesBook(PlaybackProgressSnapshot snapshot, AudioBook book) {
+  final sourceBookId = book.sourceBookId;
+  return snapshot.bookId == book.id ||
+      snapshot.bookVersionId == book.id ||
+      (sourceBookId != null &&
+          sourceBookId.isNotEmpty &&
+          (snapshot.bookVersionId == sourceBookId ||
+              snapshot.bookId == sourceBookId));
 }
 
 String _bookKey(AudioBook book) {

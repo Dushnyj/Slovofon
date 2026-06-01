@@ -7,6 +7,8 @@ import 'audio_state.dart';
 abstract interface class PlaybackPersistenceStore {
   Future<PlaybackSession?> loadSession({String id = 'active'});
 
+  Future<List<PlaybackProgressSnapshot>> loadProgress();
+
   Future<void> saveSession(PlaybackSession session);
 
   Future<void> saveProgress(PlaybackProgressSnapshot progress);
@@ -76,6 +78,28 @@ class DriftPlaybackPersistenceStore implements PlaybackPersistenceStore {
       sleepTimerMode: _sleepTimerMode(row.sleepTimerMode),
       updatedAt: row.updatedAt,
     );
+  }
+
+  @override
+  Future<List<PlaybackProgressSnapshot>> loadProgress() async {
+    final rows = await (_db.select(
+      _db.playbackProgressEntries,
+    )..orderBy([(row) => OrderingTerm.desc(row.lastPlayedAt)])).get();
+    return [
+      for (final row in rows)
+        PlaybackProgressSnapshot(
+          bookId: row.bookId,
+          bookVersionId: row.bookVersionId,
+          currentChapterId: row.currentChapterId,
+          currentPositionMs: row.currentPositionMs,
+          maxReachedGlobalPositionMs: row.maxReachedGlobalPositionMs,
+          totalDurationMs: row.totalDurationMs,
+          listenedDurationMs: row.listenedDurationMs,
+          percent: row.percent,
+          isFinished: row.isFinished,
+          lastPlayedAt: row.lastPlayedAt,
+        ),
+    ];
   }
 
   @override

@@ -5,7 +5,7 @@ enum AppAnimationsMode { full, reduced, off }
 class AppSettings {
   const AppSettings({
     this.themeMode = AppThemeMode.system,
-    this.languageCode = 'ru',
+    this.languageCode = 'system',
     this.accentColor = 'default',
     this.textScale = 1,
     this.compactCards = false,
@@ -16,7 +16,7 @@ class AppSettings {
 
   const AppSettings.defaults()
     : themeMode = AppThemeMode.system,
-      languageCode = 'ru',
+      languageCode = 'system',
       accentColor = 'default',
       textScale = 1,
       compactCards = false,
@@ -32,4 +32,26 @@ class AppSettings {
   final bool showSourceOnCards;
   final bool showPercentOnCovers;
   final AppAnimationsMode animationsMode;
+
+  AppSettings copyWith({
+    AppThemeMode? themeMode,
+    String? languageCode,
+    String? accentColor,
+    double? textScale,
+    bool? compactCards,
+    bool? showSourceOnCards,
+    bool? showPercentOnCovers,
+    AppAnimationsMode? animationsMode,
+  }) {
+    return AppSettings(
+      themeMode: themeMode ?? this.themeMode,
+      languageCode: languageCode ?? this.languageCode,
+      accentColor: accentColor ?? this.accentColor,
+      textScale: textScale ?? this.textScale,
+      compactCards: compactCards ?? this.compactCards,
+      showSourceOnCards: showSourceOnCards ?? this.showSourceOnCards,
+      showPercentOnCovers: showPercentOnCovers ?? this.showPercentOnCovers,
+      animationsMode: animationsMode ?? this.animationsMode,
+    );
+  }
 }

@@ -20,11 +20,13 @@ void main() {
 
       expect(engine.loadedChapterIds, ['chapter-1']);
       expect(engine.loadedPositions, [const Duration(seconds: 12)]);
-      expect(handler.mediaItem.value?.id, 'chapter-1');
-      expect(handler.mediaItem.value?.album, 'Мастер и Маргарита');
-      expect(handler.mediaItem.value?.title, 'Глава 1');
-      expect(handler.mediaItem.value?.artist, 'Михаил Булгаков');
-      expect(handler.mediaItem.value?.displaySubtitle, 'Вячеслав Герасимов');
+      expect(handler.mediaItem.value?.id, 'version-1:chapter-1');
+      expect(handler.mediaItem.value?.album, 'Словофон');
+      expect(handler.mediaItem.value?.title, 'Мастер и Маргарита');
+      expect(handler.mediaItem.value?.artist, 'Глава 1');
+      expect(handler.mediaItem.value?.displayTitle, 'Мастер и Маргарита');
+      expect(handler.mediaItem.value?.displaySubtitle, 'Глава 1');
+      expect(handler.mediaItem.value?.displayDescription, 'Словофон');
       expect(
         handler.playbackState.value.processingState,
         background_audio.AudioProcessingState.ready,
@@ -50,6 +52,93 @@ void main() {
       expect(engine.pauseCount, 1);
       expect(handler.playbackState.value.playing, isFalse);
     });
+
+    test('publishes expanded notification controls', () async {
+      final engine = RecordingAudioEngine();
+      final handler = SlovofonAudioHandler(engine: engine);
+
+      await handler.loadChapter(
+        _book,
+        _book.chapters.first,
+        position: Duration.zero,
+      );
+
+      expect(
+        handler.playbackState.value.controls.map((control) => control.action),
+        [
+          background_audio.MediaAction.skipToPrevious,
+          background_audio.MediaAction.rewind,
+          background_audio.MediaAction.play,
+          background_audio.MediaAction.fastForward,
+          background_audio.MediaAction.skipToNext,
+        ],
+      );
+      expect(handler.playbackState.value.androidCompactActionIndices, [
+        0,
+        2,
+        4,
+      ]);
+      expect(
+        handler.playbackState.value.controls.map(
+          (control) => control.androidIcon,
+        ),
+        [
+          'drawable/audio_service_previous',
+          'drawable/audio_service_rewind',
+          'drawable/audio_service_play',
+          'drawable/audio_service_forward',
+          'drawable/audio_service_next',
+        ],
+      );
+      expect(
+        handler.playbackState.value.controls[1].androidIcon,
+        contains('rewind'),
+      );
+      expect(
+        handler.playbackState.value.controls[3].androidIcon,
+        contains('forward'),
+      );
+      expect(
+        handler.playbackState.value.systemActions,
+        containsAll([
+          background_audio.MediaAction.rewind,
+          background_audio.MediaAction.fastForward,
+          background_audio.MediaAction.skipToPrevious,
+          background_audio.MediaAction.skipToNext,
+          background_audio.MediaAction.seek,
+        ]),
+      );
+      expect(
+        handler.playbackState.value.systemActions,
+        isNot(contains(background_audio.MediaAction.stop)),
+      );
+    });
+
+    test('notification rewind forward and stop delegate to engine', () async {
+      final engine = RecordingAudioEngine();
+      final handler = SlovofonAudioHandler(engine: engine);
+
+      await handler.loadChapter(
+        _book,
+        _book.chapters.first,
+        position: const Duration(minutes: 2),
+      );
+
+      await handler.rewind();
+      await handler.fastForward();
+      await handler.stop();
+
+      expect(engine.seekPositions, [
+        const Duration(seconds: 90),
+        const Duration(minutes: 2),
+      ]);
+      expect(engine.pauseCount, 1);
+      expect(handler.playbackState.value.playing, isFalse);
+      expect(
+        handler.playbackState.value.processingState,
+        background_audio.AudioProcessingState.idle,
+      );
+    });
   });
 }
 
@@ -74,6 +163,7 @@ const _book = AudioPlaybackBook(
 class RecordingAudioEngine implements AudioEngine {
   final loadedChapterIds = <String>[];
   final loadedPositions = <Duration>[];
+  final seekPositions = <Duration>[];
   int playCount = 0;
   int pauseCount = 0;
 
@@ -104,7 +194,9 @@ class RecordingAudioEngine implements AudioEngine {
   }
 
   @override
-  Future<void> seek(Duration position) async {}
+  Future<void> seek(Duration position) async {
+    seekPositions.add(position);
+  }
 
   @override
   Future<void> setSpeed(double speed) async {}
