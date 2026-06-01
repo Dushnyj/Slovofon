@@ -174,6 +174,32 @@ Slovofon-v<version>-windows-x64-debug
 
 Эти artifacts не являются release-сборкой, не подписываются, не создают Git tag и не публикуются в GitHub Release.
 
+### 5.2 Канал обновлений приложения
+
+Клиентское приложение должно использовать только публичные HTTPS-домены, без IP, SSH-данных, bot token, GitHub token или других секретов.
+
+Публичные URL обновлений:
+
+```text
+Base:   https://slovofon-updates.duckdns.org
+Stable: https://slovofon-updates.duckdns.org/v1/channels/stable/latest.json
+Beta:   https://slovofon-updates.duckdns.org/v1/channels/beta/latest.json
+```
+
+Базовая логика клиента:
+
+```text
+1. Android и Windows по умолчанию проверяют канал stable.
+2. status == no_release означает, что публичного обновления нет.
+3. status == available означает, что клиент сравнивает version/build с текущей сборкой.
+4. mandatory == true означает обязательное обновление.
+5. assets выбираются по platform/arch/kind.
+6. Перед установкой или запуском файла обязательно проверить sha256.
+7. В будущем manifest или asset signature проверять через встроенный public key.
+```
+
+Android без Google Play не может обновиться полностью бесшовно: клиент может скачать APK, проверить `sha256` и открыть системный установщик, а пользователь подтвердит установку. Windows-клиент может скачать installer/MSIX/portable artifact, проверить `sha256` и запускать установку только после явного согласия пользователя.
+
 ---
 
 ## 6. Подпись релизов и секреты

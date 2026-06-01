@@ -52,14 +52,17 @@ UI -> feature controller/notifier -> use case -> repository/service -> data/sour
 
 ## 3. Основные сервисы
 
-### 3.1 PlaybackController / AudioService layer
+### 3.1 PlaybackController / system media layer
 
 Единый источник истины для воспроизведения.
 
-В коде приложения сервис состояния называется `PlaybackController`, чтобы не
-конфликтовать с Flutter-пакетом `audio_service`. Пакет `audio_service`
-используется только для системной Android/media-интеграции: foreground service,
-notification, lock screen и media buttons.
+В коде приложения единый сервис состояния называется `PlaybackController`.
+Реальное воспроизведение остаётся за `AudioEngine`/`just_audio`, а системная
+Android-интеграция вынесена в native Media3 facade:
+`SlovofonMediaSessionService` + `SlovofonMediaSessionPlayer` получают metadata
+и состояние через platform channel, публикуют стандартный MediaSession/MediaStyle
+для notification, lock screen и media buttons и отправляют команды обратно в
+тот же app-level playback layer.
 
 Обязанности:
 

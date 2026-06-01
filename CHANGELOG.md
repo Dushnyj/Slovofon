@@ -5,6 +5,8 @@
 ## [Unreleased]
 
 ### Added
+- В настройках добавлены публичные ссылки проекта: сайт, GitHub приложения, Telegram-бот поддержки, Telegram-канал, Telegram-чат и stable manifest канала обновлений.
+- Зафиксирована схема будущей проверки обновлений через `https://slovofon-updates.duckdns.org`: stable/beta manifest, `no_release`/`available`, обязательная проверка `sha256` перед установкой и запрет на хранение секретов в клиенте.
 - Добавлен Stage 9 `YaknigaSourceConnector`: public GraphQL search/details, chapters через `chapters.collection`, `fileUrl` как direct media source, `User-Agent`/`Referer` headers, media allowlist и health check.
 - Добавлены Stage 9 тесты Yakniga для GraphQL client/transport, mapper, source connector, media headers и optional live smoke-test против `yakniga.org`.
 - Добавлен Stage 9 `KnigavuheSourceConnector`: HTML search/details, `BookPlayer` playlist parser, media headers, allowlist для `*.knigavuhe.org` и разрешённых LitRes trial URL, health check и optional live smoke-test.
@@ -34,11 +36,11 @@
 - Добавлен Stage 4 `PlaybackController`: `AudioEngine` abstraction, playback state, play/pause/seek, speed, chapter switching, progress calculation, session restore and sleep timer behavior.
 - `PlaybackController` теперь слушает runtime snapshots от audio backend: позицию, ready/buffering/completed/error states и автоматически переходит к следующей главе при завершении текущей.
 - Добавлен `JustAudioEngine` поверх `just_audio` с URL/file/asset media source API и Windows backend через `just_audio_windows`.
-- Добавлен Android/system-media слой `SlovofonAudioHandler` поверх Flutter-пакета `audio_service` для metadata, notification/lock screen/media button команд.
+- Добавлен Android/system-media слой на native AndroidX Media3: `SlovofonMediaSessionService`, `SlovofonMediaSessionPlayer` и Dart `AndroidMediaSessionEngine` синхронизируют metadata/state с `PlaybackController` и возвращают notification/lock screen/media button команды в app-level playback.
 - Добавлен `PlaybackPersistenceStore` на Drift для сохранения и восстановления `PlaybackSession` и `PlaybackProgress` без уменьшения max reached progress.
 - Добавлен локальный сгенерированный `assets/audio/stage4_mock_chapter.wav` fixture на 45 минут, чтобы mock playback мог открыть реальный audio asset без сети и не завершал главу сразу после старта с сохраненной позиции.
 - Добавлен in-memory `AudioEngine` и switching engine для тестируемого Stage 4 ядра и mock UI без реальных media URL.
-- Добавлены Stage 4 unit-тесты для playback controls, runtime backend states, progress persistence, chapter navigation, session restore, sleep timer, `JustAudioEngine`, `SlovofonAudioHandler` и local audio fixture.
+- Добавлены Stage 4 unit-тесты для playback controls, runtime backend states, progress persistence, chapter navigation, session restore, sleep timer, `JustAudioEngine`, Android Media3 session facade и local audio fixture.
 - Добавлен Stage 3 UI на mock data: главная, поиск, карточка книги, библиотека, загрузки, настройки, мини-плеер и полный плеер.
 - Добавлены маршруты `/book/:bookId` и `/player` для mock-карточки книги и полноэкранного плеера.
 - Расширены mock data книгами, версиями, главами, закладками, полками библиотеки и состояниями загрузок.
@@ -99,7 +101,7 @@
 - Главная, поиск, библиотека, карточка книги и полный плеер теперь вызывают реальные действия загрузки книги/главы через `DownloadManager`.
 - Bootstrap приложения подключает app-specific storage для книг и общий Drift persistence для плеера, загрузок и избранного.
 - Мини-плеер и полный плеер теперь читают состояние через единый `PlaybackController`, а не напрямую из статичных mock-полей.
-- Внутренний app-level audio service переименован в `PlaybackController`, чтобы не конфликтовать с Flutter-пакетом `audio_service`.
+- Внутренний app-level audio service переименован в `PlaybackController`, чтобы отделить состояние приложения от платформенных media adapters.
 - Главная, поиск и библиотека получили более плотные book cards: процент прослушивания поверх обложки, прогресс под обложкой, metadata с иконками и icon-only действия для избранного, загрузки, запуска и информации.
 - Карточка "Продолжить прослушивание" переработана с крупной обложкой, процентом прогресса, metadata и быстрыми icon-only действиями.
 - Мини-плеер снизу стал компактнее и информативнее: тонкая полоса прогресса, обложка, глава, позиция и процент прослушивания.
@@ -113,6 +115,7 @@
 - Убрано рабочее имя `Auralib` из технического ТЗ.
 
 ### Fixed
+- Android Media3 notification/lock screen provider теперь помечает все audiobook controls как compact actions и добавляет Stop-команду: предыдущая глава, назад 30 секунд, play/pause, stop, вперёд 30 секунд, следующая глава.
 - Bottom sheet фильтров поиска больше не переполняется над мини-плеером/нижней навигацией: списки выбора стали ограниченными по высоте, прокручиваемыми, а кнопка применения остаётся закреплённой снизу.
 - Карточки поиска больше не считают одинаковыми разные результаты с похожими названием и автором: active/loading/playback state привязывается только к точным `sourceBookId`/`versionId`/стабильным id, поэтому запуск одной версии не включает пачку соседних карточек.
 - Запуск книги из поиска, библиотеки и главной продолжает её с сохранённой главы и позиции, если по книге уже есть `PlaybackProgress`.
@@ -145,6 +148,7 @@
 - Основные action-кнопки mock UI заменены на icon-only controls с tooltip вместо громоздких текстовых кнопок.
 
 ### Security
+- Публичные домены Slovofon разрешены только как HTTPS URL; SSH/IP/пароли/tokens/bot credentials не должны попадать в клиент, Git, Basic Memory, CI logs или release artifacts.
 - Добавлена source-level media validation: реальные коннекторы обязаны отдавать media только через allowlist домены, без произвольных URL и без credentials в URL.
 - Расширены правила для signing secrets: Android `.jks`, Windows `.pfx`, GitHub Secrets и CI cleanup.
 - Зафиксирован запрет на хранение приватных API secrets в клиенте.

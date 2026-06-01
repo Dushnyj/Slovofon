@@ -544,8 +544,11 @@ void main() {
     await _pumpFrames(tester);
     expect(find.text('Version'), findsOneWidget);
     expect(find.text('Build number'), findsOneWidget);
-    expect(find.text('GitHub'), findsOneWidget);
-    expect(find.text('Telegram'), findsOneWidget);
+    expect(find.text('Application GitHub'), findsOneWidget);
+    expect(find.text('Telegram support bot'), findsOneWidget);
+    expect(find.text('Telegram channel'), findsOneWidget);
+    expect(find.text('Telegram chat'), findsOneWidget);
+    expect(find.text('Update channel'), findsOneWidget);
     Navigator.of(tester.element(find.text('About').last)).pop();
     await _pumpFrames(tester);
 

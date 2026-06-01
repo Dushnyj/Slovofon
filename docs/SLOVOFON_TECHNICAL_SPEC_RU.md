@@ -203,7 +203,7 @@ Network:
 
 Audio:
 - отдельная абстракция AudioEngine
-- Android: app-level PlaybackController + audio_service + just_audio либо другой совместимый стек
+- Android: app-level PlaybackController + just_audio playback engine + native Media3 MediaSessionService facade для notification/lock screen/media buttons
 - Windows: app-level PlaybackController + just_audio с Windows backend; если стек нестабилен, реализовать WindowsAudioEngine через альтернативный пакет или platform channel
 
 Downloads:
@@ -1457,7 +1457,7 @@ PlaybackController / AudioService layer
 - switchSourceVersion()
 ```
 
-UI, Android notification, lock screen, headset buttons, Windows mini-player и hotkeys должны обращаться к одному и тому же app-level `PlaybackController`. Flutter-пакет `audio_service` использовать как системный media/background adapter, а не как место для UI-логики.
+UI, Android notification, lock screen, headset buttons, Windows mini-player и hotkeys должны обращаться к одному и тому же app-level `PlaybackController`. На Android системный media/background adapter реализуется native Media3 `MediaSessionService` facade: он не содержит UI-логики и только синхронизирует metadata/state с `PlaybackController`, а команды Play/Pause/Seek/Previous/Next возвращает обратно в app-level playback layer.
 
 ### 18.2 Мини-плеер внутри приложения
 

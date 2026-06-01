@@ -1,15 +1,14 @@
 import 'dart:async';
 
-import 'package:audio_service/audio_service.dart' as background_audio;
 import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'android_media_session_engine.dart';
 import 'audio_persistence.dart';
 import 'audio_engine.dart';
 import 'just_audio_engine.dart';
 import 'playback_controller.dart';
-import 'slovofon_audio_handler.dart';
 import '../downloads/download_manager_provider.dart';
 
 final audioEngineProvider = Provider<AudioEngine>((ref) {
@@ -64,21 +63,11 @@ Future<AudioEngine> createPlatformAudioEngine({
   final fallbackEngine = InMemoryAudioEngine();
 
   if (effectivePlatform == TargetPlatform.android) {
-    final handler = SlovofonAudioHandler(engine: realEngine);
-    await background_audio.AudioService.init(
-      builder: () => handler,
-      config: const background_audio.AudioServiceConfig(
-        androidNotificationChannelId: 'com.slovofon.app.playback',
-        androidNotificationChannelName: 'Slovofon playback',
-        androidNotificationOngoing: true,
-        androidStopForegroundOnPause: true,
-        fastForwardInterval: Duration(seconds: 30),
-        rewindInterval: Duration(seconds: 30),
-      ),
-    );
-
     return SwitchingAudioEngine(
-      primary: AudioHandlerEngine(handler),
+      primary: AndroidMediaSessionEngine(
+        delegate: realEngine,
+        platform: MethodChannelAndroidMediaSessionPlatform(),
+      ),
       fallback: fallbackEngine,
     );
   }

@@ -1,5 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Словофон</string>
+    <string name="playback_notification_channel_name">Воспроизведение Словофон</string>
+    <string name="media_action_previous_chapter">Предыдущая глава</string>
+    <string name="media_action_rewind_30">Назад на 30 секунд</string>
+    <string name="media_action_play">Воспроизвести</string>
+    <string name="media_action_pause">Приостановить</string>
+    <string name="media_action_stop">Остановить</string>
+    <string name="media_action_forward_30">Вперёд на 30 секунд</string>
+    <string name="media_action_next_chapter">Следующая глава</string>
 </resources>
-

@@ -324,6 +324,14 @@ class AppStrings {
       _isRu ? 'Версия, сборка и ссылки проекта' : 'Version, build, and links';
   String get appVersion => _isRu ? 'Версия' : 'Version';
   String get buildNumber => _isRu ? 'Номер сборки' : 'Build number';
+  String get projectWebsite => _isRu ? 'Сайт проекта' : 'Project website';
+  String get githubRepository =>
+      _isRu ? 'GitHub приложения' : 'Application GitHub';
+  String get telegramSupportBot =>
+      _isRu ? 'Telegram-бот поддержки' : 'Telegram support bot';
+  String get telegramChannel => _isRu ? 'Telegram-канал' : 'Telegram channel';
+  String get telegramChat => _isRu ? 'Telegram-чат' : 'Telegram chat';
+  String get updateChannel => _isRu ? 'Канал обновлений' : 'Update channel';
   String get diagnosticsHint => _isRu
       ? 'Предпросмотр темы и безопасная проверка интерфейсных состояний.'
       : 'Theme preview and safe UI state checks.';

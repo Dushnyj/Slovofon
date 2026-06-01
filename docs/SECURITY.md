@@ -270,6 +270,32 @@ Release workflow должен:
 
 ---
 
-## 12. Зависимости
+## 12. Обновления и публичная инфраструктура
+
+В клиентском приложении разрешено хранить только публичные HTTPS URL:
+
+```text
+https://slovofon.duckdns.org
+https://slovofon-api.duckdns.org
+https://slovofon-updates.duckdns.org
+https://slovofon-admin.duckdns.org
+```
+
+Запрещено встраивать или коммитить:
+
+```text
+IP/VPS address
+SSH login/password/key
+BOT_TOKEN
+GITHUB_TOKEN
+database credentials
+private update/signing keys
+```
+
+Проверка обновлений должна скачивать manifest с `slovofon-updates.duckdns.org`, выбирать asset под платформу и обязательно сверять `sha256` до запуска установщика или открытия APK. В будущем manifest или asset signature нужно проверять встроенным public key, например `UPDATE_MANIFEST_PUBLIC_KEY`; приватная часть ключа не должна попадать в клиент, Git, CI logs или release artifacts.
+
+---
+
+## 13. Зависимости
 
 Все сторонние зависимости и ассеты должны быть отражены в `THIRD_PARTY_NOTICES.md`.

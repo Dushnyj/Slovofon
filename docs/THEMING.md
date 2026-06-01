@@ -121,4 +121,4 @@ Windows hover/focus state
 
 ## 7. Android notification colors
 
-Для Android notification/lock screen использовать стандартный MediaStyle. Не делать кастомную нотификацию с собственными цветами, если стандартный media session решает задачу лучше.
+Для Android notification/lock screen использовать стандартный MediaStyle через Media3 `MediaSessionService`. Не делать кастомную нотификацию с собственными цветами, если стандартный media session решает задачу лучше.

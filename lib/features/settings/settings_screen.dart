@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../app/app_version.dart';
 import '../../app/localization/app_strings.dart';
+import '../../app/project_links.dart';
 import '../../app/theme/app_color_tokens.dart';
 import '../../domain/models/app_settings.dart';
 import '../../services/downloads/download_manager_provider.dart';
@@ -462,48 +463,89 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _openAboutSheet(BuildContext context) async {
-    const githubUrl = 'https://github.com/Dushnyj/Slovofon';
-    const telegramUrl = 'https://t.me/+mAwEtHjpV6kwYTBi';
     await showModalBottomSheet<void>(
       context: context,
+      isScrollControlled: true,
       showDragHandle: true,
       builder: (context) {
+        final colorScheme = Theme.of(context).colorScheme;
+        final githubColor = colorScheme.brightness == Brightness.dark
+            ? const Color(0xFFF0F6FC)
+            : const Color(0xFF24292F);
+        const telegramColor = Color(0xFF229ED9);
+
         return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  context.strings.aboutApp,
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                const SizedBox(height: 8),
-                _InfoRow(
-                  iconAsset: AppIconAssets.systemInfo,
-                  title: context.strings.appVersion,
-                  subtitle: AppVersion.version,
-                ),
-                _InfoRow(
-                  iconAsset: AppIconAssets.systemNotification,
-                  title: context.strings.buildNumber,
-                  subtitle: AppVersion.buildNumber,
-                ),
-                const SizedBox(height: 8),
-                _LinkRow(
-                  iconAsset: AppIconAssets.systemGithub,
-                  title: 'GitHub',
-                  subtitle: githubUrl,
-                  onTap: () => _openUrl(context, githubUrl),
-                ),
-                _LinkRow(
-                  iconAsset: AppIconAssets.systemTelegram,
-                  title: 'Telegram',
-                  subtitle: telegramUrl,
-                  onTap: () => _openUrl(context, telegramUrl),
-                ),
-              ],
+          child: SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    context.strings.aboutApp,
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 8),
+                  _InfoRow(
+                    iconAsset: AppIconAssets.systemInfo,
+                    title: context.strings.appVersion,
+                    subtitle: AppVersion.version,
+                  ),
+                  _InfoRow(
+                    iconAsset: AppIconAssets.systemNotification,
+                    title: context.strings.buildNumber,
+                    subtitle: AppVersion.buildNumber,
+                  ),
+                  const SizedBox(height: 8),
+                  _LinkRow(
+                    iconAsset: AppIconAssets.bookSource,
+                    iconColor: colorScheme.primary,
+                    title: context.strings.projectWebsite,
+                    subtitle: ProjectLinks.site,
+                    onTap: () => _openUrl(context, ProjectLinks.site),
+                  ),
+                  _LinkRow(
+                    iconAsset: AppIconAssets.systemGithub,
+                    iconColor: githubColor,
+                    title: context.strings.githubRepository,
+                    subtitle: ProjectLinks.githubRepository,
+                    onTap: () =>
+                        _openUrl(context, ProjectLinks.githubRepository),
+                  ),
+                  _LinkRow(
+                    iconAsset: AppIconAssets.systemTelegram,
+                    iconColor: telegramColor,
+                    title: context.strings.telegramSupportBot,
+                    subtitle: ProjectLinks.telegramSupportBot,
+                    onTap: () =>
+                        _openUrl(context, ProjectLinks.telegramSupportBot),
+                  ),
+                  _LinkRow(
+                    iconAsset: AppIconAssets.systemTelegram,
+                    iconColor: telegramColor,
+                    title: context.strings.telegramChannel,
+                    subtitle: ProjectLinks.telegramChannel,
+                    onTap: () =>
+                        _openUrl(context, ProjectLinks.telegramChannel),
+                  ),
+                  _LinkRow(
+                    iconAsset: AppIconAssets.systemTelegram,
+                    iconColor: telegramColor,
+                    title: context.strings.telegramChat,
+                    subtitle: ProjectLinks.telegramChat,
+                    onTap: () => _openUrl(context, ProjectLinks.telegramChat),
+                  ),
+                  _LinkRow(
+                    iconAsset: AppIconAssets.systemRefresh,
+                    iconColor: colorScheme.primary,
+                    title: context.strings.updateChannel,
+                    subtitle: ProjectLinks.updatesStableManifest,
+                    onTap: () =>
+                        _openUrl(context, ProjectLinks.updatesStableManifest),
+                  ),
+                ],
+              ),
             ),
           ),
         );
@@ -630,24 +672,24 @@ class _InfoRow extends StatelessWidget {
 class _LinkRow extends StatelessWidget {
   const _LinkRow({
     required this.iconAsset,
+    required this.iconColor,
     required this.title,
     required this.subtitle,
     required this.onTap,
   });
 
   final String iconAsset;
+  final Color iconColor;
   final String title;
   final String subtitle;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-
     return ListTile(
       contentPadding: EdgeInsets.zero,
       visualDensity: VisualDensity.compact,
-      leading: AppIcon(iconAsset, color: colorScheme.primary),
+      leading: AppIcon(iconAsset, color: iconColor),
       title: Text(title),
       subtitle: Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
       trailing: const AppIcon(AppIconAssets.systemForward),

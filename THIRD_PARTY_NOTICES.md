@@ -113,12 +113,6 @@ License: MIT
 URL: https://pub.dev/packages/audio_session
 Purpose: Android/iOS/macOS audio focus/session configuration for speech-style playback and interruptions.
 
-Package: audio_service
-Version: 0.18.18
-License: MIT
-URL: https://pub.dev/packages/audio_service
-Purpose: Background audio service, Android media notification, lock screen controls, and media button integration.
-
 Package: crypto
 Version: 3.0.7
 License: BSD-3-Clause
@@ -156,7 +150,17 @@ URL: https://pub.dev/packages/drift_dev
 Purpose: Drift schema/code generation for typed SQLite tables.
 ```
 
-## 3. Icons
+## 3. Android native dependencies
+
+```text
+Package: AndroidX Media3 session
+Version: 1.10.1
+License: Apache-2.0
+URL: https://developer.android.com/jetpack/androidx/releases/media3
+Purpose: Native Android MediaSessionService, notification, lock screen controls, and media button integration.
+```
+
+## 4. Icons
 
 Текущие иконки:
 
@@ -178,12 +182,12 @@ Files:
 Purpose: Temporary fallback icons during UI scaffolding.
 ```
 
-## 4. Fonts
+## 5. Fonts
 
 По умолчанию использовать системные шрифты Flutter/платформы, если владелец не утвердит другой шрифт.
 
 Никогда не включать font files без проверки лицензии.
 
-## 5. Source logos
+## 6. Source logos
 
 Не использовать официальные логотипы источников без разрешения. Для источников использовать текстовые chips, цвет источника и generic source icon.
