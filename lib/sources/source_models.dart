@@ -4,6 +4,8 @@ import '../services/audio/audio_state.dart';
 
 enum SearchKind { all, title, author, narrator, series, genre }
 
+enum SearchSort { relevance, rating, year, duration, title }
+
 enum MediaResolvePurpose { playback, download, probe }
 
 enum SourceErrorKind {
@@ -38,6 +40,7 @@ class SearchRequest {
     this.page = 1,
     this.pageSize = 20,
     this.sourceIds = const {},
+    this.sort = SearchSort.relevance,
   });
 
   final String query;
@@ -46,6 +49,7 @@ class SearchRequest {
   final int page;
   final int pageSize;
   final Set<String> sourceIds;
+  final SearchSort sort;
 
   Set<SearchKind> get effectiveKinds {
     final selected = kinds.where((kind) => kind != SearchKind.all).toSet();
@@ -75,6 +79,7 @@ class SearchRequest {
     int? page,
     int? pageSize,
     Set<String>? sourceIds,
+    SearchSort? sort,
   }) {
     return SearchRequest(
       query: query ?? this.query,
@@ -83,6 +88,7 @@ class SearchRequest {
       page: page ?? this.page,
       pageSize: pageSize ?? this.pageSize,
       sourceIds: sourceIds ?? this.sourceIds,
+      sort: sort ?? this.sort,
     );
   }
 }

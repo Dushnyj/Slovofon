@@ -244,8 +244,12 @@ class AppStrings {
       _isRu ? 'Открыть полный плеер' : 'Open full player';
   String get groupedDuplicates =>
       _isRu ? 'Группировать одинаковые' : 'Grouped duplicates';
-  String get sortRelevance =>
-      _isRu ? 'Сортировка: релевантность' : 'Sort: relevance';
+  String get sort => _isRu ? 'Сортировка' : 'Sort';
+  String get sortByRelevance => _isRu ? 'релевантность' : 'relevance';
+  String get sortByRating => _isRu ? 'рейтинг' : 'rating';
+  String get sortByYear => _isRu ? 'год' : 'year';
+  String get sortByDuration => _isRu ? 'длительность' : 'duration';
+  String get sortByTitle => _isRu ? 'название' : 'title';
   String get all => _isRu ? 'Все' : 'All';
   String get filter => _isRu ? 'Фильтр' : 'Filter';
   String get listening => _isRu ? 'Слушаю' : 'Listening';

@@ -10,6 +10,7 @@ import 'package:slovofon/domain/models/chapter.dart';
 import 'package:slovofon/services/audio/audio_state.dart';
 import 'package:slovofon/services/sources/source_catalog_provider.dart';
 import 'package:slovofon/services/sources/source_catalog_service.dart';
+import 'package:slovofon/services/sources/source_settings_store.dart';
 import 'package:slovofon/sources/izib/izib_graphql_client.dart';
 import 'package:slovofon/sources/sources.dart';
 
@@ -40,6 +41,22 @@ void main() {
         registry.connectorById('baza_knig'),
         isA<BazaKnigSourceConnector>(),
       );
+    });
+
+    test('source settings drive the enabled search registry', () async {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+
+      await container.read(sourceSettingsStoreProvider).setEnabledSources({
+        'izib',
+      });
+
+      final registry = container.read(sourceRegistryProvider);
+
+      expect(registry.enabledSourceIds, {'izib'});
+      expect(registry.enabledConnectors.map((connector) => connector.id), [
+        'izib',
+      ]);
     });
 
     test('search returns Izib results through the source registry', () async {
@@ -325,6 +342,30 @@ void main() {
 
       expect(response.results, hasLength(1));
       expect(response.results.single.title, 'Дыхание зоны');
+    });
+
+    test('search applies selected sort order after filtering', () async {
+      final service = SourceCatalogService(
+        registry: SourceRegistry([_SortingSourceConnector()]),
+      );
+
+      final byRating = await service.search(
+        const SearchRequest(query: 'дыхание', sort: SearchSort.rating),
+      );
+      expect(byRating.results.map((result) => result.sourceBookId), [
+        'rating-best',
+        'rating-mid',
+        'rating-missing',
+      ]);
+
+      final byYear = await service.search(
+        const SearchRequest(query: 'дыхание', sort: SearchSort.year),
+      );
+      expect(byYear.results.map((result) => result.sourceBookId), [
+        'rating-mid',
+        'rating-best',
+        'rating-missing',
+      ]);
     });
 
     test('loads Izib details and builds a playable book', () async {
@@ -657,6 +698,37 @@ class _GenreFilteringSourceConnector extends _FilteringSourceConnector {
         sourceName: 'Izib',
         title: 'Полураспад',
         genres: ['Фантастика'],
+      ),
+    ];
+  }
+}
+
+class _SortingSourceConnector extends _FilteringSourceConnector {
+  @override
+  Future<List<BookSearchResult>> search(SearchRequest request) async {
+    return const [
+      BookSearchResult(
+        ref: SourceBookRef(sourceId: 'izib', sourceBookId: 'rating-mid'),
+        sourceName: 'Izib',
+        title: 'Дыхание третье',
+        year: 2024,
+        duration: Duration(hours: 8),
+        ratingValue: 4.1,
+        ratingCount: 90,
+      ),
+      BookSearchResult(
+        ref: SourceBookRef(sourceId: 'izib', sourceBookId: 'rating-best'),
+        sourceName: 'Izib',
+        title: 'Дыхание первое',
+        year: 2020,
+        duration: Duration(hours: 12),
+        ratingValue: 4.8,
+        ratingCount: 300,
+      ),
+      BookSearchResult(
+        ref: SourceBookRef(sourceId: 'izib', sourceBookId: 'rating-missing'),
+        sourceName: 'Izib',
+        title: 'Дыхание второе',
       ),
     ];
   }

@@ -381,7 +381,7 @@ void main() {
     await _pumpFrames(tester);
 
     expect(find.text('Search in: Title'), findsOneWidget);
-    expect(find.text('Sources: All sources'), findsOneWidget);
+    expect(find.text('Sources: All sources'), findsNothing);
     expect(find.text('Sort: relevance'), findsOneWidget);
     expect(find.text('Enter a search query'), findsOneWidget);
     expect(find.textContaining('mock results'), findsNothing);
@@ -416,25 +416,27 @@ void main() {
     );
   });
 
-  testWidgets('source filter sheet fits above mini player without overflow', (
+  testWidgets('search sort sheet fits above mini player without overflow', (
     tester,
   ) async {
     await _pumpApp(tester);
 
     await tester.tap(find.text('Search'));
     await _pumpFrames(tester);
-    await tester.tap(find.text('Sources: All sources'));
+    await tester.tap(find.text('Sort: relevance'));
     await _pumpFrames(tester);
 
     expect(tester.takeException(), isNull);
-    expect(find.text('Izib'), findsWidgets);
-    expect(find.text('Akniga'), findsWidgets);
-    expect(find.text('Yakniga'), findsWidgets);
-    expect(find.text('Knigavuhe'), findsWidgets);
-    expect(find.text('Knigoblud'), findsWidgets);
-    expect(find.text('Baza Knig'), findsWidgets);
+    expect(find.text('relevance'), findsWidgets);
+    expect(find.text('rating'), findsWidgets);
+    expect(find.text('year'), findsWidgets);
+    expect(find.text('duration'), findsWidgets);
+    expect(find.text('title'), findsWidgets);
     expect(find.text('Done'), findsOneWidget);
-    expect(tester.getTopLeft(find.text('Izib').first).dy, greaterThan(260));
+    expect(
+      tester.getTopLeft(find.text('relevance').first).dy,
+      greaterThan(260),
+    );
   });
 
   testWidgets('library is empty until real source books are saved', (
@@ -547,8 +549,8 @@ void main() {
     expect(find.text('Application GitHub'), findsOneWidget);
     expect(find.text('Telegram support bot'), findsOneWidget);
     expect(find.text('Telegram channel'), findsOneWidget);
-    expect(find.text('Telegram chat'), findsOneWidget);
-    expect(find.text('Update channel'), findsOneWidget);
+    expect(find.text('Telegram chat'), findsNothing);
+    expect(find.text('Update channel'), findsNothing);
     Navigator.of(tester.element(find.text('About').last)).pop();
     await _pumpFrames(tester);
 

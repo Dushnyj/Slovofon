@@ -51,7 +51,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   final _controller = TextEditingController();
 
   Set<SearchKind> _selectedKinds = const {SearchKind.title};
-  Set<String> _selectedSourceIds = const {};
+  SearchSort _selectedSort = SearchSort.relevance;
   String _activeQuery = '';
   Future<SourceSearchResponse>? _searchFuture;
   List<SearchHistoryEntry> _history = const [];
@@ -166,12 +166,12 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
               const SizedBox(height: 12),
               _SearchFilters(
                 selectedKinds: _selectedKinds,
-                selectedSourceIds: _selectedSourceIds,
+                selectedSort: _selectedSort,
                 onKindsChanged: (kinds) {
                   setState(() => _selectedKinds = kinds);
                 },
-                onSourcesChanged: (sourceIds) {
-                  setState(() => _selectedSourceIds = sourceIds);
+                onSortChanged: (sort) {
+                  setState(() => _selectedSort = sort);
                 },
               ),
               const SizedBox(height: 16),
@@ -288,7 +288,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
               query: query,
               kind: historyKind,
               kinds: searchKinds,
-              sourceIds: _selectedSourceIds,
+              sort: _selectedSort,
             ),
           );
     });
@@ -496,15 +496,15 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 class _SearchFilters extends StatelessWidget {
   const _SearchFilters({
     required this.selectedKinds,
-    required this.selectedSourceIds,
+    required this.selectedSort,
     required this.onKindsChanged,
-    required this.onSourcesChanged,
+    required this.onSortChanged,
   });
 
   final Set<SearchKind> selectedKinds;
-  final Set<String> selectedSourceIds;
+  final SearchSort selectedSort;
   final ValueChanged<Set<SearchKind>> onKindsChanged;
-  final ValueChanged<Set<String>> onSourcesChanged;
+  final ValueChanged<SearchSort> onSortChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -522,16 +522,9 @@ class _SearchFilters extends StatelessWidget {
           onPressed: () => _pickKinds(context),
         ),
         InputChip(
-          avatar: const AppIcon(AppIconAssets.bookSource, size: 16),
-          label: Text(
-            '${strings.sourceFilter}: ${_sourcesLabel(context, selectedSourceIds)}',
-          ),
-          onPressed: () => _pickSources(context),
-        ),
-        InputChip(
           avatar: const AppIcon(AppIconAssets.systemSort, size: 16),
-          label: Text(strings.sortRelevance),
-          onPressed: () {},
+          label: Text('${strings.sort}: ${_sortLabel(context, selectedSort)}'),
+          onPressed: () => _pickSort(context),
         ),
       ],
     );
@@ -580,52 +573,37 @@ class _SearchFilters extends StatelessWidget {
     }
   }
 
-  Future<void> _pickSources(BuildContext context) async {
-    final next = await showModalBottomSheet<Set<String>>(
+  Future<void> _pickSort(BuildContext context) async {
+    final next = await showModalBottomSheet<SearchSort>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
       builder: (context) {
-        var draft = selectedSourceIds.isEmpty
-            ? _allSearchSourceIds.toSet()
-            : selectedSourceIds.toSet();
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            return FilterPickerSheet(
-              options: [
-                for (final sourceId in _allSearchSourceIds)
-                  CheckboxListTile(
-                    value: draft.contains(sourceId),
-                    visualDensity: VisualDensity.compact,
-                    title: Text(context.strings.sourceDisplayName(sourceId)),
-                    onChanged: (value) {
-                      setModalState(() {
-                        final nextDraft = draft.toSet();
-                        if (value == true) {
-                          nextDraft.add(sourceId);
-                        } else if (nextDraft.length > 1) {
-                          nextDraft.remove(sourceId);
-                        }
-                        draft = nextDraft;
-                      });
-                    },
-                  ),
-              ],
-              action: FilledButton(
-                onPressed: () {
-                  final selectedAll =
-                      draft.length == _allSearchSourceIds.length;
-                  Navigator.of(context).pop(selectedAll ? <String>{} : draft);
-                },
-                child: Text(context.strings.apply),
+        return FilterPickerSheet(
+          options: [
+            for (final sort in SearchSort.values)
+              ListTile(
+                visualDensity: VisualDensity.compact,
+                title: Text(_sortLabel(context, sort)),
+                trailing: sort == selectedSort
+                    ? AppIcon(
+                        AppIconAssets.systemCheck,
+                        color: Theme.of(context).colorScheme.primary,
+                      )
+                    : null,
+                selected: sort == selectedSort,
+                onTap: () => Navigator.of(context).pop(sort),
               ),
-            );
-          },
+          ],
+          action: FilledButton(
+            onPressed: () => Navigator.of(context).pop(selectedSort),
+            child: Text(context.strings.apply),
+          ),
         );
       },
     );
     if (next != null) {
-      onSourcesChanged(Set.unmodifiable(next));
+      onSortChanged(next);
     }
   }
 }
@@ -884,15 +862,6 @@ const _searchKindOptions = [
   SearchKind.genre,
 ];
 
-const _allSearchSourceIds = [
-  'izib',
-  'akniga',
-  'yakniga',
-  'knigavuhe',
-  'knigoblud',
-  'baza_knig',
-];
-
 String _resultVersionId(BookSearchResult result) {
   return switch (result.sourceId) {
     'izib' => 'izib-${result.sourceBookId}',
@@ -923,17 +892,6 @@ String _kindsLabel(BuildContext context, Set<SearchKind> kinds) {
     return context.strings.all;
   }
   return selected.map((kind) => _kindLabel(context, kind)).join(', ');
-}
-
-String _sourcesLabel(BuildContext context, Set<String> selectedSourceIds) {
-  if (selectedSourceIds.isEmpty ||
-      selectedSourceIds.length == _allSearchSourceIds.length) {
-    return context.strings.allSources;
-  }
-  if (selectedSourceIds.length == 1) {
-    return context.strings.sourceDisplayName(selectedSourceIds.single);
-  }
-  return '${selectedSourceIds.length}';
 }
 
 double _progressForResult(
@@ -1066,5 +1024,16 @@ String _kindLabel(BuildContext context, SearchKind kind) {
     SearchKind.series => strings.searchBySeries,
     SearchKind.genre => strings.searchByGenre,
     SearchKind.all => strings.search,
+  };
+}
+
+String _sortLabel(BuildContext context, SearchSort sort) {
+  final strings = context.strings;
+  return switch (sort) {
+    SearchSort.relevance => strings.sortByRelevance,
+    SearchSort.rating => strings.sortByRating,
+    SearchSort.year => strings.sortByYear,
+    SearchSort.duration => strings.sortByDuration,
+    SearchSort.title => strings.sortByTitle,
   };
 }

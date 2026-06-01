@@ -28,15 +28,15 @@ object SlovofonMediaButtons {
             slot = CommandButton.SLOT_BACK_SECONDARY,
             compactIndex = 0,
         )
-        addButton(
-            buttons = buttons,
-            playerCommands = playerCommands,
-            context = context,
-            command = Player.COMMAND_SEEK_BACK,
-            icon = CommandButton.ICON_REWIND,
-            labelRes = R.string.media_action_rewind_30,
-            slot = CommandButton.SLOT_BACK,
-            compactIndex = 1,
+        buttons.add(
+            customButton(
+                context = context,
+                action = ACTION_REWIND,
+                iconRes = R.drawable.audio_service_rewind,
+                labelRes = R.string.media_action_rewind_30,
+                slot = CommandButton.SLOT_BACK,
+                compactIndex = 1,
+            ),
         )
         addButton(
             buttons = buttons,
@@ -52,15 +52,15 @@ object SlovofonMediaButtons {
             slot = CommandButton.SLOT_CENTRAL,
             compactIndex = 2,
         )
-        addButton(
-            buttons = buttons,
-            playerCommands = playerCommands,
-            context = context,
-            command = Player.COMMAND_SEEK_FORWARD,
-            icon = CommandButton.ICON_FAST_FORWARD,
-            labelRes = R.string.media_action_forward_30,
-            slot = CommandButton.SLOT_FORWARD,
-            compactIndex = 3,
+        buttons.add(
+            customButton(
+                context = context,
+                action = ACTION_FORWARD,
+                iconRes = R.drawable.audio_service_forward,
+                labelRes = R.string.media_action_forward_30,
+                slot = CommandButton.SLOT_FORWARD,
+                compactIndex = 3,
+            ),
         )
         addButton(
             buttons = buttons,
@@ -96,7 +96,7 @@ object SlovofonMediaButtons {
                 action = ACTION_REWIND,
                 iconRes = R.drawable.audio_service_rewind,
                 labelRes = R.string.media_action_rewind_30,
-                slot = CommandButton.SLOT_OVERFLOW,
+                slot = CommandButton.SLOT_BACK,
             ),
         )
         buttons.add(
@@ -105,7 +105,7 @@ object SlovofonMediaButtons {
                 action = ACTION_FORWARD,
                 iconRes = R.drawable.audio_service_forward,
                 labelRes = R.string.media_action_forward_30,
-                slot = CommandButton.SLOT_OVERFLOW,
+                slot = CommandButton.SLOT_FORWARD,
             ),
         )
         return buttons.build()
@@ -177,13 +177,24 @@ object SlovofonMediaButtons {
         iconRes: Int,
         labelRes: Int,
         slot: Int,
+        compactIndex: Int? = null,
     ): CommandButton {
-        return CommandButton.Builder()
+        val builder = CommandButton.Builder()
             .setCustomIconResId(iconRes)
             .setSessionCommand(SessionCommand(action, Bundle.EMPTY))
             .setDisplayName(context.getString(labelRes))
             .setEnabled(true)
             .setSlots(slot)
-            .build()
+        if (compactIndex != null) {
+            builder.setExtras(
+                Bundle().apply {
+                    putInt(
+                        DefaultMediaNotificationProvider.COMMAND_KEY_COMPACT_VIEW_INDEX,
+                        compactIndex,
+                    )
+                },
+            )
+        }
+        return builder.build()
     }
 }

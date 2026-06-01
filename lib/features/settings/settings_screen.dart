@@ -471,8 +471,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         final colorScheme = Theme.of(context).colorScheme;
         final githubColor = colorScheme.brightness == Brightness.dark
             ? const Color(0xFFF0F6FC)
-            : const Color(0xFF24292F);
-        const telegramColor = Color(0xFF229ED9);
+            : const Color(0xFF181717);
 
         return SafeArea(
           child: SingleChildScrollView(
@@ -515,34 +514,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ),
                   _LinkRow(
                     iconAsset: AppIconAssets.systemTelegram,
-                    iconColor: telegramColor,
                     title: context.strings.telegramSupportBot,
                     subtitle: ProjectLinks.telegramSupportBot,
+                    preserveIconColors: true,
                     onTap: () =>
                         _openUrl(context, ProjectLinks.telegramSupportBot),
                   ),
                   _LinkRow(
                     iconAsset: AppIconAssets.systemTelegram,
-                    iconColor: telegramColor,
                     title: context.strings.telegramChannel,
                     subtitle: ProjectLinks.telegramChannel,
+                    preserveIconColors: true,
                     onTap: () =>
                         _openUrl(context, ProjectLinks.telegramChannel),
-                  ),
-                  _LinkRow(
-                    iconAsset: AppIconAssets.systemTelegram,
-                    iconColor: telegramColor,
-                    title: context.strings.telegramChat,
-                    subtitle: ProjectLinks.telegramChat,
-                    onTap: () => _openUrl(context, ProjectLinks.telegramChat),
-                  ),
-                  _LinkRow(
-                    iconAsset: AppIconAssets.systemRefresh,
-                    iconColor: colorScheme.primary,
-                    title: context.strings.updateChannel,
-                    subtitle: ProjectLinks.updatesStableManifest,
-                    onTap: () =>
-                        _openUrl(context, ProjectLinks.updatesStableManifest),
                   ),
                 ],
               ),
@@ -672,24 +656,31 @@ class _InfoRow extends StatelessWidget {
 class _LinkRow extends StatelessWidget {
   const _LinkRow({
     required this.iconAsset,
-    required this.iconColor,
     required this.title,
     required this.subtitle,
     required this.onTap,
+    this.iconColor,
+    this.preserveIconColors = false,
   });
 
   final String iconAsset;
-  final Color iconColor;
+  final Color? iconColor;
   final String title;
   final String subtitle;
   final VoidCallback onTap;
+  final bool preserveIconColors;
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return ListTile(
       contentPadding: EdgeInsets.zero,
       visualDensity: VisualDensity.compact,
-      leading: AppIcon(iconAsset, color: iconColor),
+      leading: AppIcon(
+        iconAsset,
+        color: iconColor ?? colorScheme.primary,
+        preserveColors: preserveIconColors,
+      ),
       title: Text(title),
       subtitle: Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
       trailing: const AppIcon(AppIconAssets.systemForward),

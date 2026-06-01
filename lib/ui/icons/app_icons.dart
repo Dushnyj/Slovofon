@@ -93,6 +93,7 @@ class AppIcon extends StatelessWidget {
     this.color,
     this.semanticsLabel,
     this.matchTextDirection = false,
+    this.preserveColors = false,
     super.key,
   });
 
@@ -101,6 +102,7 @@ class AppIcon extends StatelessWidget {
   final Color? color;
   final String? semanticsLabel;
   final bool matchTextDirection;
+  final bool preserveColors;
 
   @override
   Widget build(BuildContext context) {
@@ -118,7 +120,9 @@ class AppIcon extends StatelessWidget {
       height: effectiveSize,
       matchTextDirection: matchTextDirection,
       theme: SvgTheme(currentColor: effectiveColor),
-      colorFilter: ColorFilter.mode(effectiveColor, BlendMode.srcIn),
+      colorFilter: preserveColors
+          ? null
+          : ColorFilter.mode(effectiveColor, BlendMode.srcIn),
       semanticsLabel: semanticsLabel,
       excludeFromSemantics: semanticsLabel == null,
     );

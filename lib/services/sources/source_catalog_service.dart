@@ -70,9 +70,15 @@ class SourceCatalogService {
       );
     }
     final enriched = await _enrichSearchResults(filtered, request.pageSize);
+    final sorted = _sortResults(
+      enriched,
+      request.effectiveKinds,
+      tokens,
+      request.sort,
+    );
 
     return SourceSearchResponse(
-      results: List.unmodifiable(enriched),
+      results: List.unmodifiable(sorted),
       failures: List.unmodifiable(failures),
     );
   }
@@ -94,14 +100,48 @@ class SourceCatalogService {
     final filtered = results
         .where((result) => _matchesRequest(result, kinds, tokens))
         .toList();
-    filtered.sort(
-      (left, right) => _sortScore(
-        right,
-        kinds,
-        tokens,
-      ).compareTo(_sortScore(left, kinds, tokens)),
-    );
-    return filtered;
+    return _sortResults(filtered, kinds, tokens, SearchSort.relevance);
+  }
+
+  static List<BookSearchResult> _sortResults(
+    Iterable<BookSearchResult> results,
+    Set<SearchKind> kinds,
+    List<String> tokens,
+    SearchSort sort,
+  ) {
+    final sorted = results.toList();
+    sorted.sort((left, right) {
+      return switch (sort) {
+            SearchSort.relevance => _compareInt(
+              _sortScore(right, kinds, tokens),
+              _sortScore(left, kinds, tokens),
+            ),
+            SearchSort.rating => _compareNullableDouble(
+              right.ratingValue,
+              left.ratingValue,
+            ).ifZero(_compareNullableInt(right.ratingCount, left.ratingCount)),
+            SearchSort.year => _compareNullableInt(
+              right.audioYear ?? right.year,
+              left.audioYear ?? left.year,
+            ),
+            SearchSort.duration => _compareNullableDuration(
+              right.duration,
+              left.duration,
+            ),
+            SearchSort.title => _compareNormalizedTitle(
+              left.title,
+              right.title,
+            ),
+          }
+          .ifZero(_compareNormalizedTitle(left.title, right.title))
+          .ifZero(
+            _compareInt(
+              _sortScore(right, kinds, tokens),
+              _sortScore(left, kinds, tokens),
+            ),
+          );
+    });
+    return sorted;
   }
 
   Future<List<BookSearchResult>> _enrichSearchResults(
@@ -586,6 +626,44 @@ class SourceCatalogService {
     return score;
   }
 
+  static int _compareInt(int right, int left) {
+    return right.compareTo(left);
+  }
+
+  static int _compareNullableInt(int? right, int? left) {
+    if (right == null && left == null) {
+      return 0;
+    }
+    if (left == null) {
+      return 1;
+    }
+    if (right == null) {
+      return -1;
+    }
+    return right.compareTo(left);
+  }
+
+  static int _compareNullableDouble(double? right, double? left) {
+    if (right == null && left == null) {
+      return 0;
+    }
+    if (left == null) {
+      return 1;
+    }
+    if (right == null) {
+      return -1;
+    }
+    return right.compareTo(left);
+  }
+
+  static int _compareNullableDuration(Duration? right, Duration? left) {
+    return _compareNullableInt(right?.inMilliseconds, left?.inMilliseconds);
+  }
+
+  static int _compareNormalizedTitle(String left, String right) {
+    return _normalizeSearchText(left).compareTo(_normalizeSearchText(right));
+  }
+
   static List<String> _haystacks(
     BookSearchResult result,
     Set<SearchKind> kinds,
@@ -781,5 +859,11 @@ class SourceCatalogService {
       return true;
     }
     return (left - right).abs() < 0.001;
+  }
+}
+
+extension _CompareResult on int {
+  int ifZero(int fallback) {
+    return this == 0 ? fallback : this;
   }
 }

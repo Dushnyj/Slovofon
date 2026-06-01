@@ -172,7 +172,24 @@ URL: https://lucide.dev
 Source package: https://www.npmjs.com/package/lucide-static
 Files:
 - assets/icons/**/*.svg
+Except:
+- assets/icons/system/github.svg
+- assets/icons/system/telegram.svg
 Purpose: Checked-in SVG UI icons for navigation, book metadata, player controls, download states, and system actions.
+
+Brand mark: GitHub
+License/terms: GitHub Logos and Usage
+URL: https://github.com/logos
+Files:
+- assets/icons/system/github.svg
+Purpose: Link to the Slovofon GitHub repository on the About screen.
+
+Brand mark: Telegram
+License/terms: Telegram brand assets / trademark terms
+URL: https://telegram.org
+Files:
+- assets/icons/system/telegram.svg
+Purpose: Links to the Slovofon Telegram channel and support bot on the About screen.
 
 Icon set: Flutter Material Icons
 License: Provided through Flutter/Material icon font distribution
