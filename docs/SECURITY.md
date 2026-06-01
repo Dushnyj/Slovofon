@@ -292,7 +292,7 @@ database credentials
 private update/signing keys
 ```
 
-Проверка обновлений должна скачивать manifest с `slovofon-updates.duckdns.org`, выбирать asset под платформу и обязательно сверять `sha256` до запуска установщика или открытия APK. В будущем manifest или asset signature нужно проверять встроенным public key, например `UPDATE_MANIFEST_PUBLIC_KEY`; приватная часть ключа не должна попадать в клиент, Git, CI logs или release artifacts.
+Проверка обновлений должна скачивать manifest с `slovofon-updates.duckdns.org`, проверять Ed25519 signature встроенным public key, выбирать asset под платформу и обязательно сверять `sha256` до запуска установщика или открытия APK. Update manifest private key хранится только на сервере/CI, не попадает в клиент, Git, CI logs или release artifacts.
 
 ---
 

@@ -5,7 +5,7 @@
 # On CI, the release workflow will create a temporary keystore file from
 # ANDROID_UPLOAD_KEYSTORE_BASE64 and generate android/key.properties at runtime.
 
-storeFile=C:\\Users\\<user>\\Documents\\Slovofon\\secrets\\android\\slovofon-upload.jks
+storeFile=C:\\Secrets\\Slovofon\\android\\slovofon-upload.jks
 storePassword=<keystore-password>
 keyAlias=slovofon-upload
 keyPassword=<key-password>

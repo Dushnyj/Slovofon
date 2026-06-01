@@ -13,6 +13,7 @@ import '../../services/downloads/download_manager_provider.dart';
 import '../../services/downloads/download_storage.dart';
 import '../../services/settings/app_settings_store.dart';
 import '../../services/sources/source_settings_store.dart';
+import '../../services/updates/update_prompt.dart';
 import '../../ui/components/filter_picker_sheet.dart';
 import '../../ui/icons/app_icons.dart';
 
@@ -80,6 +81,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               },
             ),
             onTap: () => _openCacheSheet(context, downloadStorage),
+          ),
+          _SettingsActionTile(
+            iconAsset: AppIconAssets.systemRefresh,
+            title: strings.appUpdates,
+            subtitle: strings.appUpdatesHint,
+            onTap: () => checkUpdatesManually(context, ref),
           ),
           _SettingsActionTile(
             iconAsset: AppIconAssets.systemInfo,

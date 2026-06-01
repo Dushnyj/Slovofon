@@ -335,6 +335,36 @@ class AppStrings {
       _isRu ? 'Telegram-бот поддержки' : 'Telegram support bot';
   String get telegramChannel => _isRu ? 'Telegram-канал' : 'Telegram channel';
   String get telegramChat => _isRu ? 'Telegram-чат' : 'Telegram chat';
+  String get appUpdates => _isRu ? 'Обновления' : 'Updates';
+  String get appUpdatesHint =>
+      _isRu ? 'Проверить новую версию' : 'Check for a new version';
+  String get checkingUpdates =>
+      _isRu ? 'Проверяю обновления...' : 'Checking for updates...';
+  String get updateAvailableTitle =>
+      _isRu ? 'Доступно обновление' : 'Update available';
+  String updateAvailableMessage(String version) {
+    return _isRu
+        ? 'Вышла версия $version. Словофон проверит подпись обновления, скачает файл, проверит sha256 и откроет системную установку.'
+        : 'Version $version is available. Slovofon will verify the update signature, download the file, verify sha256, and open the system installer.';
+  }
+
+  String get updateNow => _isRu ? 'Обновить' : 'Update';
+  String get skipUpdate => _isRu ? 'Пропустить' : 'Skip';
+  String get noUpdatesAvailable =>
+      _isRu ? 'Обновлений нет' : 'No updates available';
+  String get updateCheckFailed =>
+      _isRu ? 'Не удалось проверить обновления' : 'Update check failed';
+  String get updateDownloading =>
+      _isRu ? 'Скачиваю обновление...' : 'Downloading update...';
+  String get updateInstallerStarted => _isRu
+      ? 'Установщик обновления открыт'
+      : 'The update installer has been opened';
+  String get updateInstallPermissionRequired => _isRu
+      ? 'Разрешите установку APK для Словофона и нажмите «Обновить» ещё раз.'
+      : 'Allow APK installs for Slovofon, then tap Update again.';
+  String get updateUnsupportedPlatform => _isRu
+      ? 'Для этой платформы нет подходящего файла обновления'
+      : 'No suitable update file is available for this platform';
   String get updateChannel => _isRu ? 'Канал обновлений' : 'Update channel';
   String get diagnosticsHint => _isRu
       ? 'Предпросмотр темы и безопасная проверка интерфейсных состояний.'

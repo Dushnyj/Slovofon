@@ -194,11 +194,46 @@ Beta:   https://slovofon-updates.duckdns.org/v1/channels/beta/latest.json
 3. status == available означает, что клиент сравнивает version/build с текущей сборкой.
 4. mandatory == true означает обязательное обновление.
 5. assets выбираются по platform/arch/kind.
-6. Перед установкой или запуском файла обязательно проверить sha256.
-7. В будущем manifest или asset signature проверять через встроенный public key.
+6. Перед доверием manifest обязательно проверить Ed25519 signature через встроенный public key.
+7. Перед установкой или запуском файла обязательно проверить sha256.
 ```
 
 Android без Google Play не может обновиться полностью бесшовно: клиент может скачать APK, проверить `sha256` и открыть системный установщик, а пользователь подтвердит установку. Windows-клиент может скачать installer/MSIX/portable artifact, проверить `sha256` и запускать установку только после явного согласия пользователя.
+
+Серверная публикация выполняется ботом `Dushnyj/SlovofonBot`: он опрашивает GitHub Releases, зеркалирует подходящие artifacts в `updates/v1/files/`, считает `sha256`, подписывает manifest Ed25519, атомарно обновляет `latest.json` для `stable` и `beta`, а затем публикует сообщение в Telegram-канал. В клиентский manifest не попадают `GITHUB_TOKEN`, `BOT_TOKEN`, SSH/IP, Ed25519 private key или другие приватные данные.
+
+Текущий формат manifest:
+
+```json
+{
+  "schema": 2,
+  "app": "slovofon",
+  "channel": "stable",
+  "status": "available",
+  "version": "0.0.2",
+  "build": 2,
+  "published_at": "2026-06-01T12:00:00Z",
+  "mandatory": false,
+  "release_url": "https://github.com/Dushnyj/Slovofon/releases/tag/v0.0.2",
+  "release_notes": "Release notes",
+  "signature": {
+    "alg": "ed25519",
+    "key_id": "slovofon-updates-2026-06",
+    "value": "..."
+  },
+  "assets": [
+    {
+      "platform": "android",
+      "arch": "universal",
+      "kind": "apk",
+      "url": "https://slovofon-updates.duckdns.org/v1/files/Slovofon-v0.0.2-android-universal-release.apk",
+      "file_name": "Slovofon-v0.0.2-android-universal-release.apk",
+      "sha256": "...",
+      "size": 12345678
+    }
+  ]
+}
+```
 
 ---
 
@@ -222,6 +257,7 @@ Codex не должен создавать, менять, загружать, у
 ```text
 %USERPROFILE%\Documents\Slovofon\secrets\android\slovofon-upload.jks
 %USERPROFILE%\Documents\Slovofon\secrets\windows\slovofon-code-signing.pfx
+C:\Secrets\Slovofon\updates\update-manifest-ed25519-private.pem
 ```
 
 Допустимые альтернативы:
@@ -368,6 +404,33 @@ Azure Trusted Signing / Azure Artifact Signing
 В этом варианте приватный ключ не попадает в GitHub Secrets как файл. Release workflow получает право подписи через Azure identity/credentials, а подпись выполняется управляемым сервисом.
 
 ### 6.5 Когда включать release signing
+
+### 6.5 Update manifest signing
+
+Manifest обновлений подписывается Ed25519:
+
+```text
+Private key: C:\Secrets\Slovofon\updates\update-manifest-ed25519-private.pem
+Public key:  C:\Secrets\Slovofon\updates\update-manifest-ed25519-public.pem
+Key id:      slovofon-updates-2026-06
+```
+
+На VPS private key хранится вне Git, например:
+
+```text
+/opt/slovofon-bot/data/update-manifest-ed25519-private.pem
+```
+
+Переменные бота:
+
+```env
+UPDATE_MANIFEST_PRIVATE_KEY_FILE=/app/data/update-manifest-ed25519-private.pem
+UPDATE_MANIFEST_KEY_ID=slovofon-updates-2026-06
+```
+
+Клиент хранит только public key и отвергает unsigned/tampered manifest до выбора asset и до проверки `sha256`.
+
+### 6.6 Когда включать release signing
 
 Release signing включается только после отдельного подтверждения владельца проекта.
 

@@ -4,7 +4,14 @@
 
 ## [Unreleased]
 
+_Нет незарелизенных изменений._
+
+## [0.0.1] - 2026-06-01
+
 ### Added
+- Добавлена система автообновлений: приложение проверяет stable manifest, показывает `Обновить`/`Пропустить`, скачивает asset, проверяет `sha256` и открывает системную установку APK/Windows installer.
+- Добавлена Ed25519-подпись update manifest: `SlovofonBot` подписывает `latest.json`, а приложение отвергает unsigned/tampered manifest до скачивания обновления.
+- Android release signing подключён к внешнему `android/key.properties`; release-сборка больше не fallback-ится на debug key.
 - В настройках добавлены публичные ссылки проекта: сайт, GitHub приложения, Telegram-бот поддержки, Telegram-канал, Telegram-чат и stable manifest канала обновлений.
 - Зафиксирована схема будущей проверки обновлений через `https://slovofon-updates.duckdns.org`: stable/beta manifest, `no_release`/`available`, обязательная проверка `sha256` перед установкой и запрет на хранение секретов в клиенте.
 - Добавлен Stage 9 `YaknigaSourceConnector`: public GraphQL search/details, chapters через `chapters.collection`, `fileUrl` как direct media source, `User-Agent`/`Referer` headers, media allowlist и health check.

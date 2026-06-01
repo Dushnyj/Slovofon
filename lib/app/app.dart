@@ -8,6 +8,7 @@ import '../domain/models/app_settings.dart';
 import '../services/deep_links/app_deep_links.dart';
 import '../services/deep_links/slovofon_deep_link.dart';
 import '../services/settings/app_settings_store.dart';
+import '../services/updates/update_prompt.dart';
 import 'localization/app_strings.dart';
 import 'router.dart';
 import 'theme/app_theme.dart';
@@ -111,11 +112,13 @@ class _SlovofonAppState extends ConsumerState<SlovofonApp> {
         amoled: appSettings.themeMode == AppThemeMode.amoled,
       ),
       builder: (context, child) {
-        return MediaQuery(
-          data: MediaQuery.of(
-            context,
-          ).copyWith(textScaler: TextScaler.linear(appSettings.textScale)),
-          child: child ?? const SizedBox.shrink(),
+        return UpdateStartupGate(
+          child: MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: TextScaler.linear(appSettings.textScale)),
+            child: child ?? const SizedBox.shrink(),
+          ),
         );
       },
       localizationsDelegates: const [
