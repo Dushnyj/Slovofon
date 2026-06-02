@@ -6,6 +6,16 @@
 
 _Нет незарелизенных изменений._
 
+## [0.0.2] - 2026-06-02
+
+### Added
+- Добавлен полный GitHub Actions release workflow: signed Android APK/AAB, Windows portable ZIP, Inno Setup installer, WiX MSI, `SHA256SUMS.txt` и публикация GitHub Release.
+- Windows release теперь готовит отдельные `setup.exe` и `msi.msi` artifacts в дополнение к portable ZIP.
+- Android release workflow восстанавливает upload keystore из GitHub Secrets во временный runner path и проверяет APK-подписи через `apksigner verify`.
+
+### Changed
+- Версия приложения поднята до `0.0.2+2` для проверки update manifest, скачивания APK и установки обновления поверх `0.0.1`.
+
 ## [0.0.1] - 2026-06-01
 
 ### Added
