@@ -1,5 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:slovofon/services/updates/update_client.dart';
+import 'package:slovofon/services/updates/update_installer.dart';
 import 'package:slovofon/services/updates/update_manifest.dart';
+import 'package:slovofon/services/updates/update_service.dart';
 import 'package:slovofon/services/updates/update_version.dart';
 
 void main() {
@@ -72,4 +75,76 @@ void main() {
       expect(manifest.assets.single.kind, UpdateAssetKind.apk);
     });
   });
+
+  group('UpdateService', () {
+    test('skips an update only for the current app session', () async {
+      final manifest = _availableManifest(version: '99.0.0', build: 9900);
+      final service = UpdateService(
+        client: _FakeUpdateClient(manifest),
+        installer: _NoopUpdateInstaller(),
+        runtimePlatform: UpdateRuntimePlatform.android,
+      );
+
+      final firstCheck = await service.checkForUpdate();
+      expect(firstCheck.status, UpdateCheckStatus.available);
+
+      await service.skip(firstCheck.info!);
+
+      final skippedCheck = await service.checkForUpdate();
+      expect(skippedCheck.status, UpdateCheckStatus.skipped);
+
+      final restartedService = UpdateService(
+        client: _FakeUpdateClient(manifest),
+        installer: _NoopUpdateInstaller(),
+        runtimePlatform: UpdateRuntimePlatform.android,
+      );
+
+      final restartedCheck = await restartedService.checkForUpdate();
+      expect(restartedCheck.status, UpdateCheckStatus.available);
+    });
+  });
+}
+
+UpdateManifest _availableManifest({
+  required String version,
+  required int build,
+}) {
+  return UpdateManifest.fromJson({
+    'schema': 2,
+    'app': 'slovofon',
+    'channel': 'stable',
+    'status': 'available',
+    'version': version,
+    'build': build,
+    'published_at': '2026-06-02T12:00:00Z',
+    'mandatory': false,
+    'assets': [
+      {
+        'platform': 'android',
+        'arch': 'universal',
+        'kind': 'apk',
+        'url': 'https://slovofon-updates.duckdns.org/v1/files/app.apk',
+        'file_name': 'app.apk',
+        'sha256': 'a' * 64,
+        'size': 123,
+      },
+    ],
+  });
+}
+
+class _FakeUpdateClient extends UpdateClient {
+  const _FakeUpdateClient(this.manifest);
+
+  final UpdateManifest manifest;
+
+  @override
+  Future<UpdateManifest> fetchManifest(Uri uri) async => manifest;
+}
+
+class _NoopUpdateInstaller extends PlatformUpdateInstaller {
+  @override
+  Future<void> ensureReadyToInstall() async {}
+
+  @override
+  Future<void> install(DownloadedUpdate update) async {}
 }

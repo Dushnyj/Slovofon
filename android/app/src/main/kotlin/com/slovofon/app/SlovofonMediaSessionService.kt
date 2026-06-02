@@ -61,10 +61,19 @@ class SlovofonMediaSessionService : MediaSessionService() {
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
+        if (SlovofonMediaSessionStore.state.isPlaying) {
+            super.onTaskRemoved(rootIntent)
+            return
+        }
+        clearStoppedSessionFromTaskRemoval()
+        super.onTaskRemoved(rootIntent)
+    }
+
+    private fun clearStoppedSessionFromTaskRemoval() {
         SlovofonMediaSessionBridge.dispatchCommand("stop")
+        SlovofonMediaSessionStore.state = SlovofonMediaSessionState.idle()
         player?.clear()
         stopSelf()
-        super.onTaskRemoved(rootIntent)
     }
 
     override fun onDestroy() {

@@ -117,4 +117,20 @@ void main() {
       }
     },
   );
+
+  test('Android keeps active playback alive when task is swiped away', () {
+    final service = File(
+      'android/app/src/main/kotlin/com/slovofon/app/'
+      'SlovofonMediaSessionService.kt',
+    ).readAsStringSync();
+
+    expect(service, contains('override fun onTaskRemoved'));
+    expect(service, contains('if (SlovofonMediaSessionStore.state.isPlaying)'));
+    expect(service, contains('super.onTaskRemoved(rootIntent)'));
+    expect(service, contains('clearStoppedSessionFromTaskRemoval()'));
+    expect(
+      service,
+      contains('private fun clearStoppedSessionFromTaskRemoval()'),
+    );
+  });
 }

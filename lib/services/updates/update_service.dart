@@ -7,35 +7,34 @@ import '../../app/project_links.dart';
 import 'update_client.dart';
 import 'update_installer.dart';
 import 'update_manifest.dart';
-import 'update_preferences.dart';
 import 'update_version.dart';
 
 final updateServiceProvider = Provider<UpdateService>((ref) {
   return UpdateService(
     client: const UpdateClient(),
     installer: PlatformUpdateInstaller(),
-    preferences: LazyFileUpdatePreferencesStore(),
   );
 });
 
 class UpdateService {
-  const UpdateService({
+  UpdateService({
     required UpdateClient client,
     required PlatformUpdateInstaller installer,
-    required UpdatePreferencesStore preferences,
+    UpdateRuntimePlatform? runtimePlatform,
   }) : _client = client,
        _installer = installer,
-       _preferences = preferences;
+       _runtimePlatform = runtimePlatform;
 
   final UpdateClient _client;
   final PlatformUpdateInstaller _installer;
-  final UpdatePreferencesStore _preferences;
+  final UpdateRuntimePlatform? _runtimePlatform;
+  final Set<String> _skippedInSession = <String>{};
 
   Future<UpdateCheckResult> checkForUpdate({
     bool includeSkipped = false,
   }) async {
-    final platform = _currentPlatform();
-    if (platform == _RuntimePlatform.unsupported) {
+    final platform = _runtimePlatform ?? _currentPlatform();
+    if (platform == UpdateRuntimePlatform.unsupported) {
       return const UpdateCheckResult.unsupported();
     }
 
@@ -58,20 +57,16 @@ class UpdateService {
     }
 
     final info = UpdateInfo(manifest: manifest, asset: asset);
-    final skipped = await _preferences.loadSkippedUpdate();
     if (!includeSkipped &&
         !manifest.mandatory &&
-        skipped != null &&
-        skipped.matches(version: manifest.version!, build: manifest.build)) {
+        _skippedInSession.contains(_skipKey(info))) {
       return UpdateCheckResult.skipped(info);
     }
     return UpdateCheckResult.available(info);
   }
 
-  Future<void> skip(UpdateInfo info) {
-    return _preferences.saveSkippedUpdate(
-      SkippedUpdate(version: info.version, build: info.build),
-    );
+  Future<void> skip(UpdateInfo info) async {
+    _skippedInSession.add(_skipKey(info));
   }
 
   Future<void> downloadAndInstall(
@@ -85,6 +80,8 @@ class UpdateService {
     );
     await _installer.install(update);
   }
+
+  String _skipKey(UpdateInfo info) => '${info.version}+${info.build ?? ''}';
 }
 
 class UpdateInfo {
@@ -114,32 +111,35 @@ class UpdateCheckResult {
   final UpdateInfo? info;
 }
 
-enum _RuntimePlatform { android, windows, unsupported }
+enum UpdateRuntimePlatform { android, windows, unsupported }
 
-_RuntimePlatform _currentPlatform() {
+UpdateRuntimePlatform _currentPlatform() {
   if (Platform.isAndroid) {
-    return _RuntimePlatform.android;
+    return UpdateRuntimePlatform.android;
   }
   if (Platform.isWindows) {
-    return _RuntimePlatform.windows;
+    return UpdateRuntimePlatform.windows;
   }
-  return _RuntimePlatform.unsupported;
+  return UpdateRuntimePlatform.unsupported;
 }
 
-UpdateAsset? _selectAsset(List<UpdateAsset> assets, _RuntimePlatform platform) {
+UpdateAsset? _selectAsset(
+  List<UpdateAsset> assets,
+  UpdateRuntimePlatform platform,
+) {
   final platformAssets = switch (platform) {
-    _RuntimePlatform.android =>
+    UpdateRuntimePlatform.android =>
       assets
           .where((asset) => asset.platform == UpdateAssetPlatform.android)
           .toList(),
-    _RuntimePlatform.windows =>
+    UpdateRuntimePlatform.windows =>
       assets
           .where((asset) => asset.platform == UpdateAssetPlatform.windows)
           .toList(),
-    _RuntimePlatform.unsupported => const <UpdateAsset>[],
+    UpdateRuntimePlatform.unsupported => const <UpdateAsset>[],
   };
 
-  if (platform == _RuntimePlatform.android) {
+  if (platform == UpdateRuntimePlatform.android) {
     return _firstAsset(platformAssets, (asset) {
           return asset.kind == UpdateAssetKind.apk && asset.arch == 'universal';
         }) ??
@@ -149,7 +149,7 @@ UpdateAsset? _selectAsset(List<UpdateAsset> assets, _RuntimePlatform platform) {
         );
   }
 
-  if (platform == _RuntimePlatform.windows) {
+  if (platform == UpdateRuntimePlatform.windows) {
     return _firstAsset(
           platformAssets,
           (asset) => asset.kind == UpdateAssetKind.installer,
