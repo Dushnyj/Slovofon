@@ -315,6 +315,7 @@ jobs:
             -IconPath $iconPath
           wix build $wxs -arch x64 -out "$outputDir/Slovofon-v$version-windows-x64-msi.msi"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Remove-Item -LiteralPath "$outputDir/Slovofon-v$version-windows-x64-msi.wixpdb" -Force -ErrorAction SilentlyContinue
 
       - name: Sign Windows installers
         if: steps.signing.outputs.enabled == 'true'
@@ -336,7 +337,10 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: release-windows
-          path: ${{ needs.metadata.outputs.artifact_dir }}/*
+          path: |
+            ${{ needs.metadata.outputs.artifact_dir }}/Slovofon-v*-windows-x64-setup.exe
+            ${{ needs.metadata.outputs.artifact_dir }}/Slovofon-v*-windows-x64-msi.msi
+            ${{ needs.metadata.outputs.artifact_dir }}/Slovofon-v*-windows-x64-portable.zip
           if-no-files-found: error
           retention-days: 14
 
