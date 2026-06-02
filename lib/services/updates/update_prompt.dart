@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/localization/app_strings.dart';
 import '../../ui/icons/app_icons.dart';
+import 'update_error_text.dart';
 import 'update_installer.dart';
 import 'update_service.dart';
 
@@ -82,6 +83,68 @@ Future<void> showUpdatePrompt(
                   _formatBytes(bytesPerSecond, strings.locale),
                 )
               : strings.updateDownloading;
+          Future<void> startDownload() async {
+            downloadTimer
+              ..reset()
+              ..start();
+            setDialogState(() {
+              isBusy = true;
+              downloadedBytes = 0;
+              totalBytes = info.asset.size > 0 ? info.asset.size : null;
+              bytesPerSecond = 0;
+            });
+            try {
+              await ref
+                  .read(updateServiceProvider)
+                  .downloadAndInstall(
+                    info,
+                    onProgress: (downloaded, total) {
+                      final elapsedMs = downloadTimer.elapsedMilliseconds;
+                      setDialogState(() {
+                        downloadedBytes = downloaded;
+                        totalBytes =
+                            total ??
+                            (info.asset.size > 0 ? info.asset.size : null);
+                        bytesPerSecond = elapsedMs <= 0
+                            ? 0
+                            : (downloaded * 1000 / elapsedMs).round();
+                      });
+                    },
+                  );
+              downloadTimer.stop();
+              if (dialogContext.mounted) {
+                Navigator.of(dialogContext).pop();
+              }
+              if (hostContext.mounted) {
+                ScaffoldMessenger.of(hostContext).showSnackBar(
+                  SnackBar(content: Text(strings.updateInstallerStarted)),
+                );
+              }
+            } on UpdateInstallPermissionRequired {
+              downloadTimer.stop();
+              if (hostContext.mounted) {
+                ScaffoldMessenger.of(hostContext).showSnackBar(
+                  SnackBar(
+                    content: Text(strings.updateInstallPermissionRequired),
+                  ),
+                );
+              }
+              setDialogState(() => isBusy = false);
+            } on Object catch (error) {
+              downloadTimer.stop();
+              setDialogState(() => isBusy = false);
+              if (!dialogContext.mounted) {
+                return;
+              }
+              await _showUpdateErrorDialog(
+                context: dialogContext,
+                text: updateDownloadErrorText(strings: strings, error: error),
+                retryLabel: strings.retry,
+                cancelLabel: strings.cancel,
+                onRetry: startDownload,
+              );
+            }
+          }
 
           return AlertDialog(
             icon: const AppIcon(AppIconAssets.systemRefresh),
@@ -120,77 +183,7 @@ Future<void> showUpdatePrompt(
                 child: Text(strings.skipUpdate),
               ),
               FilledButton(
-                onPressed: isBusy
-                    ? null
-                    : () async {
-                        downloadTimer
-                          ..reset()
-                          ..start();
-                        setDialogState(() {
-                          isBusy = true;
-                          downloadedBytes = 0;
-                          totalBytes = info.asset.size > 0
-                              ? info.asset.size
-                              : null;
-                          bytesPerSecond = 0;
-                        });
-                        try {
-                          await ref
-                              .read(updateServiceProvider)
-                              .downloadAndInstall(
-                                info,
-                                onProgress: (downloaded, total) {
-                                  final elapsedMs =
-                                      downloadTimer.elapsedMilliseconds;
-                                  setDialogState(() {
-                                    downloadedBytes = downloaded;
-                                    totalBytes =
-                                        total ??
-                                        (info.asset.size > 0
-                                            ? info.asset.size
-                                            : null);
-                                    bytesPerSecond = elapsedMs <= 0
-                                        ? 0
-                                        : (downloaded * 1000 / elapsedMs)
-                                              .round();
-                                  });
-                                },
-                              );
-                          downloadTimer.stop();
-                          if (dialogContext.mounted) {
-                            Navigator.of(dialogContext).pop();
-                          }
-                          if (hostContext.mounted) {
-                            ScaffoldMessenger.of(hostContext).showSnackBar(
-                              SnackBar(
-                                content: Text(strings.updateInstallerStarted),
-                              ),
-                            );
-                          }
-                        } on UpdateInstallPermissionRequired {
-                          downloadTimer.stop();
-                          if (hostContext.mounted) {
-                            ScaffoldMessenger.of(hostContext).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  strings.updateInstallPermissionRequired,
-                                ),
-                              ),
-                            );
-                          }
-                          setDialogState(() => isBusy = false);
-                        } on Object {
-                          downloadTimer.stop();
-                          if (hostContext.mounted) {
-                            ScaffoldMessenger.of(hostContext).showSnackBar(
-                              SnackBar(
-                                content: Text(strings.updateDownloadFailed),
-                              ),
-                            );
-                          }
-                          setDialogState(() => isBusy = false);
-                        }
-                      },
+                onPressed: isBusy ? null : startDownload,
                 child: Text(strings.updateNow),
               ),
             ],
@@ -216,6 +209,38 @@ String _formatBytes(int bytes, Locale locale) {
   }
   final digits = value >= 10 || unit == 0 ? 0 : 1;
   return '${value.toStringAsFixed(digits)} ${units[unit]}';
+}
+
+Future<void> _showUpdateErrorDialog({
+  required BuildContext context,
+  required UpdateErrorText text,
+  required String retryLabel,
+  required String cancelLabel,
+  required Future<void> Function() onRetry,
+}) {
+  return showDialog<void>(
+    context: context,
+    builder: (errorContext) {
+      return AlertDialog(
+        icon: const AppIcon(AppIconAssets.systemWarning),
+        title: Text(text.title),
+        content: Text(text.message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(errorContext).pop(),
+            child: Text(cancelLabel),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.of(errorContext).pop();
+              unawaited(onRetry());
+            },
+            child: Text(retryLabel),
+          ),
+        ],
+      );
+    },
+  );
 }
 
 Future<void> checkUpdatesManually(BuildContext context, WidgetRef ref) async {
@@ -261,12 +286,16 @@ Future<void> checkUpdatesManually(BuildContext context, WidgetRef ref) async {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text(message)));
-  } on Object {
+  } on Object catch (error) {
     if (context.mounted) {
       Navigator.of(context, rootNavigator: true).pop();
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(strings.updateCheckFailed)));
+      await _showUpdateErrorDialog(
+        context: context,
+        text: updateCheckErrorText(strings: strings, error: error),
+        retryLabel: strings.retry,
+        cancelLabel: strings.cancel,
+        onRetry: () => checkUpdatesManually(context, ref),
+      );
     }
   }
 }

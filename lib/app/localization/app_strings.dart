@@ -354,6 +354,9 @@ class AppStrings {
       _isRu ? 'Обновлений нет' : 'No updates available';
   String get updateCheckFailed =>
       _isRu ? 'Не удалось проверить обновления' : 'Update check failed';
+  String get updateCheckFailedMessage => _isRu
+      ? 'Проверьте соединение и нажмите «Повторить».'
+      : 'Check your connection and tap Retry.';
   String get updateDownloading =>
       _isRu ? 'Скачиваю обновление...' : 'Downloading update...';
   String updateDownloadProgress(String downloaded, String total, String speed) {
@@ -364,6 +367,9 @@ class AppStrings {
 
   String get updateDownloadFailed =>
       _isRu ? 'Не удалось скачать обновление' : 'Update download failed';
+  String get updateDownloadFailedMessage => _isRu
+      ? 'Проверьте соединение и нажмите «Повторить».'
+      : 'Check your connection and tap Retry.';
   String get updateInstallerStarted => _isRu
       ? 'Установщик обновления открыт'
       : 'The update installer has been opened';
