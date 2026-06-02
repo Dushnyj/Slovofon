@@ -1,4 +1,5 @@
 name: Release
+run-name: Release ${{ inputs.release_tag || github.ref_name }}
 
 on:
   workflow_dispatch:
@@ -270,7 +271,7 @@ jobs:
         shell: pwsh
         run: |
           choco install innosetup --no-progress -y
-          dotnet tool install --global wix
+          dotnet tool install --global wix --version 6.0.2
           "$env:USERPROFILE\.dotnet\tools" >> $env:GITHUB_PATH
 
       - name: Prepare Windows portable ZIP

@@ -201,7 +201,7 @@ Release workflow делает полный публичный релиз:
 7. при наличии Windows PFX secrets подписывает Slovofon.exe;
 8. собирает Windows portable ZIP;
 9. собирает Windows setup.exe через Inno Setup;
-10. собирает Windows MSI через WiX Toolset;
+10. собирает Windows MSI через WiX Toolset 6.0.2;
 11. при наличии Windows PFX secrets подписывает setup.exe и MSI;
 12. считает SHA256SUMS.txt;
 13. создаёт tag, если workflow запущен вручную и tag ещё отсутствует;
