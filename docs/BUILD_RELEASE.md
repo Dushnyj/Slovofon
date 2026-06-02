@@ -174,7 +174,43 @@ Slovofon-v<version>-windows-x64-debug
 
 Эти artifacts не являются release-сборкой, не подписываются, не создают Git tag и не публикуются в GitHub Release.
 
-### 5.2 Канал обновлений приложения
+### 5.2 GitHub Actions release
+
+Основной release workflow:
+
+```text
+.github/workflows/release.yml
+```
+
+Запуск:
+
+```text
+workflow_dispatch
+push tag v*
+```
+
+Release workflow делает полный публичный релиз:
+
+```text
+1. проверяет VERSION и pubspec.yaml;
+2. выполняет dart format, flutter analyze и flutter test;
+3. восстанавливает Android upload keystore из GitHub Secrets во временный файл runner;
+4. собирает signed Android universal APK, ABI APKs и AAB;
+5. проверяет APK через apksigner verify;
+6. собирает Windows release bundle;
+7. при наличии Windows PFX secrets подписывает Slovofon.exe;
+8. собирает Windows portable ZIP;
+9. собирает Windows setup.exe через Inno Setup;
+10. собирает Windows MSI через WiX Toolset;
+11. при наличии Windows PFX secrets подписывает setup.exe и MSI;
+12. считает SHA256SUMS.txt;
+13. создаёт tag, если workflow запущен вручную и tag ещё отсутствует;
+14. создаёт или обновляет GitHub Release.
+```
+
+Android signing secrets обязательны для release workflow. Windows signing secrets опциональны: если их нет, Windows artifacts собираются, но остаются unsigned и Windows может показать `Unknown Publisher`.
+
+### 5.3 Канал обновлений приложения
 
 Клиентское приложение должно использовать только публичные HTTPS-домены, без IP, SSH-данных, bot token, GitHub token или других секретов.
 
@@ -340,7 +376,7 @@ keyPassword=<key-password>
 
 `android/key.properties` не коммитится.
 
-Будущие GitHub Actions secrets для Android release:
+GitHub Actions secrets для Android release:
 
 ```text
 ANDROID_UPLOAD_KEYSTORE_BASE64
@@ -349,7 +385,7 @@ ANDROID_KEY_PASSWORD
 ANDROID_KEY_ALIAS
 ```
 
-Release workflow должен:
+Release workflow `.github/workflows/release.yml`:
 
 1. брать `ANDROID_UPLOAD_KEYSTORE_BASE64` из GitHub Secrets;
 2. декодировать keystore во временный путь runner, например `$RUNNER_TEMP/slovofon-upload.jks`;
@@ -379,18 +415,18 @@ Microsoft Store / MSIX Store flow: подпись по правилам Store su
 slovofon-code-signing.pfx
 ```
 
-Будущие GitHub Actions secrets для Windows PFX signing:
+GitHub Actions secrets для Windows PFX signing:
 
 ```text
 WINDOWS_SIGNING_CERTIFICATE_BASE64
 WINDOWS_SIGNING_CERTIFICATE_PASSWORD
 ```
 
-Release workflow с PFX должен:
+Release workflow с PFX:
 
 1. декодировать PFX во временный путь runner;
 2. импортировать или передать его в signing tool только на время job;
-3. подписать `Slovofon.exe`, installer `.exe` и/или `.msix`;
+3. подписать `Slovofon.exe`, installer `.exe`, `.msi` и/или `.msix`;
 4. использовать timestamp server, если это поддерживает выбранный signing tool;
 5. не печатать пароль, base64 или thumbprint с привязкой к приватному хранилищу в логах;
 6. удалить временный PFX после signing.
@@ -480,6 +516,7 @@ Windows:
 ```text
 Slovofon-v0.0.1-windows-x64-setup.exe
 Slovofon-v0.0.1-windows-x64-portable.zip
+Slovofon-v0.0.1-windows-x64-msi.msi
 Slovofon-v0.0.1-windows-x64-msix.msix
 ```
 
