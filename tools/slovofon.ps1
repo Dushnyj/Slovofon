@@ -137,15 +137,40 @@ function Get-PubspecVersion {
     return $match.Matches[0].Groups[1].Value.Trim()
 }
 
+function Get-AppVersionConstants {
+    $appVersionPath = Join-Path $Script:Root 'lib/app/app_version.dart'
+    if (-not (Test-Path $appVersionPath)) {
+        return $null
+    }
+
+    $content = Get-Content -Raw $appVersionPath
+    $versionMatch = [regex]::Match($content, "static const version = '([^']+)';")
+    $buildMatch = [regex]::Match($content, "static const buildNumber = '([^']+)';")
+    if (-not $versionMatch.Success -or -not $buildMatch.Success) {
+        return $null
+    }
+
+    return [pscustomobject]@{
+        Version = $versionMatch.Groups[1].Value
+        BuildNumber = $buildMatch.Groups[1].Value
+    }
+}
+
 function Show-Version {
     $publicVersion = Get-PublicVersion
     $pubspecVersion = Get-PubspecVersion
+    $appVersion = Get-AppVersionConstants
 
     Write-Host "VERSION: $publicVersion"
     if ($pubspecVersion) {
         Write-Host "pubspec.yaml: $pubspecVersion"
     } else {
         Write-Host 'pubspec.yaml: missing or no version field'
+    }
+    if ($appVersion) {
+        Write-Host "lib/app/app_version.dart: $($appVersion.Version)+$($appVersion.BuildNumber)"
+    } else {
+        Write-Host 'lib/app/app_version.dart: missing or no AppVersion constants'
     }
 }
 
@@ -179,6 +204,14 @@ function Set-Version {
         $content = Get-Content -Raw $pubspecPath
         $content = $content -replace '(?m)^version:\s*.+$', "version: $NewVersion+$NewBuildNumber"
         Set-Content -Path $pubspecPath -Value $content -NoNewline
+    }
+
+    $appVersionPath = Join-Path $Script:Root 'lib/app/app_version.dart'
+    if (Test-Path $appVersionPath) {
+        $content = Get-Content -Raw $appVersionPath
+        $content = $content -replace "static const version = '[^']+';", "static const version = '$NewVersion';"
+        $content = $content -replace "static const buildNumber = '[^']+';", "static const buildNumber = '$NewBuildNumber';"
+        Set-Content -Path $appVersionPath -Value $content -NoNewline
     }
 
     Write-Info "version set to $NewVersion+$NewBuildNumber"

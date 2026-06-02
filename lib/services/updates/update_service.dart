@@ -78,6 +78,7 @@ class UpdateService {
     UpdateInfo info, {
     void Function(int downloadedBytes, int? totalBytes)? onProgress,
   }) async {
+    await _installer.ensureReadyToInstall();
     final update = await _client.downloadAsset(
       info.asset,
       onProgress: onProgress,

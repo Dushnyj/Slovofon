@@ -192,7 +192,7 @@ push tag v*
 Release workflow делает полный публичный релиз:
 
 ```text
-1. проверяет VERSION и pubspec.yaml;
+1. проверяет VERSION, pubspec.yaml и `lib/app/app_version.dart`;
 2. выполняет dart format, flutter analyze и flutter test;
 3. восстанавливает Android upload keystore из GitHub Secrets во временный файл runner;
 4. собирает signed Android universal APK, ABI APKs и AAB;
@@ -592,7 +592,7 @@ Storage permissions избегать.
 ## 10. Release checklist
 
 ```text
-1. VERSION совпадает с pubspec.yaml.
+1. VERSION совпадает с pubspec.yaml и `lib/app/app_version.dart`.
 2. Android versionCode увеличен.
 3. Windows metadata обновлена.
 4. CHANGELOG.md обновлён.

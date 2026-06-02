@@ -65,6 +65,8 @@ Future<void> showUpdatePrompt(
       var isBusy = false;
       var downloadedBytes = 0;
       int? totalBytes;
+      var bytesPerSecond = 0;
+      final downloadTimer = Stopwatch();
 
       return StatefulBuilder(
         builder: (dialogBodyContext, setDialogState) {
@@ -72,6 +74,14 @@ Future<void> showUpdatePrompt(
           final progress = totalBytes == null || totalBytes == 0
               ? null
               : downloadedBytes / totalBytes!;
+          final expectedBytes = totalBytes ?? info.asset.size;
+          final downloadStatus = expectedBytes > 0
+              ? strings.updateDownloadProgress(
+                  _formatBytes(downloadedBytes, strings.locale),
+                  _formatBytes(expectedBytes, strings.locale),
+                  _formatBytes(bytesPerSecond, strings.locale),
+                )
+              : strings.updateDownloading;
 
           return AlertDialog(
             icon: const AppIcon(AppIconAssets.systemRefresh),
@@ -80,13 +90,18 @@ Future<void> showUpdatePrompt(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(strings.updateAvailableMessage(info.version)),
+                Text(
+                  strings.updateAvailableMessage(
+                    info.version,
+                    _formatBytes(info.asset.size, strings.locale),
+                  ),
+                ),
                 if (isBusy) ...[
                   const SizedBox(height: 16),
                   LinearProgressIndicator(value: progress),
                   const SizedBox(height: 8),
                   Text(
-                    strings.updateDownloading,
+                    downloadStatus,
                     style: Theme.of(dialogBodyContext).textTheme.bodySmall,
                   ),
                 ],
@@ -108,19 +123,40 @@ Future<void> showUpdatePrompt(
                 onPressed: isBusy
                     ? null
                     : () async {
-                        setDialogState(() => isBusy = true);
+                        downloadTimer
+                          ..reset()
+                          ..start();
+                        setDialogState(() {
+                          isBusy = true;
+                          downloadedBytes = 0;
+                          totalBytes = info.asset.size > 0
+                              ? info.asset.size
+                              : null;
+                          bytesPerSecond = 0;
+                        });
                         try {
                           await ref
                               .read(updateServiceProvider)
                               .downloadAndInstall(
                                 info,
                                 onProgress: (downloaded, total) {
+                                  final elapsedMs =
+                                      downloadTimer.elapsedMilliseconds;
                                   setDialogState(() {
                                     downloadedBytes = downloaded;
-                                    totalBytes = total;
+                                    totalBytes =
+                                        total ??
+                                        (info.asset.size > 0
+                                            ? info.asset.size
+                                            : null);
+                                    bytesPerSecond = elapsedMs <= 0
+                                        ? 0
+                                        : (downloaded * 1000 / elapsedMs)
+                                              .round();
                                   });
                                 },
                               );
+                          downloadTimer.stop();
                           if (dialogContext.mounted) {
                             Navigator.of(dialogContext).pop();
                           }
@@ -132,6 +168,7 @@ Future<void> showUpdatePrompt(
                             );
                           }
                         } on UpdateInstallPermissionRequired {
+                          downloadTimer.stop();
                           if (hostContext.mounted) {
                             ScaffoldMessenger.of(hostContext).showSnackBar(
                               SnackBar(
@@ -142,13 +179,12 @@ Future<void> showUpdatePrompt(
                             );
                           }
                           setDialogState(() => isBusy = false);
-                        } on Object catch (error) {
+                        } on Object {
+                          downloadTimer.stop();
                           if (hostContext.mounted) {
                             ScaffoldMessenger.of(hostContext).showSnackBar(
                               SnackBar(
-                                content: Text(
-                                  '${strings.updateCheckFailed}: $error',
-                                ),
+                                content: Text(strings.updateDownloadFailed),
                               ),
                             );
                           }
@@ -163,6 +199,23 @@ Future<void> showUpdatePrompt(
       );
     },
   );
+}
+
+String _formatBytes(int bytes, Locale locale) {
+  if (bytes <= 0) {
+    return locale.languageCode == 'ru' ? '0 Б' : '0 B';
+  }
+  final units = locale.languageCode == 'ru'
+      ? const ['Б', 'КБ', 'МБ', 'ГБ']
+      : const ['B', 'KB', 'MB', 'GB'];
+  var value = bytes.toDouble();
+  var unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  final digits = value >= 10 || unit == 0 ? 0 : 1;
+  return '${value.toStringAsFixed(digits)} ${units[unit]}';
 }
 
 Future<void> checkUpdatesManually(BuildContext context, WidgetRef ref) async {
@@ -208,12 +261,12 @@ Future<void> checkUpdatesManually(BuildContext context, WidgetRef ref) async {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text(message)));
-  } on Object catch (error) {
+  } on Object {
     if (context.mounted) {
       Navigator.of(context, rootNavigator: true).pop();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${strings.updateCheckFailed}: $error')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(strings.updateCheckFailed)));
     }
   }
 }

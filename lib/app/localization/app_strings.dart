@@ -342,10 +342,10 @@ class AppStrings {
       _isRu ? 'Проверяю обновления...' : 'Checking for updates...';
   String get updateAvailableTitle =>
       _isRu ? 'Доступно обновление' : 'Update available';
-  String updateAvailableMessage(String version) {
+  String updateAvailableMessage(String version, String size) {
     return _isRu
-        ? 'Вышла версия $version. Словофон проверит подпись обновления, скачает файл, проверит sha256 и откроет системную установку.'
-        : 'Version $version is available. Slovofon will verify the update signature, download the file, verify sha256, and open the system installer.';
+        ? 'Доступна версия $version. Размер обновления: $size.'
+        : 'Version $version is available. Update size: $size.';
   }
 
   String get updateNow => _isRu ? 'Обновить' : 'Update';
@@ -356,6 +356,14 @@ class AppStrings {
       _isRu ? 'Не удалось проверить обновления' : 'Update check failed';
   String get updateDownloading =>
       _isRu ? 'Скачиваю обновление...' : 'Downloading update...';
+  String updateDownloadProgress(String downloaded, String total, String speed) {
+    return _isRu
+        ? '$downloaded из $total · $speed/с'
+        : '$downloaded of $total · $speed/s';
+  }
+
+  String get updateDownloadFailed =>
+      _isRu ? 'Не удалось скачать обновление' : 'Update download failed';
   String get updateInstallerStarted => _isRu
       ? 'Установщик обновления открыт'
       : 'The update installer has been opened';

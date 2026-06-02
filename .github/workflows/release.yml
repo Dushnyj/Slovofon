@@ -70,6 +70,13 @@ jobs:
             echo "::error::pubspec.yaml version ($pubspec_version) does not match VERSION ($version)"
             exit 1
           fi
+          app_version="$(grep -E "static const version = '[^']+';" lib/app/app_version.dart | sed -E "s/.*'([^']+)'.*/\\1/")"
+          app_build="$(grep -E "static const buildNumber = '[^']+';" lib/app/app_version.dart | sed -E "s/.*'([^']+)'.*/\\1/")"
+          pubspec_build="${pubspec_version#*+}"
+          if [[ "$app_version" != "$version" || "$app_build" != "$pubspec_build" ]]; then
+            echo "::error::AppVersion is ${app_version}+${app_build}, expected ${version}+${pubspec_build}"
+            exit 1
+          fi
           {
             echo "version=$version"
             echo "tag=$tag"

@@ -9,6 +9,17 @@ class PlatformUpdateInstaller {
     'com.slovofon.app/update_installer',
   );
 
+  Future<void> ensureReadyToInstall() async {
+    if (Platform.isAndroid) {
+      final canInstall =
+          await _androidChannel.invokeMethod<bool>('canInstallApks') ?? true;
+      if (!canInstall) {
+        await _androidChannel.invokeMethod<void>('openInstallSettings');
+        throw const UpdateInstallPermissionRequired();
+      }
+    }
+  }
+
   Future<void> install(DownloadedUpdate update) async {
     if (Platform.isAndroid) {
       return _installAndroidApk(update);
@@ -20,12 +31,7 @@ class PlatformUpdateInstaller {
   }
 
   Future<void> _installAndroidApk(DownloadedUpdate update) async {
-    final canInstall =
-        await _androidChannel.invokeMethod<bool>('canInstallApks') ?? true;
-    if (!canInstall) {
-      await _androidChannel.invokeMethod<void>('openInstallSettings');
-      throw const UpdateInstallPermissionRequired();
-    }
+    await ensureReadyToInstall();
     await _androidChannel.invokeMethod<void>('installApk', {
       'path': update.file.path,
     });
