@@ -145,6 +145,13 @@ class PlaybackController extends ChangeNotifier {
     );
     final normalizedIndex = chapterIndex < 0 ? 0 : chapterIndex;
     final position = Duration(milliseconds: session.positionMs);
+    // A persisted zero is an already-expired timer, not an active one. Treat
+    // it as "no timer" so playback does not immediately re-pause on resume.
+    final restoredSleepTimer =
+        (session.sleepTimerRemainingMs == null ||
+            session.sleepTimerRemainingMs! <= 0)
+        ? null
+        : Duration(milliseconds: session.sleepTimerRemainingMs!);
 
     _state = AudioPlaybackState(
       book: book,
@@ -152,9 +159,7 @@ class PlaybackController extends ChangeNotifier {
       chapterIndex: normalizedIndex,
       position: _clampPosition(position, book.chapters[normalizedIndex]),
       speed: _normalizeSpeed(session.speed),
-      sleepTimerRemaining: session.sleepTimerRemainingMs == null
-          ? null
-          : Duration(milliseconds: session.sleepTimerRemainingMs!),
+      sleepTimerRemaining: restoredSleepTimer,
     );
     _maxReachedGlobalPositionMs = _bookPositionFor(
       book,
@@ -390,9 +395,15 @@ class PlaybackController extends ChangeNotifier {
     }
 
     final nextRemaining = _nonNegative(remaining - elapsed);
-    _state = _state.copyWith(sleepTimerRemaining: nextRemaining);
+    final expired = nextRemaining == Duration.zero;
+    // When the timer expires we clear it instead of leaving Duration.zero.
+    // A lingering zero value gets persisted and restored on the next launch,
+    // which then immediately re-pauses playback via the 1s ticker.
+    _state = expired
+        ? _state.copyWith(clearSleepTimer: true)
+        : _state.copyWith(sleepTimerRemaining: nextRemaining);
 
-    if (nextRemaining == Duration.zero && _state.isPlaying) {
+    if (expired && _state.isPlaying) {
       _pendingPlayRequest = false;
       await _engine.pause();
       _state = _state.copyWith(status: AudioPlaybackStatus.paused);

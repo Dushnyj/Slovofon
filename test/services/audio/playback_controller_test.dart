@@ -221,7 +221,7 @@ void main() {
       await service.tick(const Duration(minutes: 2));
 
       expect(service.state.status, AudioPlaybackStatus.paused);
-      expect(service.state.sleepTimerRemaining, Duration.zero);
+      expect(service.state.sleepTimerRemaining, isNull);
       expect(engine.pauseCount, 1);
     });
 
@@ -278,8 +278,66 @@ void main() {
       await service.tick(const Duration(minutes: 7));
 
       expect(service.state.status, AudioPlaybackStatus.paused);
-      expect(service.state.sleepTimerRemaining, Duration.zero);
+      expect(service.state.sleepTimerRemaining, isNull);
       expect(engine.pauseCount, 1);
+    });
+
+    test('expired sleep timer does not re-pause playback after resume '
+        '(regression: stuck pause after timer ends)', () async {
+      final engine = RecordingAudioEngine();
+      final service = PlaybackController(engine: engine);
+
+      await service.loadBook(_book, autoPlay: true);
+      service.setSleepTimer(const Duration(minutes: 1));
+
+      // Timer expires while playing -> playback pauses, timer clears.
+      await service.tick(const Duration(minutes: 1));
+
+      expect(service.state.status, AudioPlaybackStatus.paused);
+      expect(service.state.sleepTimerRemaining, isNull);
+
+      // Resuming playback must keep playing: the previously expired timer
+      // must no longer re-pause it on the next tick.
+      await service.play();
+
+      expect(service.state.status, AudioPlaybackStatus.playing);
+
+      await service.tick(const Duration(seconds: 1));
+
+      expect(service.state.status, AudioPlaybackStatus.playing);
+      expect(service.state.sleepTimerRemaining, isNull);
+      expect(engine.playCount, greaterThan(1));
+    });
+
+    test('restoreSession ignores a persisted zero sleep timer so playback '
+        'does not immediately re-pause', () async {
+      final engine = RecordingAudioEngine();
+      final service = PlaybackController(engine: engine);
+
+      await service.restoreSession(
+        _book,
+        PlaybackSession(
+          id: 'session',
+          activeBookId: _book.id,
+          activeBookVersionId: _book.versionId,
+          activeSourceId: _book.sourceId,
+          activeChapterId: 'chapter-1',
+          positionMs: 0,
+          speed: 1,
+          isPlaying: false,
+          sleepTimerRemainingMs: 0,
+          sleepTimerMode: SleepTimerMode.stopAfterDuration,
+          updatedAt: DateTime.utc(2026, 5, 26),
+        ),
+      );
+
+      expect(service.state.sleepTimerRemaining, isNull);
+      expect(service.state.status, AudioPlaybackStatus.paused);
+
+      await service.play();
+      await service.tick(const Duration(seconds: 1));
+
+      expect(service.state.status, AudioPlaybackStatus.playing);
     });
 
     test('chapter switches resume saved runtime positions', () async {
