@@ -3,4 +3,12 @@
         android:name="com.slovofon.app.SlovofonLifecycleInstrumentation"
         android:targetPackage="com.slovofon.app"
         android:label="Slovofon engine lifecycle regression checks" />
+    <instrumentation
+        android:name="com.slovofon.app.SlovofonTvInstrumentation"
+        android:targetPackage="com.slovofon.app"
+        android:label="Slovofon TV profile and launcher checks" />
+    <instrumentation
+        android:name="com.slovofon.app.SlovofonMediaSeekInstrumentation"
+        android:targetPackage="com.slovofon.app"
+        android:label="Slovofon Media3 unknown duration seek checks" />
 </manifest>

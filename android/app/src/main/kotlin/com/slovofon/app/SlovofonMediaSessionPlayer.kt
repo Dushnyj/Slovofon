@@ -76,8 +76,7 @@ class SlovofonMediaSessionPlayer : SimpleBasePlayer(Looper.getMainLooper()) {
 
             Player.COMMAND_SEEK_FORWARD -> {
                 sessionState = sessionState.copy(
-                    positionMs = (sessionState.positionMs + SEEK_INTERVAL_MS)
-                        .coerceAtMost(sessionState.durationMs.coerceAtLeast(0L)),
+                    positionMs = clampSeekPosition(sessionState.positionMs + SEEK_INTERVAL_MS),
                 )
                 SlovofonMediaSessionBridge.dispatchCommand("fastForward")
             }
@@ -91,15 +90,21 @@ class SlovofonMediaSessionPlayer : SimpleBasePlayer(Looper.getMainLooper()) {
             -> SlovofonMediaSessionBridge.dispatchCommand("nextChapter")
 
             else -> {
-                val targetPositionMs = positionMs
-                    .coerceAtLeast(0L)
-                    .coerceAtMost(sessionState.durationMs.coerceAtLeast(0L))
+                val targetPositionMs = clampSeekPosition(positionMs)
                 sessionState = sessionState.copy(positionMs = targetPositionMs)
                 SlovofonMediaSessionBridge.dispatchCommand("seek", targetPositionMs)
             }
         }
         invalidateState()
         return handled()
+    }
+
+    private fun clampSeekPosition(positionMs: Long): Long {
+        val nonNegative = positionMs.coerceAtLeast(0L)
+        // Source metadata may not know the chapter duration until the decoder
+        // reports it. Zero is not an upper bound: match Dart's seek contract.
+        val durationMs = sessionState.durationMs
+        return if (durationMs > 0L) nonNegative.coerceAtMost(durationMs) else nonNegative
     }
 
     override fun handleRelease(): ListenableFuture<Any> {
@@ -140,7 +145,7 @@ class SlovofonMediaSessionPlayer : SimpleBasePlayer(Looper.getMainLooper()) {
         return MediaItemData.Builder("slovofon-current")
             .setMediaItem(mediaItem)
             .setMediaMetadata(metadata)
-            .setDurationUs(state.durationMs * 1000L)
+            .setDurationUs(if (state.durationMs > 0L) state.durationMs * 1000L else C.TIME_UNSET)
             .setIsSeekable(true)
             .build()
     }
