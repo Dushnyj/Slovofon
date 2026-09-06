@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Include xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <!-- Slovofon-owned navigation and destination screen. Standard error, progress,
+       repair and restart-manager dialogs remain maintained by WixToolset.UI. -->
+  <UI>
+    <TextStyle Id="WixUI_Font_Normal" FaceName="Segoe UI" Size="9" />
+    <TextStyle Id="WixUI_Font_Bigger" FaceName="Segoe UI" Size="14" />
+    <TextStyle Id="WixUI_Font_Title" FaceName="Segoe UI" Size="10" Bold="yes" />
+    <Property Id="DefaultUIFont" Value="WixUI_Font_Normal" />
+
+    <DialogRef Id="WelcomeDlg" />
+    <DialogRef Id="LicenseAgreementDlg" />
+    <DialogRef Id="BrowseDlg" />
+    <DialogRef Id="VerifyReadyDlg" />
+    <DialogRef Id="ExitDialog" />
+    <DialogRef Id="MaintenanceWelcomeDlg" />
+    <DialogRef Id="MaintenanceTypeDlg" />
+    <DialogRef Id="DiskCostDlg" />
+    <DialogRef Id="ErrorDlg" />
+    <DialogRef Id="FatalError" />
+    <DialogRef Id="FilesInUse" />
+    <DialogRef Id="MsiRMFilesInUse" />
+    <DialogRef Id="PrepareDlg" />
+    <DialogRef Id="ProgressDlg" />
+    <DialogRef Id="ResumeDlg" />
+    <DialogRef Id="UserExit" />
+
+    <Dialog Id="SlovofonDestinationDlg" Width="370" Height="270" Title="!(loc.SetupTitle)">
+      <Control Id="Banner" Type="Bitmap" X="0" Y="0" Width="370" Height="44" TabSkip="yes" Text="WixUI_Bmp_Banner" />
+      <Control Id="Heading" Type="Text" X="18" Y="7" Width="290" Height="17" Transparent="yes" NoPrefix="yes" Text="{\WixUI_Font_Title}!(loc.DestinationTitle)" />
+      <Control Id="Subtitle" Type="Text" X="18" Y="25" Width="300" Height="14" Transparent="yes" NoPrefix="yes" Text="!(loc.DestinationSubtitle)" />
+      <Control Id="SeparatorTop" Type="Line" X="0" Y="44" Width="370" Height="0" />
+      <Control Id="FolderLabel" Type="Text" X="20" Y="58" Width="325" Height="17" Text="!(loc.FolderLabel)" />
+      <Control Id="Folder" Type="PathEdit" X="20" Y="79" Width="252" Height="20" Property="INSTALLFOLDER" />
+      <Control Id="Browse" Type="PushButton" X="280" Y="79" Width="70" Height="20" Text="!(loc.Browse)">
+        <Publish Property="_BrowseProperty" Value="INSTALLFOLDER" Order="1" />
+        <Publish Event="SpawnDialog" Value="BrowseDlg" Order="2" />
+      </Control>
+      <Control Id="Desktop" Type="CheckBox" X="20" Y="115" Width="330" Height="20" Property="DESKTOPSHORTCUT" CheckBoxValue="1" Text="!(loc.DesktopShortcut)" />
+      <Control Id="StartMenu" Type="Text" X="20" Y="145" Width="330" Height="28" Text="!(loc.StartMenuDetails)" />
+      <Control Id="Privacy" Type="Text" X="20" Y="181" Width="330" Height="42" Text="!(loc.DataPreserved)" />
+      <Control Id="SeparatorBottom" Type="Line" X="0" Y="234" Width="370" Height="0" />
+      <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.WixUIBack)">
+        <Publish Event="NewDialog" Value="LicenseAgreementDlg" />
+      </Control>
+      <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)">
+        <Publish Event="CheckTargetPath" Value="INSTALLFOLDER" Order="1" />
+        <Publish Event="SetTargetPath" Value="INSTALLFOLDER" Order="2" />
+        <!-- Component conditions are evaluated before the UI. Feature events
+             apply the user's checkbox change after costing has completed. -->
+        <Publish Event="AddLocal" Value="DesktopFeature" Order="3" Condition="DESKTOPSHORTCUT = &quot;1&quot;" />
+        <Publish Event="Remove" Value="DesktopFeature" Order="4" Condition="NOT DESKTOPSHORTCUT OR DESKTOPSHORTCUT &lt;&gt; &quot;1&quot;" />
+        <Publish Event="NewDialog" Value="VerifyReadyDlg" Order="5" />
+      </Control>
+      <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="!(loc.WixUICancel)">
+        <Publish Event="SpawnDialog" Value="CancelDlg" />
+      </Control>
+    </Dialog>
+
+    <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="LicenseAgreementDlg" Condition="NOT Installed" />
+    <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" Condition="Installed AND PATCH" />
+    <Publish Dialog="LicenseAgreementDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" />
+    <Publish Dialog="LicenseAgreementDlg" Control="Next" Event="NewDialog" Value="SlovofonDestinationDlg" Condition="LicenseAccepted = &quot;1&quot;" />
+    <Publish Dialog="BrowseDlg" Control="OK" Event="CheckTargetPath" Value="[_BrowseProperty]" Order="1" />
+    <Publish Dialog="BrowseDlg" Control="OK" Event="SetTargetPath" Value="[_BrowseProperty]" Order="2" />
+    <Publish Dialog="BrowseDlg" Control="OK" Event="EndDialog" Value="Return" Order="3" />
+    <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="SlovofonDestinationDlg" Condition="NOT Installed" />
+    <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="MaintenanceTypeDlg" Condition="Installed AND NOT PATCH" />
+    <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" Condition="Installed AND PATCH" />
+    <Publish Dialog="MaintenanceWelcomeDlg" Control="Next" Event="NewDialog" Value="MaintenanceTypeDlg" />
+    <Publish Dialog="MaintenanceTypeDlg" Control="Back" Event="NewDialog" Value="MaintenanceWelcomeDlg" />
+    <Publish Dialog="MaintenanceTypeDlg" Control="RepairButton" Event="NewDialog" Value="VerifyReadyDlg" />
+    <Publish Dialog="MaintenanceTypeDlg" Control="RemoveButton" Event="NewDialog" Value="VerifyReadyDlg" />
+    <!-- Opt-in launch is UI-only, never during /qn, repair, remove or a reboot. -->
+    <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="LaunchSlovofon" Order="1" Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = &quot;1&quot; AND NOT Installed AND NOT REMOVE AND NOT ReplacedInUseFiles AND NOT MsiSystemRebootPending" />
+    <Publish Dialog="ExitDialog" Control="Finish" Event="EndDialog" Value="Return" Order="2" />
+  </UI>
+</Include>

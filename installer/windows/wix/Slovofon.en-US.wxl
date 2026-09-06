@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<WixLocalization xmlns="http://wixtoolset.org/schemas/v4/wxl" Culture="en-US" Codepage="1252">
+  <String Id="ProductLanguage" Value="1033" />
+  <String Id="Codepage" Value="1252" />
+  <String Id="SetupTitle" Value="Slovofon Setup" />
+  <String Id="DestinationTitle" Value="Folder and shortcuts" />
+  <String Id="DestinationSubtitle" Value="Install for everyone who uses this computer." />
+  <String Id="FolderLabel" Value="Application folder:" />
+  <String Id="Browse" Value="Browse…" />
+  <String Id="DesktopShortcut" Value="Create a desktop shortcut" />
+  <String Id="StartMenuDetails" Value="A Start menu shortcut is included. Administrator permission is required to install this MSI package." />
+  <String Id="DataPreserved" Value="Books, settings, history and progress are kept when updating or uninstalling. For a just-for-me installation, use Setup EXE instead." />
+  <String Id="LaunchApplication" Value="Launch Slovofon" />
+  <String Id="FinishDetails" Value="Open Slovofon from the Start menu. To uninstall, go to Windows Settings / Apps. Your downloaded books and settings will be kept." />
+  <String Id="NewerVersionInstalled" Value="A newer version of Slovofon is already installed. Downgrading was cancelled; your books and settings have not changed." />
+  <String Id="WindowsRequired" Value="Slovofon requires Windows 10 or later, 64-bit." />
+  <String Id="ExeAlreadyInstalled" Value="Slovofon is already installed using Setup EXE. Use Setup EXE to update it. To switch to MSI, first uninstall the program through Windows Settings and keep your user data." />
+  <String Id="WelcomeDlgDescription" Value="This wizard will install Slovofon on your computer. You can choose the application folder and whether to add a desktop shortcut.&#13;&#10;&#13;&#10;Click Next to continue." />
+  <String Id="VerifyReadyDlgInstallText" Value="Click Install to continue. Windows will ask for administrator permission. Click Back to change the folder or desktop shortcut." />
+  <String Id="VerifyReadyDlgRemoveText" Value="Only the application files and shortcuts will be removed. Books, settings, history, progress and bookmarks will be kept. Click Remove to continue." />
+</WixLocalization>

@@ -124,6 +124,9 @@ jobs:
       - name: Build Windows debug bundle
         run: flutter build windows --debug
 
+      - name: Verify Windows installer contracts
+        run: flutter test test/platform/windows_installer_contract_test.dart test/platform/installer_update_url_test.dart
+
       - name: Prepare Windows artifact
         id: windows_artifact
         shell: pwsh

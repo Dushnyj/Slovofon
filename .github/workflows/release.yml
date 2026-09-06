@@ -294,8 +294,12 @@ jobs:
       - name: Install packaging tools
         shell: pwsh
         run: |
-          choco install innosetup --no-progress -y
+          choco install innosetup --version=6.7.2 --no-progress -y
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           dotnet tool install --global wix --version 6.0.2
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$env:USERPROFILE\.dotnet\tools\wix.exe" extension add -g WixToolset.UI.wixext/6.0.2 WixToolset.Util.wixext/6.0.2
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           "$env:USERPROFILE\.dotnet\tools" >> $env:GITHUB_PATH
 
       - name: Prepare Windows portable ZIP
@@ -309,37 +313,13 @@ jobs:
             -DestinationPath "$out/Slovofon-v$version-windows-x64-portable.zip" `
             -Force
 
-      - name: Build Inno Setup installer
+      - name: Build Windows installers
         shell: pwsh
         run: |
-          $version = "${{ needs.metadata.outputs.version }}"
-          $sourceDir = (Resolve-Path "build/windows/x64/runner/Release").Path
-          $outputDir = (Resolve-Path "${{ needs.metadata.outputs.artifact_dir }}").Path
-          $iconPath = (Resolve-Path "windows/runner/resources/app_icon.ico").Path
-          $env:SLOVOFON_APP_VERSION = $version
-          $env:SLOVOFON_SOURCE_DIR = $sourceDir
-          $env:SLOVOFON_OUTPUT_DIR = $outputDir
-          $env:SLOVOFON_OUTPUT_BASE = "Slovofon-v$version-windows-x64-setup"
-          $env:SLOVOFON_ICON_PATH = $iconPath
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "installer/windows/inno/Slovofon.iss"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - name: Build MSI installer
-        shell: pwsh
-        run: |
-          $version = "${{ needs.metadata.outputs.version }}"
-          $sourceDir = (Resolve-Path "build/windows/x64/runner/Release").Path
-          $outputDir = (Resolve-Path "${{ needs.metadata.outputs.artifact_dir }}").Path
-          $iconPath = (Resolve-Path "windows/runner/resources/app_icon.ico").Path
-          $wxs = Join-Path $env:RUNNER_TEMP 'Slovofon.wxs'
-          pwsh -NoProfile -ExecutionPolicy Bypass -File tools/windows/New-WixInstallerSource.ps1 `
-            -SourceDir $sourceDir `
-            -OutputPath $wxs `
-            -ProductVersion $version `
-            -IconPath $iconPath
-          wix build $wxs -arch x64 -out "$outputDir/Slovofon-v$version-windows-x64-msi.msi"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          Remove-Item -LiteralPath "$outputDir/Slovofon-v$version-windows-x64-msi.wixpdb" -Force -ErrorAction SilentlyContinue
+          ./tools/windows/Build-WindowsInstallers.ps1 `
+            -BundleDir build/windows/x64/runner/Release `
+            -OutputDir "${{ needs.metadata.outputs.artifact_dir }}" `
+            -Format All -Culture ru-RU
 
       - name: Sign Windows installers
         if: steps.signing.outputs.enabled == 'true'

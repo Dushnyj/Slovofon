@@ -224,7 +224,17 @@ Slovofon и векторные контуры названия продукта.
 
 Не использовать официальные логотипы источников без разрешения. Для источников использовать текстовые chips, цвет источника и generic source icon.
 
-## 7. Windows compiler runtime
+## 7. Windows installer artwork and UI
+
+Оформление установщиков `installer/windows/assets/` создано в проекте:
+существующий утверждённый launcher icon, собственная геометрия звуковой волны и
+надпись Slovofon. `tools/windows/New-InstallerArtwork.ps1` использует установленные
+Segoe UI / Georgia; файлы шрифтов не распространяются и не скачиваются.
+MSI использует стандартные диалоги и native actions WiX Toolset UI/Util 6.0.2
+(Microsoft Reciprocal License, [исходники WiX](https://github.com/wixtoolset/wix)).
+Собственный экран папки и переходы описаны в `installer/windows/wix/SlovofonUI.wxi`.
+
+## 8. Windows compiler runtime
 
 ```text
 Component: Microsoft Visual C++ runtime (MSVC redistributable DLLs)

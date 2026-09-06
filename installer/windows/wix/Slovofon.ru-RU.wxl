@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<WixLocalization xmlns="http://wixtoolset.org/schemas/v4/wxl" Culture="ru-RU" Codepage="1251">
+  <String Id="ProductLanguage" Value="1049" />
+  <String Id="Codepage" Value="1251" />
+  <String Id="SetupTitle" Value="Установка Slovofon" />
+  <String Id="DestinationTitle" Value="Папка и ярлыки" />
+  <String Id="DestinationSubtitle" Value="Установка для всех пользователей этого компьютера." />
+  <String Id="FolderLabel" Value="Папка программы:" />
+  <String Id="Browse" Value="Обзор…" />
+  <String Id="DesktopShortcut" Value="Создать ярлык на рабочем столе" />
+  <String Id="StartMenuDetails" Value="Ярлык в меню «Пуск» будет создан автоматически. Для установки потребуются права администратора." />
+  <String Id="DataPreserved" Value="Книги, настройки, история и прогресс сохраняются при обновлении и удалении программы. Для установки только для себя используйте Setup EXE." />
+  <String Id="LaunchApplication" Value="Запустить Slovofon" />
+  <String Id="FinishDetails" Value="Slovofon доступен в меню «Пуск». Удалить программу можно через «Параметры Windows / Приложения». Ваши книги и настройки при этом сохранятся." />
+  <String Id="NewerVersionInstalled" Value="Уже установлена более новая версия Slovofon. Понижение версии отменено; книги и настройки не изменены." />
+  <String Id="WindowsRequired" Value="Для Slovofon требуется Windows 10 или новее, 64-разрядная система." />
+  <String Id="ExeAlreadyInstalled" Value="Slovofon уже установлен через Setup EXE. Для обновления используйте Setup EXE. Для перехода на MSI сначала удалите программу через параметры Windows, сохранив пользовательские данные." />
+  <String Id="WelcomeDlgDescription" Value="Мастер установит Slovofon на ваш компьютер. Вы сможете выбрать папку программы и создание ярлыка.&#13;&#10;&#13;&#10;Нажмите «Далее», чтобы продолжить." />
+  <String Id="VerifyReadyDlgInstallText" Value="Нажмите «Установить», чтобы продолжить. Windows запросит разрешение администратора. Для изменения папки или ярлыка нажмите «Назад»." />
+  <String Id="VerifyReadyDlgRemoveText" Value="Будут удалены только файлы программы и её ярлыки. Книги, настройки, история, прогресс и закладки сохранятся. Нажмите «Удалить», чтобы продолжить." />
+</WixLocalization>
