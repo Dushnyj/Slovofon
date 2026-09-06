@@ -15,6 +15,8 @@ import '../../sources/sources.dart';
 import '../../ui/adaptive/desktop_book_details_layout.dart';
 import '../../ui/adaptive/desktop_layout.dart';
 import '../../ui/adaptive/slovofon_shell.dart';
+import '../../ui/adaptive/television_layout.dart';
+import '../../ui/adaptive/television_shell.dart';
 import '../../ui/components/app_bar_text.dart';
 import '../../ui/components/book_cover.dart';
 import '../../ui/components/book_fragment_badge.dart';
@@ -126,6 +128,14 @@ class _SavedBookDetailsScreenState
   }
 
   Widget _frame(Widget body) {
+    if (TelevisionLayout.isActive(context)) {
+      return TelevisionStandaloneShell(
+        key: const ValueKey('saved-book-details-screen'),
+        title: context.strings.bookDetails,
+        selectedIndex: 2,
+        child: body,
+      );
+    }
     final screen = Scaffold(
       key: const ValueKey('saved-book-details-screen'),
       appBar: AppBar(
@@ -298,7 +308,7 @@ class _SavedBookDetailsScreenState
       );
     }
 
-    if (DesktopLayout.isActive(context)) {
+    if (DesktopLayout.isActive(context) || TelevisionLayout.isActive(context)) {
       return _frame(
         DesktopBookDetailsLayout(
           key: ValueKey('saved-book-layout-${book.sourceId}:${book.id}'),

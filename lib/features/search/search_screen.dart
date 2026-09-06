@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -23,6 +24,7 @@ import '../../sources/sources.dart';
 import '../../ui/components/app_bar_text.dart';
 import '../../ui/adaptive/adaptive_sheet.dart';
 import '../../ui/adaptive/desktop_layout.dart';
+import '../../ui/adaptive/television_layout.dart';
 import '../../ui/components/book_card.dart';
 import '../../ui/components/filter_picker_sheet.dart';
 import '../../ui/components/responsive_tile_grid.dart';
@@ -55,6 +57,11 @@ class SearchScreen extends ConsumerStatefulWidget {
 
 class _SearchScreenState extends ConsumerState<SearchScreen> {
   final _controller = TextEditingController();
+  late final _televisionEditorFocus = FocusNode(
+    debugLabel: 'TV search editor',
+    onKeyEvent: _onTelevisionEditorKey,
+  );
+  final _televisionFiltersFocus = FocusNode(debugLabel: 'TV search filters');
 
   Set<SearchKind> _selectedKinds = const {SearchKind.title};
   SearchSort _selectedSort = SearchSort.relevance;
@@ -83,7 +90,40 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   @override
   void dispose() {
     _controller.dispose();
+    _televisionEditorFocus.dispose();
+    _televisionFiltersFocus.dispose();
     super.dispose();
+  }
+
+  KeyEventResult _onTelevisionEditorKey(FocusNode node, KeyEvent event) {
+    if ((event is KeyDownEvent || event is KeyRepeatEvent) &&
+        TelevisionLayout.isActive(context) &&
+        View.of(context).viewInsets.bottom == 0) {
+      // Android may hide the IME on Back but leave EditableText focused.
+      // Intercept at its own FocusNode before the caret's arrow-key shortcuts.
+      // Read the real view: Scaffold removes the bottom inset from the body's
+      // MediaQuery when it resizes for an IME. Editing stays untouched while
+      // that system keyboard is visible.
+      if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+        _televisionFiltersFocus.requestFocus();
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+        // Directional traversal can cross the TV branch scope to its top
+        // navigation. Unfocus would instead restore this editor's history.
+        node.focusInDirection(TraversalDirection.up);
+        return KeyEventResult.handled;
+      }
+    }
+    return KeyEventResult.ignored;
+  }
+
+  Future<void> _submitTelevisionSearch([String? query]) {
+    // A stable control remains mounted while async history/search is loading.
+    // Down from this filter reaches the result shelf when it is ready, without
+    // stealing focus back from someone already navigating with the remote.
+    _televisionFiltersFocus.requestFocus();
+    return _submitSearch(query);
   }
 
   @override
@@ -93,6 +133,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     final libraryStore = ref.watch(libraryStoreProvider);
 
     if (desktop) return _buildDesktopWorkspace(context, libraryStore);
+    if (TelevisionLayout.isActive(context)) {
+      return _buildTelevisionWorkspace(context, libraryStore);
+    }
 
     if (_showResultsPage) {
       return BackButtonListener(
@@ -214,6 +257,79 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildTelevisionWorkspace(
+    BuildContext context,
+    LibraryStore libraryStore,
+  ) {
+    final strings = context.strings;
+    return BackButtonListener(
+      onBackButtonPressed: () async {
+        if (!_showResultsPage || !_isSearchRouteCurrent(context)) return false;
+        _handleResultsBack(context);
+        return true;
+      },
+      child: ListView(
+        key: const ValueKey('tv-search-workspace'),
+        padding: const EdgeInsets.fromLTRB(12, 4, 12, 16),
+        children: [
+          TextField(
+            key: const ValueKey('tv-search-editor'),
+            controller: _controller,
+            focusNode: _televisionEditorFocus,
+            textInputAction: TextInputAction.search,
+            onSubmitted: _submitTelevisionSearch,
+            decoration: InputDecoration(
+              prefixIcon: const Padding(
+                padding: EdgeInsets.all(10),
+                child: AppIcon(AppIconAssets.navSearch, size: 20),
+              ),
+              suffixIcon: IconButton(
+                key: const ValueKey('search-submit'),
+                tooltip: strings.search,
+                onPressed: _submitTelevisionSearch,
+                icon: const AppIcon(AppIconAssets.navSearch),
+              ),
+              hintText: strings.searchHint,
+            ),
+          ),
+          const SizedBox(height: 8),
+          _SearchFilters(
+            scopeFocusNode: _televisionFiltersFocus,
+            selectedKinds: _selectedKinds,
+            selectedSort: _selectedSort,
+            onKindsChanged: (kinds) => setState(() => _selectedKinds = kinds),
+            onSortChanged: (sort) => setState(() => _selectedSort = sort),
+          ),
+          if (_showResultsPage)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: DefaultTextStyle.merge(
+                style: Theme.of(context).textTheme.bodySmall,
+                child: _SearchResultsTitle(searchFuture: _searchFuture),
+              ),
+            )
+          else
+            const SizedBox(height: 8),
+          _SearchResults(
+            query: _activeQuery,
+            searchFuture: _searchFuture,
+            libraryStore: libraryStore,
+            playLoadingIds: _playLoadingIds,
+            downloadLoadingIds: _downloadLoadingIds,
+            history: _history,
+            onHistoryTap: _runHistorySearch,
+            onHistoryDelete: _deleteHistoryEntry,
+            onFavoriteToggle: _toggleFavorite,
+            onLaterToggle: _toggleLater,
+            onRetry: () => _submitSearch(_activeQuery),
+            onPlayPressed: _playResult,
+            onDownloadPressed: _downloadResult,
+          ),
+        ],
+      ),
     );
   }
 
@@ -806,12 +922,14 @@ class _SearchFilters extends StatelessWidget {
     required this.selectedSort,
     required this.onKindsChanged,
     required this.onSortChanged,
+    this.scopeFocusNode,
   });
 
   final Set<SearchKind> selectedKinds;
   final SearchSort selectedSort;
   final ValueChanged<Set<SearchKind>> onKindsChanged;
   final ValueChanged<SearchSort> onSortChanged;
+  final FocusNode? scopeFocusNode;
 
   @override
   Widget build(BuildContext context) {
@@ -822,6 +940,10 @@ class _SearchFilters extends StatelessWidget {
       runSpacing: 8,
       children: [
         InputChip(
+          key: scopeFocusNode == null
+              ? null
+              : const ValueKey('tv-search-kinds'),
+          focusNode: scopeFocusNode,
           avatar: const AppIcon(AppIconAssets.systemFilter, size: 16),
           label: Text(
             '${strings.searchScope}: ${_kindsLabel(context, selectedKinds)}',

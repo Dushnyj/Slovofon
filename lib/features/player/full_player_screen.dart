@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -38,19 +39,28 @@ class FullPlayerScreen extends ConsumerStatefulWidget {
 class _FullPlayerScreenState extends ConsumerState<FullPlayerScreen>
     with SingleTickerProviderStateMixin {
   late final TabController _tabs;
+  bool _tabsInitialized = false;
   // Keep the tab pages (and chapter scroll position) when the book panel moves
   // between the wide sidebar and the compact information dialog.
   final _windowsContentKey = GlobalKey(debugLabel: 'windows-player-content');
   Offset? _pointerDownPosition;
 
   @override
-  void initState() {
-    super.initState();
-    _tabs = TabController(
-      length: 4,
-      initialIndex: widget.initialTabIndex.clamp(0, 3),
-      vsync: this,
-    );
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_tabsInitialized) {
+      _tabsInitialized = true;
+      _tabs = TabController(
+        length: 4,
+        initialIndex: widget.initialTabIndex.clamp(0, 3),
+        // TabBarView reads the controller's duration, not animateTo's override.
+        // Remote Down must enter the destination page on the next frame.
+        animationDuration: TelevisionLayout.isActive(context)
+            ? Duration.zero
+            : null,
+        vsync: this,
+      );
+    }
   }
 
   @override
@@ -165,6 +175,16 @@ class _FullPlayerScreenState extends ConsumerState<FullPlayerScreen>
                 ],
               ),
             ),
+          );
+        }
+
+        if (TelevisionLayout.isActive(context)) {
+          return _TelevisionFullPlayer(
+            state: state,
+            service: service,
+            downloadManager: downloadManager,
+            controller: _tabs,
+            onClose: () => _close(context),
           );
         }
 
@@ -405,6 +425,452 @@ class _FullPlayerScreenState extends ConsumerState<FullPlayerScreen>
 bool _usesLargeScreenPlayer(BuildContext context) =>
     Theme.of(context).platform == TargetPlatform.windows ||
     TelevisionLayout.isActive(context);
+
+/// TV has a small logical viewport even on a 4K panel. Physical pixels must not
+/// select the desktop compact mode or remove the artwork from this composition.
+class _TelevisionFullPlayer extends StatefulWidget {
+  const _TelevisionFullPlayer({
+    required this.state,
+    required this.service,
+    required this.downloadManager,
+    required this.controller,
+    required this.onClose,
+  });
+  final AudioPlaybackState state;
+  final PlaybackController service;
+  final DownloadManager downloadManager;
+  final TabController controller;
+  final VoidCallback onClose;
+
+  @override
+  State<_TelevisionFullPlayer> createState() => _TelevisionFullPlayerState();
+}
+
+class _TelevisionFullPlayerState extends State<_TelevisionFullPlayer> {
+  final _tabs = List.generate(
+    4,
+    (index) => FocusNode(debugLabel: 'tv-player-tab-$index'),
+  );
+  final _content = List.generate(
+    4,
+    (index) => FocusScopeNode(
+      debugLabel: 'tv-player-content-$index',
+      directionalTraversalEdgeBehavior: TraversalEdgeBehavior.parentScope,
+    ),
+  );
+
+  @override
+  void dispose() {
+    for (final node in [..._tabs, ..._content]) {
+      node.dispose();
+    }
+    super.dispose();
+  }
+
+  FocusNode? _entryNode(int index) {
+    final scope = _content[index];
+    final nodes = scope.traversalDescendants.where(
+      (node) =>
+          node is! FocusScopeNode &&
+          node.canRequestFocus &&
+          !node.skipTraversal,
+    );
+    // Lazy chapter lists can keep previous rows alive outside their viewport.
+    // Enter a visible action, not an offscreen cached chapter or global seek.
+    for (final node in nodes) {
+      if (node.context != null &&
+          scope.context != null &&
+          node.rect.overlaps(scope.rect)) {
+        return node;
+      }
+    }
+    return nodes.firstOrNull;
+  }
+
+  void _select(int index) =>
+      widget.controller.animateTo(index, duration: Duration.zero);
+
+  void _enterContent(int index) {
+    _select(index);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final target = _entryNode(index);
+      target?.requestFocus();
+      if (target?.context case final context?) {
+        unawaited(Scrollable.ensureVisible(context, duration: Duration.zero));
+      }
+    });
+  }
+
+  Widget _page(int index, Widget child) => FocusScope(
+    node: _content[index],
+    onKeyEvent: (node, event) {
+      if (event is KeyDownEvent &&
+          event.logicalKey == LogicalKeyboardKey.arrowUp &&
+          FocusManager.instance.primaryFocus ==
+              _content[index].traversalDescendants
+                  .where(
+                    (node) =>
+                        node is! FocusScopeNode &&
+                        node.canRequestFocus &&
+                        !node.skipTraversal,
+                  )
+                  .firstOrNull) {
+        _tabs[index].requestFocus();
+        return KeyEventResult.handled;
+      }
+      return KeyEventResult.ignored;
+    },
+    child: child,
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final book = widget.state.book!;
+    final colors = Theme.of(context).colorScheme;
+    final strings = context.strings;
+    final labels = [
+      strings.nowPlaying,
+      strings.chapters,
+      strings.bookmarks,
+      strings.information,
+    ];
+    final panel = Material(
+      color: colors.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: colors.outlineVariant),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          AnimatedBuilder(
+            animation: widget.controller,
+            builder: (context, _) => SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.all(4),
+              child: Row(
+                children: [
+                  for (var index = 0; index < labels.length; index++)
+                    Focus(
+                      canRequestFocus: false,
+                      skipTraversal: true,
+                      onKeyEvent: (node, event) {
+                        if (event is KeyDownEvent &&
+                            event.logicalKey == LogicalKeyboardKey.arrowDown) {
+                          _enterContent(index);
+                          return KeyEventResult.handled;
+                        }
+                        return KeyEventResult.ignored;
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.only(right: 4),
+                        child: TextButton(
+                          key: ValueKey('tv-player-tab-$index'),
+                          focusNode: _tabs[index],
+                          autofocus: index == widget.controller.index,
+                          onFocusChange: (focused) {
+                            if (focused && _tabs[index].context != null) {
+                              unawaited(
+                                Scrollable.ensureVisible(
+                                  _tabs[index].context!,
+                                  duration: Duration.zero,
+                                ),
+                              );
+                            }
+                          },
+                          style:
+                              TextButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 6,
+                                ),
+                              ).copyWith(
+                                backgroundColor:
+                                    WidgetStateProperty.resolveWith(
+                                      (states) =>
+                                          states.contains(WidgetState.focused)
+                                          ? colors.primary
+                                          : widget.controller.index == index
+                                          ? colors.surfaceContainerHigh
+                                          : colors.surface,
+                                    ),
+                                foregroundColor:
+                                    WidgetStateProperty.resolveWith(
+                                      (states) =>
+                                          states.contains(WidgetState.focused)
+                                          ? colors.onPrimary
+                                          : colors.onSurface,
+                                    ),
+                              ),
+                          onPressed: () => _select(index),
+                          child: Text(labels[index]),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          Expanded(
+            child: TabBarView(
+              controller: widget.controller,
+              physics: const NeverScrollableScrollPhysics(),
+              children: [
+                _page(
+                  0,
+                  ListView(
+                    padding: const EdgeInsets.all(12),
+                    children: [
+                      Text(
+                        '${widget.state.chapterIndex + 1} / ${book.chapters.length}',
+                        style: Theme.of(context).textTheme.labelLarge,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        widget.state.currentChapter?.title ?? book.title,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        '${strings.bookProgress}: ${(widget.state.bookProgress * 100).round()}%',
+                      ),
+                      const SizedBox(height: 8),
+                      LinearProgressIndicator(
+                        value: widget.state.bookProgress.clamp(0, 1),
+                      ),
+                      const SizedBox(height: 12),
+                      Align(
+                        alignment: AlignmentDirectional.centerStart,
+                        child: OutlinedButton.icon(
+                          key: const ValueKey('tv-player-open-chapters'),
+                          onPressed: () {
+                            _select(1);
+                            _tabs[1].requestFocus();
+                          },
+                          icon: const AppIcon(
+                            AppIconAssets.playerChapters,
+                            size: 20,
+                          ),
+                          label: Text(strings.chapters),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                _page(
+                  1,
+                  _ChaptersPage(
+                    state: widget.state,
+                    service: widget.service,
+                    downloadManager: widget.downloadManager,
+                  ),
+                ),
+                _page(2, _BookmarksPage(book: book, service: widget.service)),
+                _page(
+                  3,
+                  _InformationPage(
+                    book: book,
+                    mockBook: _mockBookForPlayback(book),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+    return Scaffold(
+      key: const ValueKey('television-full-player'),
+      backgroundColor: colors.surfaceContainerLowest,
+      body: SafeArea(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 0, 4, 6),
+              child: Row(
+                children: [
+                  IconButton(
+                    tooltip: strings.home,
+                    onPressed: widget.onClose,
+                    icon: const AppIcon(AppIconAssets.systemBack),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      strings.fullPlayer,
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: strings.cancel,
+                    onPressed: widget.onClose,
+                    icon: const AppIcon(AppIconAssets.systemClose),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final scale =
+                        MediaQuery.textScalerOf(context).scale(16) / 16;
+                    final split =
+                        constraints.maxWidth >=
+                        680 + 100 * (scale - 1).clamp(0, 1);
+                    final identity = _TelevisionPlayerIdentity(
+                      book: book,
+                      downloadManager: widget.downloadManager,
+                    );
+                    if (!split) {
+                      // Narrow accessibility fallback remains scrollable, never scales
+                      // down text or drops artwork/controls to imitate a wider device.
+                      return ListView(
+                        children: [
+                          identity,
+                          const SizedBox(height: 8),
+                          SizedBox(
+                            height: constraints.maxHeight.clamp(240, 460),
+                            child: panel,
+                          ),
+                        ],
+                      );
+                    }
+                    return Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        SizedBox(
+                          width: (constraints.maxWidth * .33).clamp(240, 330),
+                          child: identity,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(child: panel),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ),
+            _PlayerChrome(
+              state: widget.state,
+              service: widget.service,
+              controller: widget.controller,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TelevisionPlayerIdentity extends StatelessWidget {
+  const _TelevisionPlayerIdentity({
+    required this.book,
+    required this.downloadManager,
+  });
+  final AudioPlaybackBook book;
+  final DownloadManager downloadManager;
+
+  @override
+  Widget build(BuildContext context) => _PlayerMetadataScrollView(
+    padding: const EdgeInsets.all(12),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final titleStyle = Theme.of(context).textTheme.titleLarge;
+            final scaler = MediaQuery.textScalerOf(context);
+            final scale = scaler.scale(22) / 22;
+            final titleMeasure = TextPainter(
+              text: TextSpan(text: book.title, style: titleStyle),
+              textDirection: Directionality.of(context),
+              textScaler: scaler,
+            )..layout();
+            // Keep words intact where possible and leave a readable title
+            // column. Move the cover instead of reducing accessibility text.
+            final longestWord = titleMeasure.minIntrinsicWidth;
+            titleMeasure.dispose();
+            final minimumTitleWidth = longestWord > 140 * scale
+                ? longestWord
+                : 140 * scale;
+            final stacked = constraints.maxWidth - 88 - 12 < minimumTitleWidth;
+            final artwork = BookCover(
+              key: const ValueKey('tv-player-artwork'),
+              title: book.title,
+              imageUrl: book.coverUrl,
+              width: 88,
+              height: 126,
+              showProgressPercent: false,
+            );
+            final identity = Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  book.title,
+                  key: const ValueKey('tv-player-title'),
+                  style: titleStyle,
+                ),
+                const SizedBox(height: 8),
+                PlaybackSourceLabel(
+                  key: const ValueKey('tv-full-player-source'),
+                  sourceId: book.sourceId,
+                  sourceName: book.sourceName,
+                  maxLines: null,
+                ),
+              ],
+            );
+            if (stacked) {
+              return Column(
+                key: const ValueKey('tv-player-identity-stacked'),
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: artwork,
+                  ),
+                  const SizedBox(height: 12),
+                  identity,
+                ],
+              );
+            }
+            return Row(
+              key: const ValueKey('tv-player-identity-horizontal'),
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                artwork,
+                const SizedBox(width: 12),
+                Expanded(child: identity),
+              ],
+            );
+          },
+        ),
+        const SizedBox(height: 12),
+        Text(book.author, style: Theme.of(context).textTheme.bodyLarge),
+        if (book.narrator.trim().isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Text(book.narrator, style: Theme.of(context).textTheme.bodyMedium),
+        ],
+        const SizedBox(height: 8),
+        Text(
+          _formatShortDuration(context, book.totalDuration),
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        if (book.isFragment) const BookFragmentBadge(),
+        const SizedBox(height: 8),
+        DownloadActionButton(
+          state: downloadStateForBook(downloadManager, book),
+          progress: downloadProgressForBook(downloadManager, book),
+          size: 40,
+          onPressed: () =>
+              unawaited(runBookCardDownloadAction(downloadManager, book)),
+        ),
+      ],
+    ),
+  );
+}
 
 class _CompactWindowsPlayerHeader extends StatelessWidget {
   const _CompactWindowsPlayerHeader({
@@ -1251,6 +1717,68 @@ class _MetaTextLink extends StatelessWidget {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
 
+    if (TelevisionLayout.isActive(context)) {
+      return TextButton(
+        onPressed: () => _openScopedSearch(context, query, searchKind),
+        child: Text(
+          label,
+          maxLines: wrapLabel ? null : 1,
+          overflow: wrapLabel ? TextOverflow.clip : TextOverflow.ellipsis,
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+      );
+    }
+
+    if (!_usesLargeScreenPlayer(context)) {
+      final bodyStyle = Theme.of(context).textTheme.bodyMedium;
+      return TextButton(
+        key: ValueKey('mobile-player-meta-${searchKind.name}-$query'),
+        style:
+            TextButton.styleFrom(
+              minimumSize: Size.zero,
+              padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              visualDensity: VisualDensity.compact,
+            ).copyWith(
+              foregroundColor: WidgetStateProperty.resolveWith(
+                (states) =>
+                    states.contains(WidgetState.focused) ||
+                        states.contains(WidgetState.pressed)
+                    ? colorScheme.onPrimary
+                    : colorScheme.onSurface,
+              ),
+              backgroundColor: WidgetStateProperty.resolveWith(
+                (states) =>
+                    states.contains(WidgetState.focused) ||
+                        states.contains(WidgetState.pressed)
+                    ? colorScheme.primary
+                    : states.contains(WidgetState.hovered)
+                    ? colorScheme.surfaceContainerHigh
+                    : colorScheme.surface.withValues(alpha: 0),
+              ),
+              // Each state already has a complete readable pair; do not tint its
+              // foreground/background again with the default primary overlay.
+              overlayColor: WidgetStatePropertyAll(
+                colorScheme.surface.withValues(alpha: 0),
+              ),
+            ),
+        onPressed: () => _openScopedSearch(context, query, searchKind),
+        child: Text(
+          label,
+          maxLines: wrapLabel ? null : 1,
+          overflow: wrapLabel ? TextOverflow.clip : TextOverflow.ellipsis,
+          style: TextStyle(
+            fontFamily: bodyStyle?.fontFamily,
+            fontSize: bodyStyle?.fontSize,
+            height: bodyStyle?.height,
+            letterSpacing: bodyStyle?.letterSpacing,
+            fontWeight: FontWeight.w600,
+            decoration: TextDecoration.underline,
+          ),
+        ),
+      );
+    }
+
     return TextButton(
       style: TextButton.styleFrom(
         minimumSize: Size.zero,
@@ -1463,6 +1991,7 @@ class _ChaptersPageState extends State<_ChaptersPage> {
                 child: Stack(
                   children: [
                     ListView.builder(
+                      key: const ValueKey('full-player-chapters-list'),
                       controller: _controller,
                       itemExtent: _chapterExtent,
                       itemCount: book.chapters.length,
@@ -1610,6 +2139,17 @@ class _CurrentChapterButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+
+    if (TelevisionLayout.isActive(context)) {
+      // Inherit both foreground and background from the TV focus state. A
+      // primary-colored label disappears against the focused primary fill.
+      return TextButton.icon(
+        key: const ValueKey('full-player-current-chapter-button'),
+        onPressed: onPressed,
+        icon: const AppIcon(AppIconAssets.playerNextChapter, size: 18),
+        label: Text(context.strings.goToCurrentChapter),
+      );
+    }
 
     return Material(
       color: colorScheme.surface.withValues(alpha: 0.88),
@@ -1845,9 +2385,47 @@ class _BookmarkEditor extends StatefulWidget {
 
 class _BookmarkEditorState extends State<_BookmarkEditor> {
   final _note = TextEditingController();
+  late final FocusNode _noteFocus = FocusNode(
+    debugLabel: 'player-bookmark-note',
+    onKeyEvent: _noteKey,
+  );
+  final _saveFocus = FocusNode(debugLabel: 'player-bookmark-save');
+
+  void _finishTelevisionEditing() {
+    unawaited(SystemChannels.textInput.invokeMethod<void>('TextInput.hide'));
+    _saveFocus.requestFocus();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _saveFocus.context != null) {
+        unawaited(
+          Scrollable.ensureVisible(
+            _saveFocus.context!,
+            duration: Duration.zero,
+          ),
+        );
+      }
+    });
+  }
+
+  KeyEventResult _noteKey(FocusNode node, KeyEvent event) {
+    // When Back has already dismissed the TV keyboard, Down means leave the
+    // editor. While the IME is visible it still owns normal caret navigation.
+    if (event is KeyDownEvent &&
+        event.logicalKey == LogicalKeyboardKey.arrowDown &&
+        TelevisionLayout.isActive(context) &&
+        // Dialog removes its consumed IME padding from the descendant
+        // MediaQuery. The FlutterView still reports the real keyboard state.
+        View.of(context).viewInsets.bottom == 0) {
+      _finishTelevisionEditing();
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
   @override
   void dispose() {
     _note.dispose();
+    _noteFocus.dispose();
+    _saveFocus.dispose();
     super.dispose();
   }
 
@@ -1857,7 +2435,11 @@ class _BookmarkEditorState extends State<_BookmarkEditor> {
       24,
       8,
       24,
-      24 + MediaQuery.viewInsetsOf(context).bottom,
+      // TV's adaptive Dialog already consumes the IME inset.
+      24 +
+          (TelevisionLayout.isActive(context)
+              ? 0
+              : MediaQuery.viewInsetsOf(context).bottom),
     ),
     child: Column(
       mainAxisSize: MainAxisSize.min,
@@ -1877,15 +2459,23 @@ class _BookmarkEditorState extends State<_BookmarkEditor> {
         TextField(
           key: const ValueKey('player-bookmark-note'),
           controller: _note,
+          focusNode: _noteFocus,
           autofocus: true,
           minLines: 2,
-          maxLines: 4,
+          maxLines: TelevisionLayout.isActive(context) ? 2 : 4,
+          textInputAction: TelevisionLayout.isActive(context)
+              ? TextInputAction.done
+              : null,
+          onSubmitted: TelevisionLayout.isActive(context)
+              ? (_) => _finishTelevisionEditing()
+              : null,
           maxLength: 1000,
           decoration: InputDecoration(labelText: context.strings.bookmarkNote),
         ),
         const SizedBox(height: 16),
         FilledButton(
           key: const ValueKey('player-bookmark-save'),
+          focusNode: _saveFocus,
           onPressed: () => Navigator.of(context).pop(_note.text.trim()),
           child: Text(context.strings.saveBookmark),
         ),
@@ -2014,7 +2604,8 @@ class _PlayerChromeState extends State<_PlayerChrome> {
         .toDouble();
 
     if (_usesLargeScreenPlayer(context)) {
-      final compact = MediaQuery.sizeOf(context).width < 900;
+      final television = TelevisionLayout.isActive(context);
+      final compact = television || MediaQuery.sizeOf(context).width < 900;
       final transportControls = <Widget>[
         _ControlIcon(
           tooltip: strings.previousChapter,
@@ -2029,16 +2620,27 @@ class _PlayerChromeState extends State<_PlayerChrome> {
         ),
         const SizedBox(width: 16),
         IconButton.filled(
+          key: television ? const ValueKey('tv-full-player-toggle') : null,
           tooltip: state.isPlaying ? strings.pause : strings.play,
           style:
               IconButton.styleFrom(
-                fixedSize: const Size.square(52),
+                fixedSize: Size.square(television ? 48 : 52),
                 backgroundColor: colorScheme.primary,
                 foregroundColor: colorScheme.onPrimary,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(16),
                 ),
               ).copyWith(
+                side: television
+                    ? WidgetStateProperty.resolveWith(
+                        (states) => BorderSide(
+                          color: states.contains(WidgetState.focused)
+                              ? colorScheme.onPrimary
+                              : colorScheme.primary,
+                          width: states.contains(WidgetState.focused) ? 2 : 1,
+                        ),
+                      )
+                    : null,
                 animationDuration: MediaQuery.disableAnimationsOf(context)
                     ? Duration.zero
                     : null,
@@ -2096,7 +2698,9 @@ class _PlayerChromeState extends State<_PlayerChrome> {
             border: Border(top: BorderSide(color: colorScheme.outlineVariant)),
           ),
           child: Padding(
-            padding: compact
+            padding: television
+                ? const EdgeInsets.fromLTRB(8, 4, 8, 6)
+                : compact
                 ? const EdgeInsets.fromLTRB(16, 8, 16, 8)
                 : const EdgeInsets.fromLTRB(32, 12, 32, 16),
             child: Center(
@@ -2441,23 +3045,51 @@ class _PlayerDotsState extends State<_PlayerDots> {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final strings = context.strings;
+    final labels = [
+      strings.nowPlaying,
+      strings.chapters,
+      strings.bookmarks,
+      strings.information,
+    ];
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         for (var index = 0; index < widget.controller.length; index++)
-          GestureDetector(
+          Semantics(
+            key: ValueKey('mobile-player-dot-$index'),
+            button: true,
+            selected: widget.controller.index == index,
+            label: labels[index],
             onTap: () => widget.controller.animateTo(index),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
-              width: widget.controller.index == index ? 18 : 8,
-              height: 8,
-              margin: const EdgeInsets.symmetric(horizontal: 4),
-              decoration: BoxDecoration(
-                color: widget.controller.index == index
-                    ? colorScheme.primary
-                    : colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(999),
+            child: ExcludeSemantics(
+              child: Tooltip(
+                message: labels[index],
+                child: SizedBox.square(
+                  dimension: 48,
+                  child: InkResponse(
+                    onTap: () => widget.controller.animateTo(index),
+                    containedInkWell: true,
+                    radius: 24,
+                    child: Center(
+                      child: AnimatedContainer(
+                        key: ValueKey('mobile-player-dot-visual-$index'),
+                        duration: MediaQuery.disableAnimationsOf(context)
+                            ? Duration.zero
+                            : const Duration(milliseconds: 180),
+                        width: widget.controller.index == index ? 18 : 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          color: widget.controller.index == index
+                              ? colorScheme.primary
+                              : colorScheme.surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               ),
             ),
           ),

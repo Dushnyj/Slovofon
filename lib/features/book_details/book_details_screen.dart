@@ -12,6 +12,8 @@ import '../../ui/components/app_bar_text.dart';
 import '../../ui/adaptive/desktop_layout.dart';
 import '../../ui/adaptive/desktop_book_details_layout.dart';
 import '../../ui/adaptive/slovofon_shell.dart';
+import '../../ui/adaptive/television_layout.dart';
+import '../../ui/adaptive/television_shell.dart';
 import '../../ui/components/app_buttons.dart';
 import '../../ui/components/book_cover.dart';
 import '../../ui/components/chapter_tile.dart';
@@ -30,6 +32,7 @@ class BookDetailsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final strings = context.strings;
     final desktop = DesktopLayout.isActive(context);
+    final television = TelevisionLayout.isActive(context);
     final colorScheme = Theme.of(context).colorScheme;
     final downloadManager = ref.watch(downloadManagerProvider);
     final playbackBook = mockAudioPlaybackBook(book);
@@ -42,7 +45,7 @@ class BookDetailsScreen extends ConsumerWidget {
       spacing: 8,
       runSpacing: 8,
       children: [
-        if (desktop)
+        if (desktop || television)
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
@@ -150,7 +153,7 @@ class BookDetailsScreen extends ConsumerWidget {
         ],
       ),
     ];
-    final content = desktop
+    final content = desktop || television
         ? DesktopBookDetailsLayout(
             key: const ValueKey('desktop-legacy-details-content'),
             summary: DesktopBookSummary(
@@ -214,6 +217,13 @@ class BookDetailsScreen extends ConsumerWidget {
               ...bodyChildren,
             ],
           );
+    if (television) {
+      return TelevisionStandaloneShell(
+        title: strings.bookDetails,
+        selectedIndex: 2,
+        child: content,
+      );
+    }
     final screen = Scaffold(
       appBar: AppBar(
         toolbarHeight: appBarToolbarHeight(context),

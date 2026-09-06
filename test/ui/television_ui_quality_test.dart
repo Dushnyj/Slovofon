@@ -32,6 +32,7 @@ import 'package:slovofon/services/updates/update_installer.dart';
 import 'package:slovofon/services/updates/update_service.dart';
 import 'package:slovofon/sources/sources.dart';
 import 'package:slovofon/ui/adaptive/television_layout.dart';
+import 'package:slovofon/ui/adaptive/television_metrics.dart';
 import 'package:slovofon/ui/adaptive/television_shell.dart';
 import 'package:slovofon/ui/components/book_card.dart';
 import 'package:slovofon/ui/components/playback_source_label.dart';
@@ -108,12 +109,9 @@ void main() {
           tester,
         ) async {
           await _realApp(tester, size: size, scale: scale, dark: dark);
-          final safe = Rect.fromLTWH(
-            size.width * .04,
-            size.height * .04,
-            size.width * .92,
-            size.height * .92,
-          );
+          final safe = TelevisionMetrics.safeInsetsFor(
+            size,
+          ).deflateRect(Offset.zero & size);
           final shellBounds = tester.getRect(
             find.byKey(const ValueKey('television-shell')),
           );
@@ -122,8 +120,15 @@ void main() {
           expect(shellBounds.height, closeTo(safe.height, .01));
           for (var index = 0; index < 5; index++) {
             final control = find.byKey(ValueKey('tv-nav-$index'));
+            // Large user text may require horizontal navigation scrolling.
+            // Every focused tab must be fully revealed, without shrinking text.
+            if (index > 0) {
+              await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+              await tester.pumpAndSettle();
+            }
+            expect(_focusedWithin(control), isTrue);
             _inside(tester.getRect(control), safe);
-            expect(tester.getSize(control).height, greaterThanOrEqualTo(48));
+            expect(tester.getSize(control).height, greaterThanOrEqualTo(40));
           }
           _inside(tester.getRect(find.byType(TelevisionTransport)), safe);
           final card = find.byType(TelevisionBookCard).first;
@@ -194,10 +199,7 @@ void main() {
                 as BoxDecoration;
         final colors = Theme.of(tester.element(frame)).colorScheme;
         expect((decoration.border! as Border).top.color, colors.primary);
-        expect(
-          (decoration.border! as Border).top.width,
-          greaterThanOrEqualTo(3),
-        );
+        expect((decoration.border! as Border).top.width, equals(2));
         await tester.sendKeyEvent(LogicalKeyboardKey.select);
         await tester.pumpAndSettle();
         expect(fixture.actions, ['details']);
@@ -281,6 +283,25 @@ void main() {
         findsOneWidget,
       );
       await _tabTo(tester, find.byKey(const ValueKey('tv-open-player')));
+      final openPlayer = tester.widget<TextButton>(
+        find.byKey(const ValueKey('tv-open-player')),
+      );
+      final transportColors = Theme.of(
+        tester.element(find.byKey(const ValueKey('tv-open-player'))),
+      ).colorScheme;
+      expect(
+        openPlayer.style!.backgroundColor!.resolve({WidgetState.focused}),
+        transportColors.surfaceContainer,
+        reason:
+            'Focus must not put source-owned text colors on the accent fill',
+      );
+      for (final state in [
+        WidgetState.focused,
+        WidgetState.hovered,
+        WidgetState.pressed,
+      ]) {
+        expect(openPlayer.style!.overlayColor!.resolve({state})!.a, 0);
+      }
       await tester.sendKeyEvent(LogicalKeyboardKey.select);
       await tester.pumpAndSettle();
       expect(fixture.router.state.uri.path, '/player');

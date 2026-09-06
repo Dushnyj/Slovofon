@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 
 /// Windows presentation stays desktop even on a small, high-DPI work area.
 /// Width controls the desktop arrangement, not the choice of platform shell.
+/// All dimensions below are Flutter logical pixels. Windows PerMonitorV2 and
+/// the engine already apply display DPI; multiplying by devicePixelRatio here
+/// would double-scale the interface on a 4K monitor at 200%.
 abstract final class DesktopLayout {
   static bool isActive(BuildContext context) =>
       Theme.of(context).platform == TargetPlatform.windows;

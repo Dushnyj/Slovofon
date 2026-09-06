@@ -32,6 +32,28 @@ class ResponsiveTileGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (TelevisionLayout.isActive(context)) {
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          // TV density is expressed in logical pixels. Full HD at DPR 2 and
+          // 4K at DPR 4 have the same number and size of readable columns.
+          final textScale = MediaQuery.textScalerOf(context).scale(14) / 14;
+          final minimum =
+              math.max(400.0, minTileWidth) * math.max(1.0, textScale);
+          final width = constraints.maxWidth;
+          final columns = math.max(
+            1,
+            math.min(
+              math.max(1, maxColumns),
+              ((width + spacing) / (minimum + spacing)).floor(),
+            ),
+          );
+          // Use the available column width, not the number of books: one
+          // result keeps its place in a shelf instead of becoming a banner.
+          return _tiles((width - spacing * (columns - 1)) / columns);
+        },
+      );
+    }
     if (!isDesktopTileLayout(context)) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -82,7 +104,16 @@ class ResponsiveTileGrid extends StatelessWidget {
           );
         }
 
-        final calculatedColumns = ((width + spacing) / (minTileWidth + spacing))
+        // Wide touch layouts need space for larger text just like the TV
+        // shelf, without changing the user's actual TextScaler. Bound the
+        // preferred minimum to the viewport so even very large text can
+        // fall back to one full-width column instead of overflowing it.
+        final textScale = MediaQuery.textScalerOf(context).scale(14) / 14;
+        final minimum = math.min(
+          width,
+          minTileWidth * math.max(1.0, textScale),
+        );
+        final calculatedColumns = ((width + spacing) / (minimum + spacing))
             .floor();
         final columns = math.max(1, math.min(maxColumns, calculatedColumns));
         final tileWidth = columns == 1

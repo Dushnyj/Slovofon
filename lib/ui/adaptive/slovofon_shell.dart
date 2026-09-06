@@ -4,7 +4,6 @@ import 'package:go_router/go_router.dart';
 
 import '../../app/localization/app_strings.dart';
 import '../../app/app_version.dart';
-import '../../app/theme/app_color_tokens.dart';
 import 'desktop_layout.dart';
 import 'television_layout.dart';
 import 'television_shell.dart';
@@ -192,7 +191,10 @@ class _DesktopShellLayout extends StatelessWidget {
                     color: colorScheme.outlineVariant.withValues(alpha: 0.55),
                   ),
                   Expanded(
-                    child: ColoredBox(
+                    // The wide touch shell can host routes without their own
+                    // Scaffold. Paint ListTile/InkWell feedback above this
+                    // surface, not on the ancestor Material behind it.
+                    child: Material(
                       color: polished
                           ? colorScheme.surface
                           : colorScheme.surfaceContainerLowest,
@@ -429,8 +431,12 @@ class _WindowsNavigationSidebar extends StatelessWidget {
                                     const SizedBox(width: 10),
                                     Expanded(
                                       child: FittedBox(
+                                        key: const ValueKey(
+                                          'desktop-navigation-brand',
+                                        ),
                                         fit: BoxFit.scaleDown,
-                                        alignment: Alignment.centerLeft,
+                                        alignment:
+                                            AlignmentDirectional.centerStart,
                                         child: Text(
                                           strings.appTitle,
                                           maxLines: 1,
@@ -620,21 +626,43 @@ class _DesktopNavigationSidebar extends StatelessWidget {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final textScale = MediaQuery.textScalerOf(context).scale(14) / 14;
+    final brandStyle = DefaultTextStyle.of(context).style.merge(
+      Theme.of(context).textTheme.titleLarge?.copyWith(
+        color: colorScheme.onSurface,
+        fontWeight: FontWeight.w800,
+        height: 1.05,
+      ),
+    );
+    final brandPainter = TextPainter(
+      text: TextSpan(text: context.strings.appTitle, style: brandStyle),
+      textScaler: MediaQuery.textScalerOf(context),
+      textDirection: Directionality.of(context),
+      locale: Localizations.localeOf(context),
+      maxLines: 1,
+    )..layout();
+    final brandWidth = brandPainter.width.ceilToDouble();
+    brandPainter.dispose();
+    final preferredWidth = (236 + (textScale - 1).clamp(0, 2) * 60)
+        .clamp(236, 356)
+        .toDouble();
+    // A tablet keeps the user's real font size. Move the icon above the word
+    // before widening the sidebar, and never split the product name mid-word.
+    final minimumBrandWidth = brandWidth + 36;
 
     return Material(
       key: const ValueKey('desktop-navigation-sidebar'),
       color: colorScheme.surface,
       child: SizedBox(
-        width: (236 + (textScale - 1).clamp(0, 2) * 60)
-            .clamp(236, 356)
-            .toDouble(),
+        width: preferredWidth < minimumBrandWidth
+            ? minimumBrandWidth
+            : preferredWidth,
         child: SingleChildScrollView(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _DesktopBrandHeader(),
+                _DesktopBrandHeader(style: brandStyle, textWidth: brandWidth),
                 const SizedBox(height: 28),
                 for (var index = 0; index < destinations.length; index++) ...[
                   _DesktopNavigationItem(
@@ -656,38 +684,53 @@ class _DesktopNavigationSidebar extends StatelessWidget {
 }
 
 class _DesktopBrandHeader extends StatelessWidget {
+  const _DesktopBrandHeader({required this.style, required this.textWidth});
+
+  final TextStyle style;
+  final double textWidth;
+
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final icon = DecoratedBox(
+      decoration: BoxDecoration(
+        color: colorScheme.primaryContainer,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(9),
+        child: AppIcon(
+          AppIconAssets.playerAudio,
+          size: 24,
+          color: colorScheme.onPrimaryContainer,
+        ),
+      ),
+    );
+    final title = Text(
+      context.strings.appTitle,
+      key: const ValueKey('wide-navigation-brand'),
+      style: style,
+      maxLines: 1,
+      softWrap: false,
+    );
 
-    return Row(
-      children: [
-        DecoratedBox(
-          decoration: BoxDecoration(
-            color: colorScheme.primaryContainer,
-            borderRadius: BorderRadius.circular(14),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(9),
-            child: AppIcon(
-              AppIconAssets.playerAudio,
-              size: 24,
-              color: colorScheme.onPrimaryContainer,
-            ),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Text(
-            context.strings.appTitle,
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-              color: colorScheme.onSurface,
-              fontWeight: FontWeight.w800,
-              height: 1.05,
-            ),
-          ),
-        ),
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (textWidth + 42 + 12 > constraints.maxWidth) {
+          return Column(
+            key: const ValueKey('wide-navigation-brand-stacked'),
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [icon, const SizedBox(height: 10), title],
+          );
+        }
+        return Row(
+          children: [
+            icon,
+            const SizedBox(width: 12),
+            Expanded(child: title),
+          ],
+        );
+      },
     );
   }
 }
@@ -710,10 +753,9 @@ class _DesktopNavigationItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final tokens = Theme.of(context).extension<AppColorTokens>()!;
     final strings = context.strings;
     final foreground = selected
-        ? colorScheme.primary
+        ? colorScheme.onSecondaryContainer
         : colorScheme.onSurfaceVariant;
 
     return Semantics(
@@ -732,7 +774,9 @@ class _DesktopNavigationItem extends StatelessWidget {
             constraints: const BoxConstraints(minHeight: 48),
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
-              color: selected ? tokens.selected : Colors.transparent,
+              color: selected
+                  ? colorScheme.secondaryContainer
+                  : Colors.transparent,
               borderRadius: BorderRadius.circular(14),
             ),
             child: Row(
@@ -819,7 +863,7 @@ class _MobileNavigationBar extends StatelessWidget {
 
     final labelStyle = Theme.of(
       context,
-    ).textTheme.labelMedium!.copyWith(height: 1);
+    ).textTheme.labelMedium!.copyWith(height: 1, fontWeight: FontWeight.w700);
     final textScaler = MediaQuery.textScalerOf(context);
 
     return Material(
@@ -881,7 +925,10 @@ class _MobileNavigationBar extends StatelessWidget {
                         destinations[selectedIndex].label,
                         key: const ValueKey('mobile-navigation-active-label'),
                         textAlign: TextAlign.center,
-                        style: labelStyle.copyWith(color: colorScheme.primary),
+                        style: labelStyle.copyWith(
+                          color: colorScheme.onSurface,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
                   ),
@@ -914,10 +961,9 @@ class _MobileNavigationItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final tokens = Theme.of(context).extension<AppColorTokens>()!;
     final strings = context.strings;
     final foreground = selected
-        ? colorScheme.primary
+        ? colorScheme.onSecondaryContainer
         : colorScheme.onSurfaceVariant;
 
     return Semantics(
@@ -944,7 +990,9 @@ class _MobileNavigationItem extends StatelessWidget {
                       width: selected ? 56 : 40,
                       height: 32,
                       decoration: BoxDecoration(
-                        color: selected ? tokens.selected : Colors.transparent,
+                        color: selected
+                            ? colorScheme.secondaryContainer
+                            : Colors.transparent,
                         borderRadius: BorderRadius.circular(999),
                       ),
                       child: Center(
@@ -963,7 +1011,10 @@ class _MobileNavigationItem extends StatelessWidget {
                     destination.label,
                     maxLines: 1,
                     style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                      color: foreground,
+                      color: selected
+                          ? colorScheme.onSurface
+                          : colorScheme.onSurfaceVariant,
+                      fontWeight: selected ? FontWeight.w700 : null,
                       height: 1.0,
                     ),
                   ),

@@ -62,9 +62,24 @@ class AppColorTokens extends ThemeExtension<AppColorTokens> {
   static const Color defaultAccent = Color(0xFF3969D8);
 
   static Color readableOn(Color background) {
-    return background.computeLuminance() > 0.48
-        ? const Color(0xFF111418)
-        : const Color(0xFFF8FAFC);
+    const dark = Color(0xFF111418);
+    const light = Color(0xFFF8FAFC);
+    final foreground =
+        contrastRatio(background, dark) >= contrastRatio(background, light)
+        ? dark
+        : light;
+    if (contrastRatio(background, foreground) >= 4.5) {
+      return foreground;
+    }
+
+    // Around middle luminance neither of the softened neutral colors reaches
+    // normal-text contrast. Pure black/white provides a readable fallback for
+    // arbitrary custom accents without changing their actual background color.
+    const black = Color(0xFF000000);
+    const white = Color(0xFFFFFFFF);
+    return contrastRatio(background, black) >= contrastRatio(background, white)
+        ? black
+        : white;
   }
 
   static double contrastRatio(Color first, Color second) {

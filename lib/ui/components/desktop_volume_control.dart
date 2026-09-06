@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../../app/localization/app_strings.dart';
 import '../../app/theme/app_color_tokens.dart';
+import '../adaptive/television_layout.dart';
 import '../icons/app_icons.dart';
 
 class DesktopVolumeControl extends StatefulWidget {
@@ -48,6 +49,7 @@ class _DesktopVolumeControlState extends State<DesktopVolumeControl> {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final desktop = Theme.of(context).platform == TargetPlatform.windows;
+    final television = TelevisionLayout.isActive(context);
     final iconColor = desktop ? colors.onSurfaceVariant : colors.primary;
     final shortcuts = <ShortcutActivator, VoidCallback>{
       const SingleActivator(LogicalKeyboardKey.escape): _close,
@@ -84,36 +86,39 @@ class _DesktopVolumeControlState extends State<DesktopVolumeControl> {
         builder: (context, controller, child) => IconButton(
           tooltip: context.strings.volume,
           focusNode: _anchorFocus,
-          style:
-              IconButton.styleFrom(
-                minimumSize: Size.square(desktop ? 40 : 48),
-                fixedSize: Size.square(desktop ? 40 : 48),
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                padding: EdgeInsets.zero,
-                foregroundColor: iconColor,
-                hoverColor: colors.surfaceContainerHighest,
-                focusColor: colors.primary.withValues(alpha: 0.12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ).copyWith(
-                animationDuration: MediaQuery.disableAnimationsOf(context)
-                    ? Duration.zero
-                    : null,
-                side: WidgetStateProperty.resolveWith(
-                  (states) => BorderSide(
-                    color: states.contains(WidgetState.focused)
-                        ? colors.primary
-                        : colors.surfaceContainerLow,
-                    width: 1.5,
+          // TV focus changes both the fill and foreground together. An
+          // explicit primary-colored SVG would disappear on the primary fill.
+          style: television
+              ? null
+              : IconButton.styleFrom(
+                  minimumSize: Size.square(desktop ? 40 : 48),
+                  fixedSize: Size.square(desktop ? 40 : 48),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  padding: EdgeInsets.zero,
+                  foregroundColor: iconColor,
+                  hoverColor: colors.surfaceContainerHighest,
+                  focusColor: colors.primary.withValues(alpha: 0.12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ).copyWith(
+                  animationDuration: MediaQuery.disableAnimationsOf(context)
+                      ? Duration.zero
+                      : null,
+                  side: WidgetStateProperty.resolveWith(
+                    (states) => BorderSide(
+                      color: states.contains(WidgetState.focused)
+                          ? colors.primary
+                          : colors.surfaceContainerLow,
+                      width: 1.5,
+                    ),
                   ),
                 ),
-              ),
           icon: AppIcon(
             widget.volume > 0
                 ? AppIconAssets.playerVolume
                 : AppIconAssets.playerVolumeOff,
-            color: iconColor,
+            color: television ? null : iconColor,
             size: 21,
           ),
           onPressed: () => controller.isOpen ? _close() : controller.open(),
@@ -140,9 +145,10 @@ class _DesktopVolumePopover extends StatelessWidget {
     final tokens = Theme.of(context).extension<AppColorTokens>()!;
     final strings = context.strings;
     final desktop = (Theme.of(context).platform == TargetPlatform.windows);
-    final muteSize = desktop ? 40.0 : 48.0;
+    final television = TelevisionLayout.isActive(context);
+    final muteSize = desktop || television ? 40.0 : 48.0;
     final percentageStyle = Theme.of(context).textTheme.labelSmall?.copyWith(
-      color: desktop
+      color: desktop || television
           ? colorScheme.onSurfaceVariant
           : tokens.onPlayerSurface.withValues(alpha: 0.74),
       fontWeight: FontWeight.w700,
@@ -177,18 +183,22 @@ class _DesktopVolumePopover extends StatelessWidget {
                 key: const ValueKey('desktop-volume-mute-button'),
                 tooltip: volume > 0 ? strings.mute : strings.volume,
                 onPressed: onToggleMute,
-                style: IconButton.styleFrom(
-                  minimumSize: Size.square(muteSize),
-                  fixedSize: Size.square(muteSize),
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  padding: EdgeInsets.zero,
-                  foregroundColor: colorScheme.primary,
-                ),
+                style: television
+                    ? null
+                    : IconButton.styleFrom(
+                        minimumSize: Size.square(muteSize),
+                        fixedSize: Size.square(muteSize),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        padding: EdgeInsets.zero,
+                        foregroundColor: colorScheme.primary,
+                      ),
                 icon: AppIcon(
                   volume > 0
                       ? AppIconAssets.playerVolume
                       : AppIconAssets.playerVolumeOff,
-                  color: (Theme.of(context).platform == TargetPlatform.windows)
+                  color: television
+                      ? null
+                      : (Theme.of(context).platform == TargetPlatform.windows)
                       ? colorScheme.onSurfaceVariant
                       : colorScheme.primary,
                   size: 21,

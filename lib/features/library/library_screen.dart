@@ -22,6 +22,7 @@ import '../../services/sources/source_catalog_provider.dart';
 import '../../services/sources/source_catalog_service.dart';
 import '../../ui/components/app_bar_text.dart';
 import '../../ui/adaptive/desktop_layout.dart';
+import '../../ui/adaptive/television_layout.dart';
 import '../../ui/components/book_card.dart';
 import '../../ui/components/filter_picker_sheet.dart';
 import '../../ui/components/responsive_tile_grid.dart';
@@ -48,6 +49,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   Widget build(BuildContext context) {
     final strings = context.strings;
     final desktop = DesktopLayout.isActive(context);
+    final television = TelevisionLayout.isActive(context);
     final libraryStore = ref.watch(libraryStoreProvider);
     final bookmarkStore = ref.watch(bookmarkStoreProvider);
     final playbackController = ref.watch(playbackControllerProvider);
@@ -114,7 +116,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
             : entries.length;
         final emptyCopy = _emptyCopy(strings, shelf);
         return Scaffold(
-          appBar: desktop
+          appBar: desktop || television
               ? null
               : AppBar(
                   toolbarHeight: appBarToolbarHeight(context),
@@ -126,6 +128,8 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
           body: ListView(
             padding: desktop
                 ? DesktopLayout.pagePadding(context)
+                : television
+                ? const EdgeInsets.fromLTRB(12, 4, 12, 16)
                 : const EdgeInsets.fromLTRB(16, 8, 16, 24),
             children: [
               if (desktop) ...[
@@ -159,7 +163,22 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
                     ),
                   ),
                 ),
-              ] else
+              ] else if (television)
+                Wrap(
+                  key: const ValueKey('tv-library-shelves'),
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (var index = 0; index < shelves.length; index++)
+                      ChoiceChip(
+                        label: Text(shelves[index]),
+                        selected: index == _selectedShelf,
+                        onSelected: (_) =>
+                            setState(() => _selectedShelf = index),
+                      ),
+                  ],
+                )
+              else
                 Align(
                   alignment: Alignment.centerLeft,
                   child: InputChip(
@@ -169,13 +188,24 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
                     onPressed: () => _pickShelf(context, shelves),
                   ),
                 ),
-              const SizedBox(height: 16),
-              SectionHeader(
-                title: selected,
-                subtitle: desktop
-                    ? null
-                    : (isBookmarks ? '$count' : strings.booksCount(count)),
-              ),
+              SizedBox(height: television ? 8 : 16),
+              if (television)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(
+                    isBookmarks
+                        ? '${strings.bookmarks}: $count'
+                        : strings.booksCount(count),
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                )
+              else
+                SectionHeader(
+                  title: selected,
+                  subtitle: desktop
+                      ? null
+                      : (isBookmarks ? '$count' : strings.booksCount(count)),
+                ),
               if (failed) ...[
                 StatePlaceholder.error(title: strings.libraryLoadError),
                 Center(

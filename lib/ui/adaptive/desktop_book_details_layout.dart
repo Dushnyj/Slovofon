@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'desktop_layout.dart';
+import 'television_layout.dart';
 
 /// A single lazy scroll surface shared by both Windows book-details routes.
 /// The split uses the space left by the shell, not the physical screen width.
@@ -30,18 +31,26 @@ class _DesktopBookDetailsLayoutState extends State<DesktopBookDetailsLayout> {
 
   @override
   Widget build(BuildContext context) {
-    final padding = DesktopLayout.pagePadding(context);
+    final television = TelevisionLayout.isActive(context);
+    final padding = television
+        ? const EdgeInsets.fromLTRB(4, 8, 4, 12)
+        : DesktopLayout.pagePadding(context);
     final scale = MediaQuery.textScalerOf(context).scale(14) / 14;
     final extraScale = (scale - 1).clamp(0.0, 2.0);
-    final summaryMinimum = 300 + 60 * extraScale;
-    final contentMinimum = 460 + 140 * extraScale;
-    const gap = 32.0;
+    final summaryMinimum = television
+        ? 280 + 60 * extraScale
+        : 300 + 60 * extraScale;
+    final contentMinimum = television
+        ? 330 + 80 * extraScale
+        : 460 + 140 * extraScale;
+    final gap = television ? 16.0 : 32.0;
+    final direction = Directionality.of(context);
 
     return LayoutBuilder(
       builder: (context, constraints) {
         final available = constraints.maxWidth - padding.horizontal;
         final split = available >= summaryMinimum + gap + contentMinimum;
-        final summaryWidth = (available * 0.28).clamp(
+        final summaryWidth = (available * (television ? 0.37 : 0.28)).clamp(
           summaryMinimum,
           420 + 10 * extraScale,
         );
@@ -58,6 +67,17 @@ class _DesktopBookDetailsLayoutState extends State<DesktopBookDetailsLayout> {
           key: const ValueKey('desktop-details-main-column'),
           slivers: widget.contentSlivers,
         );
+        final summaryColumn = SliverConstrainedCrossAxis(
+          maxExtent: summaryWidth,
+          sliver: summary,
+        );
+        final contentColumn = SliverCrossAxisExpanded(
+          flex: 1,
+          sliver: SliverPadding(
+            padding: EdgeInsetsDirectional.only(start: gap).resolve(direction),
+            sliver: content,
+          ),
+        );
         return ScrollConfiguration(
           behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
           child: Scrollbar(
@@ -71,19 +91,11 @@ class _DesktopBookDetailsLayoutState extends State<DesktopBookDetailsLayout> {
                   sliver: split
                       ? SliverCrossAxisGroup(
                           key: const ValueKey('desktop-details-split'),
-                          slivers: [
-                            SliverConstrainedCrossAxis(
-                              maxExtent: summaryWidth,
-                              sliver: summary,
-                            ),
-                            SliverCrossAxisExpanded(
-                              flex: 1,
-                              sliver: SliverPadding(
-                                padding: const EdgeInsets.only(left: gap),
-                                sliver: content,
-                              ),
-                            ),
-                          ],
+                          // SliverCrossAxisGroup lays out physical left-to-right;
+                          // put the summary at the reading start in either locale.
+                          slivers: direction == TextDirection.rtl
+                              ? [contentColumn, summaryColumn]
+                              : [summaryColumn, contentColumn],
                         )
                       : SliverMainAxisGroup(
                           key: const ValueKey('desktop-details-stacked'),
@@ -142,6 +154,9 @@ class DesktopBookSummary extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     final scale = MediaQuery.textScalerOf(context).scale(14) / 14;
     final viewportHeight = _DetailsViewport.heightOf(context);
+    if (TelevisionLayout.isActive(context)) {
+      return _televisionSummary(context, viewportHeight);
+    }
     final shortViewport = viewportHeight < 560;
     final inset = shortViewport ? 16.0 : 24.0;
     return DecoratedBox(
@@ -207,6 +222,73 @@ class DesktopBookSummary extends StatelessWidget {
                 information,
                 const SizedBox(height: 20),
                 Center(child: artwork),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _televisionSummary(BuildContext context, double viewportHeight) {
+    final colors = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      key: const ValueKey('television-book-summary'),
+      decoration: BoxDecoration(
+        color: colors.surfaceContainerLow,
+        border: Border.all(color: colors.outlineVariant),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final coverWidth = (viewportHeight * 0.27).clamp(72.0, 112.0);
+            final scale = MediaQuery.textScalerOf(context).scale(16) / 16;
+            final horizontal =
+                constraints.maxWidth >= coverWidth + 12 + 140 * scale;
+            final identity = Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (source != null) ...[source!, const SizedBox(height: 6)],
+                metadata,
+              ],
+            );
+            final artwork = SizedBox(
+              key: const ValueKey('television-details-artwork'),
+              width: coverWidth,
+              child: coverBuilder(coverWidth),
+            );
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (horizontal)
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      artwork,
+                      const SizedBox(width: 12),
+                      Expanded(child: identity),
+                    ],
+                  )
+                else ...[
+                  Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: artwork,
+                  ),
+                  const SizedBox(height: 10),
+                  identity,
+                ],
+                const SizedBox(height: 12),
+                actions,
+                if (details != null) ...[
+                  const SizedBox(height: 8),
+                  Divider(color: colors.outlineVariant),
+                  const SizedBox(height: 8),
+                  details!,
+                ],
               ],
             );
           },

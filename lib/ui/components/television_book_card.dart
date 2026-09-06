@@ -11,7 +11,7 @@ import 'book_fragment_badge.dart';
 import 'playback_source_label.dart';
 
 /// Shares callbacks and models with phone/desktop cards, but uses a readable
-/// TV row and explicit remote actions instead of hover, swipe or long-press.
+/// TV shelf tile and explicit remote actions instead of hover or long-press.
 class TelevisionBookCard extends StatefulWidget {
   const TelevisionBookCard({required this.card, super.key});
   final BookCard card;
@@ -69,18 +69,18 @@ class _TelevisionBookCardState extends State<TelevisionBookCard> {
                 focusNode: _detailsFocus,
                 onTap: card.onTap,
                 child: Padding(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(12),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       BookCover(
                         title: book.title,
                         imageUrl: book.coverUrl,
-                        width: 78,
-                        height: 112,
+                        width: 64,
+                        height: 96,
                         showProgressPercent: false,
                       ),
-                      const SizedBox(width: 20),
+                      const SizedBox(width: 12),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -89,27 +89,32 @@ class _TelevisionBookCardState extends State<TelevisionBookCard> {
                               book.title,
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.titleLarge?.copyWith(
+                              style: theme.textTheme.titleMedium?.copyWith(
                                 fontWeight: FontWeight.w700,
+                                height: 1.2,
                               ),
                             ),
                             const SizedBox(height: 6),
                             if (book.isFragment) const BookFragmentBadge(),
                             Text(
                               book.author,
-                              style: theme.textTheme.bodyMedium,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodySmall,
                             ),
                             if (book.narrator.isNotEmpty)
                               Text(
                                 book.narrator,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
                                 style: theme.textTheme.bodySmall?.copyWith(
                                   color: theme.colorScheme.onSurfaceVariant,
                                 ),
                               ),
                             const SizedBox(height: 8),
                             Wrap(
-                              spacing: 16,
-                              runSpacing: 6,
+                              spacing: 10,
+                              runSpacing: 4,
                               children: [
                                 if (showSource)
                                   PlaybackSourceLabel(
@@ -149,10 +154,10 @@ class _TelevisionBookCardState extends State<TelevisionBookCard> {
                 return KeyEventResult.ignored;
               },
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
                 child: Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
+                  spacing: 6,
+                  runSpacing: 6,
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     if (card.onPlay != null)
@@ -197,14 +202,17 @@ class _TelevisionBookCardState extends State<TelevisionBookCard> {
                         onPressed: card.onDownloadPressed,
                         progress: card.downloadProgress,
                         isResolving: card.isDownloadLoading,
-                        size: 48,
+                        size: 40,
                       ),
                   ],
                 ),
               ),
             ),
             if (book.progress > 0)
-              LinearProgressIndicator(value: book.progress.clamp(0, 1)),
+              LinearProgressIndicator(
+                value: book.progress.clamp(0, 1),
+                minHeight: 3,
+              ),
           ],
         ),
       ),

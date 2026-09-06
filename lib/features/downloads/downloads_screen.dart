@@ -18,6 +18,7 @@ import '../../services/sources/source_book_cache.dart';
 import '../../services/sources/source_catalog_provider.dart';
 import '../../sources/sources.dart';
 import '../../ui/adaptive/desktop_layout.dart';
+import '../../ui/adaptive/television_layout.dart';
 import '../../ui/components/app_buttons.dart';
 import '../../ui/components/book_cover.dart';
 import '../../ui/components/book_fragment_badge.dart';
@@ -37,6 +38,7 @@ class DownloadsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final strings = context.strings;
     final desktop = DesktopLayout.isActive(context);
+    final television = TelevisionLayout.isActive(context);
     final manager = ref.watch(downloadManagerProvider);
     final playbackController = ref.watch(playbackControllerProvider);
     final progressSnapshots =
@@ -66,6 +68,8 @@ class DownloadsScreen extends ConsumerWidget {
           child: ListView(
             padding: desktop
                 ? DesktopLayout.pagePadding(context)
+                : television
+                ? const EdgeInsets.fromLTRB(12, 4, 12, 16)
                 : const EdgeInsets.fromLTRB(16, 18, 16, 24),
             children: [
               if (desktop)
@@ -86,7 +90,7 @@ class DownloadsScreen extends ConsumerWidget {
                               ),
                         ),
                 )
-              else
+              else if (!television)
                 SectionHeader(
                   title: strings.downloads,
                   subtitle: strings.downloadsQueueSubtitle,
@@ -256,10 +260,11 @@ class _DownloadSection extends StatelessWidget {
         ),
     ];
     final desktop = DesktopLayout.isActive(context);
+    final television = TelevisionLayout.isActive(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const SizedBox(height: 16),
+        SizedBox(height: television ? 4 : 16),
         SectionHeader(
           title: title,
           subtitle: desktop ? context.strings.booksCount(groups.length) : null,
@@ -318,6 +323,29 @@ class _DownloadBookTile extends ConsumerWidget {
     final narrator = _shortPeopleLabel(playbackBook.narrator);
     final series = _trimOrNull(playbackBook.seriesTitle);
     final rating = _ratingLabel(playbackBook.ratingValue);
+
+    if (TelevisionLayout.isActive(context)) {
+      return _TelevisionDownloadBookTile(
+        group: group,
+        manager: manager,
+        playbackState: playbackState,
+        isCurrentBook: isCurrentBook,
+        onPlay: () => unawaited(_playBookFromDownloads(context, ref, group)),
+        onInfo: () => _openSourceBook(context, group.playbackBook),
+        chapters: [
+          for (final chapter in playbackBook.chapters)
+            _DownloadChapterRow(
+              chapter: chapter,
+              task: group.taskForChapter(chapter),
+              manager: manager,
+              playbackBook: playbackBook,
+              onPlay: () => unawaited(
+                _playBookFromDownloads(context, ref, group, chapter: chapter),
+              ),
+            ),
+        ],
+      );
+    }
 
     if (DesktopLayout.isActive(context)) {
       return _DesktopDownloadBookTile(
@@ -493,6 +521,159 @@ class _DownloadBookTile extends ConsumerWidget {
               },
             ),
         ],
+      ),
+    );
+  }
+}
+
+class _TelevisionDownloadBookTile extends StatelessWidget {
+  const _TelevisionDownloadBookTile({
+    required this.group,
+    required this.manager,
+    required this.playbackState,
+    required this.isCurrentBook,
+    required this.onPlay,
+    required this.onInfo,
+    required this.chapters,
+  });
+
+  final _DownloadBookGroup group;
+  final DownloadManager manager;
+  final AudioPlaybackState playbackState;
+  final bool isCurrentBook;
+  final VoidCallback onPlay;
+  final VoidCallback onInfo;
+  final List<Widget> chapters;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    final theme = Theme.of(context);
+    final book = group.playbackBook;
+    final key = '${book.sourceId}:${book.versionId}';
+    return TelevisionFocusFrame(
+      key: ValueKey('tv-download-book-$key'),
+      child: Card(
+        margin: EdgeInsets.zero,
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  BookCover(
+                    title: book.title,
+                    imageUrl: book.coverUrl,
+                    width: 64,
+                    height: 96,
+                    showProgressPercent: false,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          group.hasMetadata
+                              ? book.title
+                              : strings.downloadMetadataUnavailableTitle,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        if (book.isFragment) const BookFragmentBadge(),
+                        if (book.author.isNotEmpty)
+                          Text(
+                            book.author,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall,
+                          ),
+                        if (book.narrator.isNotEmpty)
+                          Text(
+                            book.narrator,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        const SizedBox(height: 6),
+                        Text(
+                          strings.sourceDisplayName(book.sourceId),
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            color: sourceColorForId(
+                              book.sourceId,
+                              theme.colorScheme,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    '${_statusLabel(strings, group.displayStatus)} · '
+                    '${_groupSizeLabel(context, group)}',
+                    style: theme.textTheme.bodySmall,
+                  ),
+                  if (group.tasks.any(_isSourceDownloadDisabled))
+                    _DownloadPolicyMessage(
+                      key: ValueKey(
+                        'download-policy-book-${book.sourceId}-${book.versionId}',
+                      ),
+                    ),
+                  if (!group.hasMetadata) _DownloadMetadataMessage(book: book),
+                  const SizedBox(height: 8),
+                  LinearProgressIndicator(
+                    value: group.progress,
+                    minHeight: 3,
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                  const SizedBox(height: 6),
+                  _DownloadBookActions(
+                    group: group,
+                    manager: manager,
+                    isCurrentBook: isCurrentBook,
+                    isPlaying: playbackState.isPlaying,
+                    isPlaybackLoading:
+                        isCurrentBook &&
+                        (playbackState.status == AudioPlaybackStatus.loading ||
+                            playbackState.status ==
+                                AudioPlaybackStatus.buffering),
+                    onPlay: onPlay,
+                    onInfo: onInfo,
+                  ),
+                ],
+              ),
+            ),
+            ExpansionTile(
+              key: PageStorageKey('tv-download-chapters-$key'),
+              tilePadding: const EdgeInsets.symmetric(horizontal: 12),
+              childrenPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+              title: Text(
+                strings.downloadChaptersProgress(
+                  group.completedCount,
+                  group.totalChapterCount,
+                ),
+                style: theme.textTheme.bodySmall,
+              ),
+              children: chapters,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -861,49 +1042,11 @@ class _DownloadBookActions extends StatelessWidget {
     final strings = context.strings;
     final status = group.displayStatus;
     final colorScheme = Theme.of(context).colorScheme;
-
-    return Wrap(
-      key: ValueKey('mobile-download-actions-${group.playbackBook.versionId}'),
-      spacing: 8,
-      runSpacing: 8,
-      crossAxisAlignment: WrapCrossAlignment.center,
-      children: [
-        if (status == DownloadTaskStatus.running ||
-            status == DownloadTaskStatus.queued) ...[
-          AppIconActionButton(
-            buttonSize: 48,
-            tooltip: strings.pauseDownload,
-            iconAsset: AppIconAssets.pauseDownload,
-            onPressed: () => _pauseBook(group, manager),
-          ),
-          DownloadActionButton(
-            size: 48,
-            state: _bookDownloadState(status),
-            progress: group.progress,
-            onPressed: () => manager.cancelAndDeleteBook(group.playbackBook),
-          ),
-        ] else ...[
-          DownloadActionButton(
-            size: 48,
-            state: _bookDownloadState(status),
-            progress: group.progress,
-            onPressed:
-                group.hasMetadata || status == DownloadTaskStatus.completed
-                ? () => _runPrimary(group, manager)
-                : null,
-          ),
-          if (status != DownloadTaskStatus.completed) ...[
-            AppIconActionButton(
-              buttonSize: 48,
-              tooltip: strings.deleteDownloaded,
-              iconAsset: AppIconAssets.deleteDownload,
-              onPressed: () => manager.cancelAndDeleteBook(group.playbackBook),
-            ),
-          ],
-        ],
-        if (isPlaybackLoading)
-          SizedBox.square(
-            dimension: 48,
+    final television = TelevisionLayout.isActive(context);
+    final buttonSize = television ? 40.0 : 48.0;
+    final playButton = isPlaybackLoading
+        ? SizedBox.square(
+            dimension: buttonSize,
             child: Center(
               child: SizedBox.square(
                 dimension: 22,
@@ -914,18 +1057,62 @@ class _DownloadBookActions extends StatelessWidget {
               ),
             ),
           )
-        else
-          AppIconActionButton(
-            buttonSize: 48,
+        : AppIconActionButton(
+            buttonSize: buttonSize,
             tooltip: isCurrentBook && isPlaying ? strings.pause : strings.play,
             iconAsset: isCurrentBook && isPlaying
                 ? AppIconAssets.playerPause
                 : AppIconAssets.playerPlay,
             onPressed: group.hasMetadata ? onPlay : null,
             foregroundColor: isCurrentBook ? colorScheme.primary : null,
+          );
+
+    return Wrap(
+      key: ValueKey(
+        '${television ? 'tv' : 'mobile'}-download-actions-${group.playbackBook.versionId}',
+      ),
+      spacing: television ? 6 : 8,
+      runSpacing: television ? 6 : 8,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        // Remote traversal should enter on listening, not destructive delete.
+        if (television) playButton,
+        if (status == DownloadTaskStatus.running ||
+            status == DownloadTaskStatus.queued) ...[
+          AppIconActionButton(
+            buttonSize: buttonSize,
+            tooltip: strings.pauseDownload,
+            iconAsset: AppIconAssets.pauseDownload,
+            onPressed: () => _pauseBook(group, manager),
           ),
+          DownloadActionButton(
+            size: buttonSize,
+            state: _bookDownloadState(status),
+            progress: group.progress,
+            onPressed: () => manager.cancelAndDeleteBook(group.playbackBook),
+          ),
+        ] else ...[
+          DownloadActionButton(
+            size: buttonSize,
+            state: _bookDownloadState(status),
+            progress: group.progress,
+            onPressed:
+                group.hasMetadata || status == DownloadTaskStatus.completed
+                ? () => _runPrimary(group, manager)
+                : null,
+          ),
+          if (status != DownloadTaskStatus.completed) ...[
+            AppIconActionButton(
+              buttonSize: buttonSize,
+              tooltip: strings.deleteDownloaded,
+              iconAsset: AppIconAssets.deleteDownload,
+              onPressed: () => manager.cancelAndDeleteBook(group.playbackBook),
+            ),
+          ],
+        ],
+        if (!television) playButton,
         AppIconActionButton(
-          buttonSize: 48,
+          buttonSize: buttonSize,
           tooltip: strings.bookDetails,
           iconAsset: AppIconAssets.systemInfo,
           onPressed: group.hasMetadata ? onInfo : null,

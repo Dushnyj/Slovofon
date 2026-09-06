@@ -19,6 +19,7 @@ import '../../services/sources/source_catalog_provider.dart';
 import '../../services/sources/source_access_policy.dart';
 import '../../services/sources/source_access_policy_provider.dart';
 import '../../ui/adaptive/desktop_layout.dart';
+import '../../ui/adaptive/television_layout.dart';
 import '../../ui/components/book_card.dart';
 import '../../ui/components/responsive_tile_grid.dart';
 import '../../ui/components/section_header.dart';
@@ -56,6 +57,7 @@ class HomeScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final strings = context.strings;
     final desktop = DesktopLayout.isActive(context);
+    final television = TelevisionLayout.isActive(context);
     final playbackController = ref.watch(playbackControllerProvider);
     final downloadManager = ref.watch(downloadManagerProvider);
     final libraryStore = ref.watch(libraryStoreProvider);
@@ -67,6 +69,8 @@ class HomeScreen extends ConsumerWidget {
         SliverPadding(
           padding: desktop
               ? DesktopLayout.pagePadding(context)
+              : television
+              ? const EdgeInsets.fromLTRB(12, 4, 12, 16)
               : const EdgeInsets.fromLTRB(16, 18, 16, 24),
           sliver: SliverList(
             delegate: SliverChildListDelegate([
@@ -160,7 +164,7 @@ class HomeScreen extends ConsumerWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       SectionHeader(title: strings.continueListening),
-                      const SizedBox(height: 12),
+                      SizedBox(height: television ? 4 : 12),
                       ResponsiveTileGrid(
                         children: [
                           for (final entry in entries) historyCard(entry),

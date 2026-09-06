@@ -15,7 +15,8 @@ Future<T?> showAdaptiveSheet<T>({
   bool useSafeArea = false,
   bool showDragHandle = true,
 }) {
-  if (!DesktopLayout.isActive(context) && !TelevisionLayout.isActive(context)) {
+  final television = TelevisionLayout.isActive(context);
+  if (!DesktopLayout.isActive(context) && !television) {
     return showModalBottomSheet<T>(
       context: context,
       builder: builder,
@@ -25,15 +26,20 @@ Future<T?> showAdaptiveSheet<T>({
     );
   }
 
+  // TV coordinates are logical dp (960x540 on both FHD and 4K), not physical
+  // pixels. Avoid stretching a small choice dialog across the television.
+  final dialogWidth = television && maxWidth > 600 ? 600.0 : maxWidth;
   return showDialog<T>(
     context: context,
     builder: (dialogContext) => Dialog(
-      insetPadding: const EdgeInsets.all(24),
-      constraints: BoxConstraints(maxWidth: maxWidth),
+      insetPadding: EdgeInsets.all(television ? 16 : 24),
+      constraints: BoxConstraints(maxWidth: dialogWidth),
       clipBehavior: Clip.antiAlias,
       child: SizedBox(
-        key: const ValueKey('desktop-options-dialog'),
-        width: maxWidth,
+        key: ValueKey(
+          television ? 'television-options-dialog' : 'desktop-options-dialog',
+        ),
+        width: dialogWidth,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,

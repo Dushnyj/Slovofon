@@ -257,12 +257,56 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('Android wide grid keeps its existing equal-column sizing', (
+  testWidgets('Android wide grid keeps equal-column sizing at 100 percent', (
     tester,
   ) async {
     _configureView(tester);
-    for (final scale in [1.0, 2.6]) {
-      for (final width in [960.0, 1240.0, 1600.0]) {
+    for (final (width, columns, expectedWidth) in [
+      (960.0, 3, 312.0),
+      (1240.0, 4, 301.0),
+      (1600.0, 5, 310.4),
+    ]) {
+      await _pumpGrid(
+        tester,
+        width: width,
+        count: 7,
+        platform: TargetPlatform.android,
+      );
+      for (var index = 0; index < 7; index++) {
+        final rect = _tileRect(tester, index);
+        expect(rect.width, closeTo(expectedWidth, .001));
+        expect(
+          rect.left,
+          closeTo((index % columns) * (expectedWidth + 12), .001),
+        );
+        expect(rect.top, (index ~/ columns) * 92.0);
+      }
+      expect(tester.takeException(), isNull);
+    }
+  });
+
+  for (final (scale, layouts) in [
+    (
+      2.0,
+      [
+        (960.0, 1, 960.0),
+        (1211.0, 1, 1211.0),
+        (1212.0, 2, 600.0),
+        (1240.0, 2, 614.0),
+        (1600.0, 2, 794.0),
+        (1824.0, 3, 600.0),
+      ],
+    ),
+    (2.6, [(960.0, 1, 960.0), (1240.0, 1, 1240.0), (1600.0, 2, 794.0)]),
+  ]) {
+    testWidgets('Android wide grid reflows without reducing text scale $scale', (
+      tester,
+    ) async {
+      _configureView(tester);
+      // At 200%, a 300 dp minimum becomes 600 dp. This deliberately reduces
+      // the number of columns instead of squeezing larger text into the old
+      // 100% cells. Keep the above baseline and verify actual wrap thresholds.
+      for (final (width, columns, expectedWidth) in layouts) {
         await _pumpGrid(
           tester,
           width: width,
@@ -270,16 +314,25 @@ void main() {
           scale: scale,
           platform: TargetPlatform.android,
         );
-        final columns = math.min(5, ((width + 12) / 312).floor());
-        final expected = (width - (columns - 1) * 12) / columns;
+        final context = tester.element(find.byType(ResponsiveTileGrid));
+        expect(
+          MediaQuery.textScalerOf(context).scale(14),
+          closeTo(14 * scale, .001),
+        );
         for (var index = 0; index < 7; index++) {
-          expect(_tileRect(tester, index).width, closeTo(expected, 0.001));
+          final rect = _tileRect(tester, index);
+          expect(rect.width, closeTo(expectedWidth, .001));
+          expect(
+            rect.left,
+            closeTo((index % columns) * (expectedWidth + 12), .001),
+          );
+          expect(rect.top, (index ~/ columns) * 92.0);
         }
-        expect(_tileRect(tester, columns).top, 92);
+        expect(_tileRect(tester, columns - 1).right, closeTo(width, .001));
         expect(tester.takeException(), isNull);
       }
-    }
-  });
+    });
+  }
 
   for (final platform in [TargetPlatform.android, TargetPlatform.windows]) {
     testWidgets('$platform narrow windows retain a full-width list', (

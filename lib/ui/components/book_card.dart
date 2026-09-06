@@ -86,6 +86,13 @@ class BookCard extends StatelessWidget {
       return card;
     }
 
+    // On a wide touch device the grid already grows its columns with text.
+    // Do not squeeze those larger cells back into the 420 dp default tile.
+    // Windows and television have returned through their own branches above.
+    if (MediaQuery.textScalerOf(context).scale(14) > 14) {
+      return card;
+    }
+
     return Align(
       alignment: Alignment.centerLeft,
       child: ConstrainedBox(

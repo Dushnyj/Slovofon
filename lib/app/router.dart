@@ -13,6 +13,10 @@ import '../features/theme_preview/theme_preview_screen.dart';
 import '../services/deep_links/slovofon_deep_link.dart';
 import '../sources/sources.dart';
 import '../ui/adaptive/slovofon_shell.dart';
+import '../ui/adaptive/television_focus.dart';
+import '../ui/adaptive/television_layout.dart';
+import '../ui/adaptive/television_shell.dart';
+import 'localization/app_strings.dart';
 
 final rootNavigatorKey = GlobalKey<NavigatorState>(debugLabel: 'app-root');
 
@@ -32,7 +36,11 @@ final GoRouter appRouter = GoRouter(
       branches: [
         StatefulShellBranch(
           routes: [
-            GoRoute(path: '/', builder: (context, state) => const HomeScreen()),
+            GoRoute(
+              path: '/',
+              builder: (context, state) =>
+                  const TelevisionBranchFocus(child: HomeScreen()),
+            ),
           ],
         ),
         StatefulShellBranch(
@@ -44,11 +52,14 @@ final GoRouter appRouter = GoRouter(
                 final kind = _searchKindFromQuery(
                   state.uri.queryParameters['kind'],
                 );
-                return SearchScreen(
-                  initialQuery: query,
-                  initialKinds: kind == null ? null : {kind},
-                  submitInitialSearch: state.uri.queryParameters['run'] == '1',
-                  resetToken: state.uri.queryParameters['reset'],
+                return TelevisionBranchFocus(
+                  child: SearchScreen(
+                    initialQuery: query,
+                    initialKinds: kind == null ? null : {kind},
+                    submitInitialSearch:
+                        state.uri.queryParameters['run'] == '1',
+                    resetToken: state.uri.queryParameters['reset'],
+                  ),
                 );
               },
             ),
@@ -58,7 +69,8 @@ final GoRouter appRouter = GoRouter(
           routes: [
             GoRoute(
               path: '/library',
-              builder: (context, state) => const LibraryScreen(),
+              builder: (context, state) =>
+                  const TelevisionBranchFocus(child: LibraryScreen()),
             ),
           ],
         ),
@@ -66,7 +78,8 @@ final GoRouter appRouter = GoRouter(
           routes: [
             GoRoute(
               path: '/downloads',
-              builder: (context, state) => const DownloadsScreen(),
+              builder: (context, state) =>
+                  const TelevisionBranchFocus(child: DownloadsScreen()),
             ),
           ],
         ),
@@ -74,7 +87,8 @@ final GoRouter appRouter = GoRouter(
           routes: [
             GoRoute(
               path: '/settings',
-              builder: (context, state) => const SettingsScreen(),
+              builder: (context, state) =>
+                  const TelevisionBranchFocus(child: SettingsScreen()),
             ),
           ],
         ),
@@ -110,15 +124,21 @@ final GoRouter appRouter = GoRouter(
       builder: (context, state) {
         final query = state.uri.queryParameters['q'];
         final kind = _searchKindFromQuery(state.uri.queryParameters['kind']);
-        return Scaffold(
-          body: SearchScreen(
-            initialQuery: query,
-            initialKinds: kind == null ? null : {kind},
-            submitInitialSearch: state.uri.queryParameters['run'] == '1',
-            popOnResultsBack: true,
-            resetToken: state.uri.queryParameters['reset'],
-          ),
+        final search = SearchScreen(
+          initialQuery: query,
+          initialKinds: kind == null ? null : {kind},
+          submitInitialSearch: state.uri.queryParameters['run'] == '1',
+          popOnResultsBack: true,
+          resetToken: state.uri.queryParameters['reset'],
         );
+        if (TelevisionLayout.isActive(context)) {
+          return TelevisionStandaloneShell(
+            title: context.strings.search,
+            selectedIndex: 1,
+            child: search,
+          );
+        }
+        return Scaffold(body: search);
       },
     ),
     GoRoute(

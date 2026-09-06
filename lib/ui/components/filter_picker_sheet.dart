@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../adaptive/desktop_layout.dart';
+import '../adaptive/television_layout.dart';
 
 class FilterPickerSheet extends StatelessWidget {
   const FilterPickerSheet({required this.options, this.action, super.key});
@@ -10,13 +11,17 @@ class FilterPickerSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (DesktopLayout.isActive(context)) {
+    final television = TelevisionLayout.isActive(context);
+    if (DesktopLayout.isActive(context) || television) {
+      // Dialog already applies the keyboard insets. TV must not enter the
+      // mobile branch below, which would subtract the same IME height twice.
+      final prefix = television ? 'television' : 'desktop';
       final footer = action == null
           ? const SizedBox(height: 12)
           : Padding(
               padding: const EdgeInsets.all(16),
               child: SizedBox(
-                key: const ValueKey('desktop-picker-action'),
+                key: ValueKey('$prefix-picker-action'),
                 width: double.infinity,
                 child: action,
               ),
@@ -25,11 +30,14 @@ class FilterPickerSheet extends StatelessWidget {
         builder: (context, constraints) {
           final fontFactor = (MediaQuery.textScalerOf(context).scale(14) / 14)
               .clamp(1.0, 2.0);
-          if (constraints.maxHeight < 160 * fontFactor) {
+          final minimumFixedHeight = television
+              ? 56 + MediaQuery.textScalerOf(context).scale(24)
+              : 160 * fontFactor;
+          if (constraints.maxHeight < minimumFixedHeight) {
             // A touch keyboard may leave less room than a fixed action footer.
             // Scroll the action with the options rather than clipping either.
             return SingleChildScrollView(
-              key: const ValueKey('desktop-picker-short-viewport'),
+              key: ValueKey('$prefix-picker-short-viewport'),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -46,7 +54,7 @@ class FilterPickerSheet extends StatelessWidget {
             );
           }
           return Column(
-            key: const ValueKey('desktop-picker-body'),
+            key: ValueKey('$prefix-picker-body'),
             mainAxisSize: MainAxisSize.min,
             children: [
               Flexible(

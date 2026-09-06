@@ -35,6 +35,8 @@ import '../../ui/adaptive/slovofon_shell.dart';
 import '../../ui/adaptive/adaptive_sheet.dart';
 import '../../ui/adaptive/desktop_layout.dart';
 import '../../ui/adaptive/desktop_book_details_layout.dart';
+import '../../ui/adaptive/television_layout.dart';
+import '../../ui/adaptive/television_shell.dart';
 import '../../ui/icons/app_icons.dart';
 import '../shared/download_ui_state.dart';
 import '../shared/playback_resume.dart';
@@ -88,7 +90,41 @@ class _SourceBookDetailsScreenState
   Widget build(BuildContext context) {
     final strings = context.strings;
     final desktop = DesktopLayout.isActive(context);
+    final television = TelevisionLayout.isActive(context);
+    final body = SafeArea(
+      top: false,
+      child: FutureBuilder<SourceBookSnapshot>(
+        future: _snapshotFuture,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState != ConnectionState.done) {
+            return const Center(child: CircularProgressIndicator());
+          }
 
+          if (snapshot.hasError) {
+            final errorText = sourceBookErrorText(
+              strings: strings,
+              sourceId: widget.ref.sourceId,
+              error: snapshot.error!,
+            );
+            return _DetailsError(
+              title: errorText.title,
+              message: errorText.message,
+              onRetry: _retrySnapshot,
+            );
+          }
+
+          final book = snapshot.data!;
+          return _SourceBookDetailsBody(snapshot: book);
+        },
+      ),
+    );
+    if (television) {
+      return TelevisionStandaloneShell(
+        title: strings.bookDetails,
+        selectedIndex: 1,
+        child: body,
+      );
+    }
     final screen = Scaffold(
       appBar: AppBar(
         toolbarHeight: appBarToolbarHeight(context),
@@ -107,33 +143,7 @@ class _SourceBookDetailsScreenState
                 ),
               ],
             ),
-      body: SafeArea(
-        top: false,
-        child: FutureBuilder<SourceBookSnapshot>(
-          future: _snapshotFuture,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState != ConnectionState.done) {
-              return const Center(child: CircularProgressIndicator());
-            }
-
-            if (snapshot.hasError) {
-              final errorText = sourceBookErrorText(
-                strings: strings,
-                sourceId: widget.ref.sourceId,
-                error: snapshot.error!,
-              );
-              return _DetailsError(
-                title: errorText.title,
-                message: errorText.message,
-                onRetry: _retrySnapshot,
-              );
-            }
-
-            final book = snapshot.data!;
-            return _SourceBookDetailsBody(snapshot: book);
-          },
-        ),
-      ),
+      body: body,
     );
     if (desktop) {
       return DesktopStandaloneShell(selectedIndex: 1, child: screen);
@@ -197,6 +207,7 @@ class _SourceBookDetailsBodyState
   Widget build(BuildContext context) {
     final strings = context.strings;
     final desktop = DesktopLayout.isActive(context);
+    final television = TelevisionLayout.isActive(context);
     final colorScheme = Theme.of(context).colorScheme;
     final downloadManager = ref.watch(downloadManagerProvider);
     final libraryStore = ref.watch(libraryStoreProvider);
@@ -247,11 +258,15 @@ class _SourceBookDetailsBodyState
             : ((savedProgress?.percent ?? 0) / 100).clamp(0, 1).toDouble();
 
         final actions = Wrap(
-          spacing: desktop ? 12 : 18,
+          spacing: television
+              ? 8
+              : desktop
+              ? 12
+              : 18,
           runSpacing: desktop ? 12 : 8,
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
-            if (desktop)
+            if (desktop || television)
               SizedBox(
                 width: double.infinity,
                 child: FilledButton.icon(
@@ -321,7 +336,11 @@ class _SourceBookDetailsBodyState
               buttonKey: const ValueKey('source-details-download'),
               state: bookDownloadState,
               progress: bookDownloadProgress,
-              size: desktop ? 44 : 48,
+              size: television
+                  ? 40
+                  : desktop
+                  ? 44
+                  : 48,
               onPressed: () =>
                   unawaited(_runBookDownload(downloadManager, widget.snapshot)),
             ),
@@ -342,7 +361,11 @@ class _SourceBookDetailsBodyState
               foregroundColor: libraryStore.isFavorite(audioBook)
                   ? colorScheme.error
                   : colorScheme.onSurfaceVariant,
-              buttonSize: desktop ? 44 : 48,
+              buttonSize: television
+                  ? 40
+                  : desktop
+                  ? 44
+                  : 48,
               iconSize: 25,
             ),
             AppIconActionButton(
@@ -351,14 +374,18 @@ class _SourceBookDetailsBodyState
               onPressed: () => _showShareSheet(context, version),
               iconAsset: AppIconAssets.systemShare,
               foregroundColor: colorScheme.onSurfaceVariant,
-              buttonSize: desktop ? 44 : 48,
+              buttonSize: television
+                  ? 40
+                  : desktop
+                  ? 44
+                  : 48,
               iconSize: 25,
             ),
           ],
         );
         final bodyChildren = <Widget>[
           if ((version.description ?? '').trim().isNotEmpty) ...[
-            if (!desktop) const SizedBox(height: 18),
+            if (!desktop && !television) const SizedBox(height: 18),
             SectionHeader(title: strings.description),
             _CollapsibleDescription(
               text: version.description!.trim(),
@@ -444,7 +471,7 @@ class _SourceBookDetailsBodyState
             ),
           _OtherNarrationsSection(future: _otherNarrationsFuture),
         ];
-        if (desktop) {
+        if (desktop || television) {
           return DesktopBookDetailsLayout(
             key: const ValueKey('desktop-source-details-content'),
             summary: DesktopBookSummary(
@@ -835,12 +862,15 @@ class _CollapsibleDescription extends StatelessWidget {
         ),
         if (canCollapse)
           TextButton(
+            key: const ValueKey('source-details-description-toggle'),
             onPressed: onToggle,
-            style: TextButton.styleFrom(
-              padding: EdgeInsets.zero,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              alignment: Alignment.centerLeft,
-            ),
+            style: TelevisionLayout.isActive(context)
+                ? null
+                : TextButton.styleFrom(
+                    padding: EdgeInsets.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    alignment: Alignment.centerLeft,
+                  ),
             child: Text(
               expanded ? strings.hideDescription : strings.showFullDescription,
             ),
@@ -960,6 +990,23 @@ class _SourceUrlLink extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+
+    if (TelevisionLayout.isActive(context)) {
+      return TextButton(
+        key: const ValueKey('tv-source-details-url'),
+        onPressed: () => _openExternalUrl(context, url),
+        style: TextButton.styleFrom(
+          alignment: AlignmentDirectional.centerStart,
+        ),
+        child: Text(
+          url,
+          style: const TextStyle(
+            fontWeight: FontWeight.w600,
+            decoration: TextDecoration.underline,
+          ),
+        ),
+      );
+    }
 
     return InkWell(
       onTap: () => _openExternalUrl(context, url),
@@ -1159,6 +1206,7 @@ class _HeaderMetaLinks extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final television = TelevisionLayout.isActive(context);
     final textStyle = Theme.of(context).textTheme.bodyMedium?.copyWith(
       color: colorScheme.onSurfaceVariant,
       height: 1.2,
@@ -1176,7 +1224,7 @@ class _HeaderMetaLinks extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.only(top: 2),
+            padding: EdgeInsets.only(top: television ? 12 : 2),
             child: AppIcon(
               iconAsset,
               size: 15,
@@ -1190,14 +1238,40 @@ class _HeaderMetaLinks extends StatelessWidget {
               runSpacing: 2,
               children: [
                 for (var index = 0; index < values.length; index++) ...[
-                  InkWell(
-                    onTap: () => _openScopedSearch(
-                      context,
-                      searchQueries?[index] ?? values[index],
-                      searchKind,
+                  if (television)
+                    TextButton(
+                      key: ValueKey(
+                        'tv-source-details-${searchKind.name}-$index',
+                      ),
+                      onPressed: () => _openScopedSearch(
+                        context,
+                        searchQueries?[index] ?? values[index],
+                        searchKind,
+                      ),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 6,
+                        ),
+                        alignment: AlignmentDirectional.centerStart,
+                      ),
+                      child: Text(
+                        values[index],
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                          decoration: TextDecoration.underline,
+                        ),
+                      ),
+                    )
+                  else
+                    InkWell(
+                      onTap: () => _openScopedSearch(
+                        context,
+                        searchQueries?[index] ?? values[index],
+                        searchKind,
+                      ),
+                      child: Text(values[index], style: linkStyle),
                     ),
-                    child: Text(values[index], style: linkStyle),
-                  ),
                   if (index != values.length - 1) Text(', ', style: textStyle),
                 ],
               ],
@@ -1288,10 +1362,11 @@ class _DetailsError extends StatelessWidget {
         ),
       ),
     );
-    if (Theme.of(context).platform == TargetPlatform.windows) {
+    if (Theme.of(context).platform == TargetPlatform.windows ||
+        TelevisionLayout.isActive(context)) {
       // The error can exceed a short window once text accessibility scaling and
       // the persistent player reduce the viewport. Keep Retry scroll-reachable
-      // in both the desktop layout and the narrow Windows fallback.
+      // in Windows and the shorter TV viewport.
       return LayoutBuilder(
         builder: (context, constraints) => SingleChildScrollView(
           key: const ValueKey('windows-source-details-error-scroll'),

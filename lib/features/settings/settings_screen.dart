@@ -20,6 +20,7 @@ import '../../services/updates/update_prompt.dart';
 import '../../ui/components/app_bar_text.dart';
 import '../../ui/adaptive/adaptive_sheet.dart';
 import '../../ui/adaptive/desktop_layout.dart';
+import '../../ui/adaptive/television_layout.dart';
 import '../../ui/components/filter_picker_sheet.dart';
 import '../../ui/icons/app_icons.dart';
 
@@ -69,6 +70,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Widget build(BuildContext context) {
     final strings = context.strings;
     final desktop = DesktopLayout.isActive(context);
+    final television = TelevisionLayout.isActive(context);
     final appSettingsStore = ref.watch(appSettingsStoreProvider);
     final sourceSettings = ref.watch(sourceSettingsStoreProvider);
     final downloadStorage = ref.watch(downloadStorageProvider);
@@ -356,6 +358,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ],
                 );
               },
+            )
+          : television
+          ? _TelevisionSettingsContent(
+              personalizationTiles: personalizationTiles,
+              contentTiles: contentTiles,
+              applicationTiles: applicationTiles,
             )
           : ListView(
               padding: const EdgeInsets.fromLTRB(0, 8, 0, 24),
@@ -657,7 +665,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             final strings = context.strings;
             final stats = snapshot.data;
             final content = <Widget>[
-              if (!DesktopLayout.isActive(context))
+              if (!DesktopLayout.isActive(context) &&
+                  !TelevisionLayout.isActive(context))
                 Text(
                   strings.cacheAndMetadata,
                   style: Theme.of(context).textTheme.titleLarge,
@@ -733,7 +742,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               icon: const AppIcon(AppIconAssets.systemTrash),
               label: Text(strings.clearCardCache),
             );
-            if (DesktopLayout.isActive(context)) {
+            if (DesktopLayout.isActive(context) ||
+                TelevisionLayout.isActive(context)) {
               return FilterPickerSheet(options: content, action: action);
             }
             return SafeArea(
@@ -759,7 +769,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          constraints: DesktopLayout.isActive(context)
+          constraints:
+              DesktopLayout.isActive(context) ||
+                  TelevisionLayout.isActive(context)
               ? const BoxConstraints(maxWidth: 560)
               : null,
           scrollable: true,
@@ -800,7 +812,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (!DesktopLayout.isActive(context))
+                  if (!DesktopLayout.isActive(context) &&
+                      !TelevisionLayout.isActive(context))
                     Text(
                       context.strings.aboutApp,
                       style: Theme.of(context).textTheme.titleLarge,
@@ -844,6 +857,90 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 }
+
+/// TV is a ten-foot layout, not the mobile list enlarged by pixel density.
+/// Reflow groups only when the actual text scale leaves too little line width.
+class _TelevisionSettingsContent extends StatelessWidget {
+  const _TelevisionSettingsContent({
+    required this.personalizationTiles,
+    required this.contentTiles,
+    required this.applicationTiles,
+  });
+
+  final List<Widget> personalizationTiles;
+  final List<Widget> contentTiles;
+  final List<Widget> applicationTiles;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final strings = context.strings;
+      final scale = MediaQuery.textScalerOf(context).scale(16) / 16;
+      final columns = constraints.maxWidth >= 720 * scale ? 2 : 1;
+      final width = (constraints.maxWidth - 32 - (columns - 1) * 16) / columns;
+      Widget group(
+        String title,
+        List<Widget> tiles, {
+        bool horizontal = false,
+      }) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(title, style: Theme.of(context).textTheme.titleMedium),
+          ),
+          if (horizontal)
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: tiles.first),
+                const SizedBox(width: 16),
+                Expanded(child: tiles.last),
+              ],
+            )
+          else
+            for (final tile in tiles) ...[tile, const SizedBox(height: 6)],
+        ],
+      );
+
+      return ListView(
+        key: const ValueKey('settings-television-content'),
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+        children: [
+          Wrap(
+            key: ValueKey('settings-television-columns-$columns'),
+            spacing: 16,
+            runSpacing: 14,
+            children: [
+              SizedBox(
+                width: width,
+                child: group(
+                  strings.settingsPersonalization,
+                  personalizationTiles,
+                ),
+              ),
+              SizedBox(
+                width: width,
+                child: group(strings.settingsContent, contentTiles),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          group(
+            strings.settingsApplication,
+            applicationTiles,
+            horizontal: columns == 2,
+          ),
+        ],
+      );
+    },
+  );
+}
+
+Widget _settingsFocusFrame(BuildContext context, Widget child) =>
+    TelevisionLayout.isActive(context)
+    ? TelevisionFocusFrame(radius: 10, child: child)
+    : child;
 
 /// The desktop page edits appearance in place; the mobile sheet stays unchanged.
 class _DesktopAppearanceEditor extends ConsumerWidget {
@@ -1207,15 +1304,20 @@ class _ChoiceTile<T> extends StatelessWidget {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final isSelected = value == selected;
+    final television = TelevisionLayout.isActive(context);
 
-    return ListTile(
-      visualDensity: VisualDensity.compact,
-      title: Text(title),
-      trailing: isSelected
-          ? AppIcon(AppIconAssets.systemCheck, color: colorScheme.primary)
-          : null,
-      selected: isSelected,
-      onTap: () => onSelected(value),
+    return _settingsFocusFrame(
+      context,
+      ListTile(
+        visualDensity: VisualDensity.compact,
+        minTileHeight: television ? 44 : null,
+        title: Text(title),
+        trailing: isSelected
+            ? AppIcon(AppIconAssets.systemCheck, color: colorScheme.primary)
+            : null,
+        selected: isSelected,
+        onTap: () => onSelected(value),
+      ),
     );
   }
 }
@@ -1238,15 +1340,29 @@ class _SettingsActionTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final television = TelevisionLayout.isActive(context);
 
-    return ListTile(
-      leading: AppIcon(iconAsset, color: colorScheme.primary),
-      title: Text(title),
-      subtitle: subtitleBuilder?.call(context) ?? Text(subtitle),
-      trailing: onTap == null
-          ? null
-          : const AppIcon(AppIconAssets.systemForward),
-      onTap: onTap,
+    return _settingsFocusFrame(
+      context,
+      ListTile(
+        minTileHeight: television ? 56 : null,
+        visualDensity: television ? VisualDensity.compact : null,
+        contentPadding: television
+            ? const EdgeInsets.symmetric(horizontal: 12)
+            : null,
+        leading: AppIcon(iconAsset, color: colorScheme.primary),
+        title: Text(title),
+        subtitle: subtitleBuilder?.call(context) ?? Text(subtitle),
+        subtitleTextStyle: television
+            ? Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              )
+            : null,
+        trailing: onTap == null
+            ? null
+            : const AppIcon(AppIconAssets.systemForward),
+        onTap: onTap,
+      ),
     );
   }
 }
@@ -1322,6 +1438,47 @@ class _AccentColorPicker extends StatelessWidget {
     final strings = context.strings;
     final colorScheme = Theme.of(context).colorScheme;
     final customSelected = selectedId.startsWith('custom:#');
+
+    if (TelevisionLayout.isActive(context)) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              strings.accentColor,
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final swatch in _accentSwatches)
+                  _TelevisionColorSwatch(
+                    key: ValueKey('settings-accent-${swatch.id}'),
+                    color: swatch.color,
+                    selected: selectedId == swatch.id,
+                    label: swatch.label,
+                    onTap: () => onChanged(swatch.id),
+                  ),
+                OutlinedButton.icon(
+                  key: const ValueKey('settings-custom-accent-open'),
+                  onPressed: onCustom,
+                  icon: AppIcon(
+                    customSelected
+                        ? AppIconAssets.systemCheck
+                        : AppIconAssets.systemAccentColor,
+                    size: 20,
+                  ),
+                  label: Text(strings.customColor),
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+    }
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
@@ -1445,6 +1602,53 @@ class _AccentColorPicker extends StatelessWidget {
       ),
     );
   }
+}
+
+class _TelevisionColorSwatch extends StatelessWidget {
+  const _TelevisionColorSwatch({
+    required this.color,
+    required this.selected,
+    required this.label,
+    required this.onTap,
+    super.key,
+  });
+
+  final Color color;
+  final bool selected;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Tooltip(
+    message: label,
+    child: Semantics(
+      button: true,
+      selected: selected,
+      label: label,
+      child: TelevisionFocusFrame(
+        radius: 24,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(24),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(4),
+            child: Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+              child: selected
+                  ? AppIcon(
+                      AppIconAssets.systemCheck,
+                      size: 20,
+                      color: AppColorTokens.readableOn(color),
+                    )
+                  : null,
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 class _TextScaleSlider extends StatelessWidget {
@@ -1601,6 +1805,69 @@ Future<String?> _pickCustomAccentColor(
             Expanded(child: Text(context.strings.colorPreview)),
           ],
         );
+        if (TelevisionLayout.isActive(context)) {
+          // No touch-only wheel on TV. Every hue/saturation/value is reachable
+          // with the remote; the TV viewport leaves Up/Down for focus traversal.
+          return FilterPickerSheet(
+            options: [
+              preview,
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final preset in _customAccentPalette)
+                    _TelevisionColorSwatch(
+                      key: ValueKey(
+                        'settings-custom-accent-${_customAccentId(preset)}',
+                      ),
+                      color: preset,
+                      selected: color.toARGB32() == preset.toARGB32(),
+                      label:
+                          '${context.strings.colorPreview}: ${_customAccentId(preset).substring(7)}',
+                      onTap: () => setModalState(
+                        () => draft = HSVColor.fromColor(preset),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              _ColorSlider(
+                key: const ValueKey('television-color-hue'),
+                label: context.strings.colorHue,
+                value: draft.hue,
+                min: 0,
+                max: 360,
+                onChanged: (value) =>
+                    setModalState(() => draft = draft.withHue(value)),
+              ),
+              _ColorSlider(
+                key: const ValueKey('television-color-saturation'),
+                label: context.strings.colorSaturation,
+                value: draft.saturation,
+                min: 0,
+                max: 1,
+                onChanged: (value) =>
+                    setModalState(() => draft = draft.withSaturation(value)),
+              ),
+              _ColorSlider(
+                key: const ValueKey('television-color-brightness'),
+                label: context.strings.colorBrightness,
+                value: draft.value,
+                min: 0,
+                max: 1,
+                onChanged: (value) =>
+                    setModalState(() => draft = draft.withValue(value)),
+              ),
+            ],
+            action: FilledButton(
+              key: const ValueKey('custom-accent-apply'),
+              onPressed: () =>
+                  Navigator.of(context).pop(_customAccentId(color)),
+              child: Text(context.strings.apply),
+            ),
+          );
+        }
         final controls = Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
@@ -1884,6 +2151,7 @@ class _ColorSlider extends StatelessWidget {
     required this.min,
     required this.max,
     required this.onChanged,
+    super.key,
   });
 
   final String label;
@@ -1894,6 +2162,31 @@ class _ColorSlider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (TelevisionLayout.isActive(context)) {
+      final displayValue = max == 360
+          ? '${value.round()}°'
+          : '${(value * 100).round()}%';
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            '$label: $displayValue',
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+          Semantics(
+            label: label,
+            child: Slider(
+              value: value.clamp(min, max),
+              min: min,
+              max: max,
+              divisions: max == 360 ? 360 : 100,
+              label: displayValue,
+              onChanged: onChanged,
+            ),
+          ),
+        ],
+      );
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [

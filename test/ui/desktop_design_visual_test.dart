@@ -53,6 +53,9 @@ import 'test_search_history_store.dart';
 /// platform audio, database, or user folders. Books are local synthetic fixtures.
 /// SLOVOFON_VISUAL_DIR must be an explicit absolute evidence directory.
 /// Optional SLOVOFON_VISUAL_SIZES: comma-separated logical WxH dimensions.
+/// Optional SLOVOFON_VISUAL_DPR: physical pixels per logical pixel (1..4).
+/// This changes the simulated display density and PNG resolution, not font size.
+/// Optional SLOVOFON_VISUAL_ACCENT: a supported preset or #RRGGBB.
 /// Optional SLOVOFON_VISUAL_BOOK_COUNT: first N local mock books (0..all).
 /// Optional SLOVOFON_VISUAL_RESIZE_AUDIT=1 enables explicit extra routes,
 /// deterministic error/loading/overlay states and viewport-bound diagnostics.
@@ -74,6 +77,14 @@ void main() {
   final pageFilter = Platform.environment['SLOVOFON_VISUAL_PAGE_FILTER'] ?? '';
   final workspace = Platform.environment['SLOVOFON_VISUAL_WORKSPACE'] == '1';
   final television = Platform.environment['SLOVOFON_VISUAL_TELEVISION'] == '1';
+  final devicePixelRatio = double.parse(
+    Platform.environment['SLOVOFON_VISUAL_DPR'] ?? '1',
+  );
+  if (!devicePixelRatio.isFinite ||
+      devicePixelRatio < 1 ||
+      devicePixelRatio > 4) {
+    throw ArgumentError.value(devicePixelRatio, 'SLOVOFON_VISUAL_DPR', '1..4');
+  }
   final resizeAudit =
       Platform.environment['SLOVOFON_VISUAL_RESIZE_AUDIT'] == '1';
   final searchResultCount = _visualSearchResultCount(
@@ -159,8 +170,8 @@ void main() {
             (tester) async {
               debugDefaultTargetPlatformOverride = platform;
               addTearDown(() => debugDefaultTargetPlatformOverride = null);
-              tester.view.physicalSize = size;
-              tester.view.devicePixelRatio = 1;
+              tester.view.physicalSize = size * devicePixelRatio;
+              tester.view.devicePixelRatio = devicePixelRatio;
               tester.platformDispatcher.textScaleFactorTestValue = textScale;
               addTearDown(tester.view.resetPhysicalSize);
               addTearDown(tester.view.resetDevicePixelRatio);
@@ -196,6 +207,15 @@ void main() {
                 dark ? AppThemeMode.dark : AppThemeMode.light,
               );
               await settings.setTextScale(appScale);
+              final visualAccent =
+                  Platform.environment['SLOVOFON_VISUAL_ACCENT'];
+              if (visualAccent != null) {
+                await settings.setAccentColor(
+                  visualAccent.startsWith('#')
+                      ? 'custom:$visualAccent'
+                      : visualAccent,
+                );
+              }
               var libraryClockTick = 0;
               final library = LibraryStore(
                 MemoryLibraryPersistenceStore(),
@@ -600,7 +620,9 @@ void main() {
                   final boundary =
                       boundaryKey.currentContext!.findRenderObject()!
                           as RenderRepaintBoundary;
-                  final rendered = await boundary.toImage(pixelRatio: 1);
+                  final rendered = await boundary.toImage(
+                    pixelRatio: devicePixelRatio,
+                  );
                   final data = await rendered.toByteData(
                     format: ui.ImageByteFormat.png,
                   );
@@ -620,8 +642,14 @@ void main() {
                       'page': page.key,
                       'theme': dark ? 'dark' : 'light',
                       'viewport': {'width': size.width, 'height': size.height},
+                      'devicePixelRatio': devicePixelRatio,
+                      'physicalViewport': {
+                        'width': size.width * devicePixelRatio,
+                        'height': size.height * devicePixelRatio,
+                      },
                       'systemTextScale': textScale,
                       'appTextScale': appScale,
+                      'accent': settings.settings.accentColor,
                       'platform': platform.name,
                       'isTelevision': television,
                       'fixtureBookCount': fixtureBookCount,

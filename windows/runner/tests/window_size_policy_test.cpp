@@ -24,6 +24,41 @@ int main() {
   assert(ScaleDips(1, 120) == 2);
   assert(ScaleDips(901, 120) == 1127);
 
+  // A 4K work area at 200% is the same logical workspace as FHD at 100%.
+  // Display pixels must be converted exactly once, without a separate 4K zoom.
+  const Bounds fhd_work{0, 0, 1920, 1032};
+  const Bounds uhd_work{-3840, 0, 3840, 2064};
+  const auto fhd_limits = GetLimits({900, 600}, 96, {16, 39}, fhd_work);
+  const auto uhd_limits = GetLimits({900, 600}, 192, {32, 78}, uhd_work);
+  assert(uhd_limits.minimum.width == 2 * fhd_limits.minimum.width);
+  assert(uhd_limits.minimum.height == 2 * fhd_limits.minimum.height);
+  assert(uhd_limits.maximum.width == 2 * fhd_limits.maximum.width);
+  assert(uhd_limits.maximum.height == 2 * fhd_limits.maximum.height);
+
+  // At FHD/200% the work area cannot fit 600 client DIPs vertically.
+  // Only that axis relaxes; the width minimum remains 900 client DIPs.
+  const auto fhd_200 = GetLimits({900, 600}, 192, {32, 78}, fhd_work);
+  assert(fhd_200.minimum.width == 1832);
+  assert(fhd_200.minimum.height == 1032);
+
+  // Suggested normal bounds when moving among mixed-DPI monitors preserve
+  // client DIPs and remain within each destination work area, including a
+  // negative-origin monitor. This tests geometry, not real WM_DPICHANGED input.
+  for (const unsigned int dpi : {96u, 120u, 144u, 192u}) {
+    const Bounds work{-ScaleDips(1920, dpi), -ScaleDips(200, dpi),
+                      ScaleDips(1920, dpi), ScaleDips(1032, dpi)};
+    const Size frame{ScaleDips(16, dpi), ScaleDips(39, dpi)};
+    const auto client = OuterSize({1280, 720}, dpi, frame);
+    const auto monitor_limits = GetLimits({900, 600}, dpi, frame, work);
+    const auto moved = FitToWorkArea(
+        {work.x - 10000, work.y + 10000, client.width, client.height},
+        work, monitor_limits);
+    assert(moved.width - frame.width == ScaleDips(1280, dpi));
+    assert(moved.height - frame.height == ScaleDips(720, dpi));
+    assert(moved.x >= work.x && moved.x + moved.width <= work.x + work.width);
+    assert(moved.y >= work.y && moved.y + moved.height <= work.y + work.height);
+  }
+
   const Bounds small{0, 0, 800, 560};
   const auto small_limits = GetLimits({900, 600}, 192, {32, 78}, small);
   const auto fitted = FitToWorkArea({100, 100, 2560, 1440}, small, small_limits);

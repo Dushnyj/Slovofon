@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'television_focus.dart';
+import 'television_metrics.dart';
+
 /// A device capability, not a width breakpoint: a large tablet is not a TV.
 class TelevisionLayout extends InheritedWidget {
   const TelevisionLayout({
@@ -19,18 +22,30 @@ class TelevisionLayout extends InheritedWidget {
 
 /// Keeps all routes (including dialogs) away from overscan, and maps the remote
 /// centre key to the same activation action as Enter. Media keys stay native.
-class TelevisionViewport extends StatelessWidget {
+class TelevisionViewport extends StatefulWidget {
   const TelevisionViewport({required this.child, super.key});
   final Widget child;
   @override
+  State<TelevisionViewport> createState() => _TelevisionViewportState();
+}
+
+class _TelevisionViewportState extends State<TelevisionViewport> {
+  @override
+  void initState() {
+    super.initState();
+    TelevisionFocusHighlight.acquire();
+  }
+
+  @override
+  void dispose() {
+    TelevisionFocusHighlight.release();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final media = MediaQuery.of(context);
-    final horizontal = media.size.width * .04;
-    final vertical = media.size.height * .04;
-    final insets = EdgeInsets.symmetric(
-      horizontal: horizontal,
-      vertical: vertical,
-    );
+    final insets = TelevisionMetrics.safeInsetsFor(media.size);
     return ColoredBox(
       color: Theme.of(context).colorScheme.surface,
       child: Padding(
@@ -38,11 +53,14 @@ class TelevisionViewport extends StatelessWidget {
         child: MediaQuery(
           data: media.copyWith(
             size: Size(
-              media.size.width - horizontal * 2,
-              media.size.height - vertical * 2,
+              media.size.width - insets.horizontal,
+              media.size.height - insets.vertical,
             ),
             padding: EdgeInsets.zero,
             viewPadding: EdgeInsets.zero,
+            // Left/right edit a slider; up/down leave it. Keep the actual DPR
+            // and system/user text scaler unchanged.
+            navigationMode: NavigationMode.directional,
           ),
           child: Shortcuts(
             shortcuts: const {
@@ -50,7 +68,7 @@ class TelevisionViewport extends StatelessWidget {
             },
             child: FocusTraversalGroup(
               policy: ReadingOrderTraversalPolicy(),
-              child: child,
+              child: widget.child,
             ),
           ),
         ),
@@ -96,13 +114,13 @@ class _TelevisionFocusFrameState extends State<TelevisionFocusFrame> {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(widget.radius),
         border: Border.all(
-          width: 3,
+          width: _focused ? 2 : 1,
           color: _focused
               ? Theme.of(context).colorScheme.primary
               : Theme.of(context).colorScheme.outlineVariant,
         ),
       ),
-      child: Padding(padding: const EdgeInsets.all(3), child: widget.child),
+      child: Padding(padding: const EdgeInsets.all(2), child: widget.child),
     ),
   );
 }
