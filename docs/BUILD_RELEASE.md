@@ -142,19 +142,11 @@ https://github.com/Dushnyj/Slovofon.git
 
 Codex не должен молча создавать публичный репозиторий. Для создания нужен подтверждённый `public`/`private`.
 
-### 5.1 GitHub Actions CI
+### 5.1 Локальные проверки, GitHub Actions только для релизов
 
-Основной workflow:
+Проверки во время разработки и Debug-сборки выполняются локально:
 
-```text
-.github/workflows/ci.yml
-```
-
-CI запускается на `push` и `pull_request` для `main`, а также вручную через `workflow_dispatch`.
-
-Проверки:
-
-```text
+```powershell
 flutter pub get --enforce-lockfile
 dart format --output=none --set-exit-if-changed .
 flutter analyze
@@ -163,16 +155,11 @@ flutter build apk --debug
 flutter build windows --debug
 ```
 
-Workflow использует Flutter `3.44.0` stable и минимальные права `contents: read`.
-
-Debug-сборки публикуются как временные GitHub Actions artifacts:
-
-```text
-Slovofon-v<version>-android-universal-debug.apk
-Slovofon-v<version>-windows-x64-debug
-```
-
-Эти artifacts не являются release-сборкой, не подписываются, не создают Git tag и не публикуются в GitHub Release.
+По решению владельца в GitHub Actions оставлен **только Release**. Обычные push
+в ветку и pull request не запускают workflows, проверки или Debug-сборки.
+Отдельного CI нет; не нужно создавать его заново или запускать нерелизные jobs.
+Локальные проверки обязательны до push. Релизный workflow повторяет проверки
+на чистом runner и только после их успеха публикует финальные артефакты.
 
 ### 5.2 GitHub Actions release
 
@@ -193,11 +180,11 @@ Release workflow делает полный публичный релиз:
 
 ```text
 1. проверяет VERSION, pubspec.yaml и `lib/app/app_version.dart`;
-2. выполняет dart format, flutter analyze и flutter test;
+2. выполняет dart format, flutter analyze, flutter test и два C++ теста Windows update policies;
 3. восстанавливает Android upload keystore из GitHub Secrets во временный файл runner;
 4. собирает signed Android universal APK, ABI APKs и AAB;
 5. проверяет APK через apksigner verify;
-6. собирает Windows release bundle;
+6. проверяет Windows-only installer contracts и собирает Windows release bundle;
 7. при наличии Windows PFX secrets подписывает Slovofon.exe;
 8. собирает Windows portable ZIP;
 9. собирает Windows setup.exe через Inno Setup;
@@ -618,7 +605,7 @@ artifacts/v<version>/
 
 | Возможность | Setup EXE — основной вариант | MSI — управляемая установка |
 | --- | --- | --- |
-| Движок | Inno Setup 6.7.2 в CI, минимум 6.6 | WiX Toolset 6.0.2 + UI/Util 6.0.2 |
+| Движок | Inno Setup 6.7.2 в Release, минимум 6.6 | WiX Toolset 6.0.2 + UI/Util 6.0.2 |
 | Оформление | Современные системные элементы, светлая/тёмная тема Windows, Segoe UI, фирменный знак | Светлый штатный Windows Installer UI, Segoe UI, фирменный знак |
 | Режим | Только для меня / для всех пользователей | Для всех пользователей, с правами администратора |
 | Язык | Русский и английский в мастере | Русский в release workflow; английский выбирается при сборке |
@@ -697,7 +684,7 @@ Setup запрещает downgrade по зарегистрированной в�
 rollback-транзакции, распознавая также старый английский пакет. Принудительное
 завершение приложения и безусловная перезагрузка не используются.
 
-### Общая локальная упаковка и CI
+### Общая локальная упаковка и Release
 
 После отдельного согласования release-сборки и получения полного release bundle:
 

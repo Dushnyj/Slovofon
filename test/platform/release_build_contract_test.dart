@@ -19,6 +19,99 @@ void main() {
 
   String quote(String value) => "'${value.replaceAll("'", "''")}'";
 
+  test(
+    'GitHub Actions contains only explicitly triggered release workflow',
+    () {
+      final workflows = Directory('.github/workflows')
+          .listSync()
+          .whereType<File>()
+          .where((file) => RegExp(r'\.ya?ml$').hasMatch(file.path))
+          .map((file) => file.uri.pathSegments.last)
+          .toList();
+      expect(workflows, ['release.yml']);
+      final workflow = File(
+        '.github/workflows/release.yml',
+      ).readAsStringSync().replaceAll('\r\n', '\n');
+      final start = workflow.indexOf('\non:\n');
+      final end = workflow.indexOf('\npermissions:\n');
+      expect(start, greaterThanOrEqualTo(0));
+      expect(end, greaterThan(start));
+      final triggers = workflow.substring(start, end);
+      expect(
+        RegExp(
+          r'^  ([a-z_]+):',
+          multiLine: true,
+        ).allMatches(triggers).map((match) => match.group(1)).toList(),
+        ['workflow_dispatch', 'push'],
+      );
+      final push = triggers
+          .substring(triggers.indexOf('  push:\n'))
+          .trimRight();
+      expect(push, '  push:\n    tags:\n      - "v*"');
+    },
+  );
+
+  test('release checks execute both native updater regression suites', () {
+    final workflow = File(
+      '.github/workflows/release.yml',
+    ).readAsStringSync().replaceAll('\r\n', '\n');
+    final start = workflow.indexOf('  checks:\n');
+    final end = workflow.indexOf('  android-release:\n');
+    expect(start, greaterThanOrEqualTo(0));
+    expect(end, greaterThan(start));
+    final checks = workflow.substring(start, end);
+    expect(checks, contains('runs-on: ubuntu-24.04'));
+    expect(checks, contains('run: flutter test'));
+    expect(checks, contains('shell: bash'));
+    expect(checks, isNot(contains('continue-on-error:')));
+    for (final suite in ['policy', 'task']) {
+      expect(
+        checks,
+        contains('windows/runner/tests/windows_installation_${suite}_test.cpp'),
+      );
+      expect(
+        checks,
+        contains(
+          '-o "\$RUNNER_TEMP/windows-installation-$suite-test"\n'
+          '          "\$RUNNER_TEMP/windows-installation-$suite-test"',
+        ),
+        reason: 'The compiled $suite suite must execute, not just compile.',
+      );
+    }
+    expect(
+      RegExp(
+        r'c\+\+ -std=c\+\+17 -Wall -Wextra -Werror -UNDEBUG',
+      ).allMatches(checks),
+      hasLength(2),
+    );
+    expect(checks, contains('-Werror -UNDEBUG -pthread'));
+  });
+
+  test('release runs Windows-only installer contracts before packaging', () {
+    final workflow = File(
+      '.github/workflows/release.yml',
+    ).readAsStringSync().replaceAll('\r\n', '\n');
+    final start = workflow.indexOf('  windows-release:\n');
+    final end = workflow.indexOf('  publish-release:\n');
+    expect(start, greaterThanOrEqualTo(0));
+    expect(end, greaterThan(start));
+    final windows = workflow.substring(start, end);
+    expect(windows, contains('runs-on: windows-2022'));
+    const command =
+        'run: flutter test test/platform/windows_installer_contract_test.dart '
+        'test/platform/installer_update_url_test.dart';
+    final contractTest = windows.indexOf(command);
+    final build = windows.indexOf('run: flutter build windows --release');
+    expect(contractTest, greaterThanOrEqualTo(0));
+    expect(build, greaterThanOrEqualTo(0));
+    expect(build, lessThan(contractTest));
+    expect(
+      windows.indexOf('      - name: Install packaging tools'),
+      greaterThan(contractTest),
+    );
+    expect(windows, isNot(contains('continue-on-error:')));
+  });
+
   test('release packaging pins and verifies the official Inno compiler', () async {
     final workflow = File('.github/workflows/release.yml').readAsStringSync();
     final start = workflow.indexOf('      - name: Install packaging tools');

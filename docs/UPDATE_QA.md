@@ -51,7 +51,7 @@ synthetic metadata. Они не скачивают публичный устан
 `windows/runner/tests/windows_installation_policy_test.cpp` проверяет чистую
 классификацию регистрации и пути. `windows_installation_task_test.cpp` —
 single-flight, таймаут, поздний ответ, ошибки запуска/доставки и закрытие окна.
-Оба подключены к CI и компилируются локально
+Оба подключены к Release workflow и компилируются локально
 с C++17, `/W4 /WX /UNDEBUG`. WinAPI-часть дополнительно проверяется компиляцией;
 это не имитация установленного продукта через запись в registry.
 

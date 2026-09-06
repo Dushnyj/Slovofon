@@ -16,7 +16,7 @@
   <a href="VERSION"><img alt="Версия исходников 0.0.7" src="https://img.shields.io/badge/VERSION-0.0.7-91A6DF?style=flat-square&amp;labelColor=172033"></a>
   <a href="https://github.com/Dushnyj/Slovofon/releases"><img alt="Последний опубликованный релиз" src="https://img.shields.io/github/v/release/Dushnyj/Slovofon?display_name=tag&amp;sort=semver&amp;style=flat-square&amp;label=RELEASE&amp;labelColor=172033&amp;color=D2AC69"></a>
   <a href="#platforms"><img alt="Android 7.0 и новее" src="https://img.shields.io/badge/ANDROID-7.0%2B-3DDC84?style=flat-square&amp;labelColor=172033"></a>
-  <a href="https://github.com/Dushnyj/Slovofon/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/Dushnyj/Slovofon/ci.yml?branch=main&amp;style=flat-square&amp;label=CI&amp;labelColor=172033"></a>
+  <a href="https://github.com/Dushnyj/Slovofon/actions/workflows/release.yml"><img alt="Релизная сборка" src="https://img.shields.io/github/actions/workflow/status/Dushnyj/Slovofon/release.yml?style=flat-square&amp;label=RELEASE%20BUILD&amp;labelColor=172033"></a>
   <a href="LICENSE"><img alt="Лицензия Apache 2.0" src="https://img.shields.io/badge/LICENSE-Apache%202.0-D2AC69?style=flat-square&amp;labelColor=172033"></a>
 </p>
 
@@ -245,7 +245,7 @@ Updater не выполняет скрытую установку, не заве
 <a name="development"></a>
 ## Разработка
 
-Flutter + Dart. CI использует Flutter **3.44.0 stable**, Android-сборка — JDK **17**.
+Flutter + Dart. Релизный workflow использует Flutter **3.44.0 stable**, Android-сборка — JDK **17**.
 Для Windows нужны Visual Studio Build Tools с C++ и Windows SDK.
 Точные зависимости и bootstrap описаны в [руководстве сборки](docs/BUILD_RELEASE.md).
 
@@ -269,7 +269,9 @@ cd Slovofon
 ```
 
 Общий скрипт — `tools/slovofon.ps1`. Обычная сборка не меняет версию,
-не создаёт тег и не публикует релиз. Debug-артефакты CI не являются release-сборками.
+не создаёт тег и не публикует релиз. Проверки и Debug-сборки выполняются локально.
+GitHub Actions используется **только для релизов**: обычные push и PR не запускают
+сборки. Перед публикацией Release повторяет проверки и собирает финальные файлы.
 
 Перед изменениями прочитайте [CONTRIBUTING.md](CONTRIBUTING.md);
 для ИИ-агентов обязательны [AGENTS.md](AGENTS.md).

@@ -127,6 +127,18 @@ jobs:
       - name: Test
         run: flutter test
 
+      - name: Test Windows update native policies
+        shell: bash
+        run: |
+          c++ -std=c++17 -Wall -Wextra -Werror -UNDEBUG \
+            windows/runner/tests/windows_installation_policy_test.cpp \
+            -o "$RUNNER_TEMP/windows-installation-policy-test"
+          "$RUNNER_TEMP/windows-installation-policy-test"
+          c++ -std=c++17 -Wall -Wextra -Werror -UNDEBUG -pthread \
+            windows/runner/tests/windows_installation_task_test.cpp \
+            -o "$RUNNER_TEMP/windows-installation-task-test"
+          "$RUNNER_TEMP/windows-installation-task-test"
+
   android-release:
     name: Android signed release
     runs-on: ubuntu-24.04
@@ -257,6 +269,9 @@ jobs:
 
       - name: Build Windows release bundle
         run: flutter build windows --release
+
+      - name: Verify Windows installer contracts
+        run: flutter test test/platform/windows_installer_contract_test.dart test/platform/installer_update_url_test.dart
 
       - name: Verify app-local Windows runtime dependencies
         shell: pwsh
