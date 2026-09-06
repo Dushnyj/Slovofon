@@ -1,8 +1,11 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/services.dart';
+
 import '../../app/localization/app_strings.dart';
 import 'update_client.dart';
+import 'update_installer.dart';
 
 class UpdateErrorText {
   const UpdateErrorText({required this.title, required this.message});
@@ -31,6 +34,17 @@ UpdateErrorText updateDownloadErrorText({
   required AppStrings strings,
   required Object error,
 }) {
+  // Process/native errors belong to preparation or installer handoff, not to
+  // network/download failures. Never expose executable paths, command-line
+  // arguments, native error codes or untrusted exception messages in the UI.
+  if (error is UpdateInstallException ||
+      error is ProcessException ||
+      error is PlatformException) {
+    return UpdateErrorText(
+      title: strings.updateInstallFailed,
+      message: strings.updateInstallFailedMessage,
+    );
+  }
   if (isUpdateNetworkError(error)) {
     return UpdateErrorText(
       title: strings.noInternetTitle,

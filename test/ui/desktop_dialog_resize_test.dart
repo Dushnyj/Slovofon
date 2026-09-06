@@ -495,8 +495,8 @@ Finder? _endpoint(Finder overlay, _Surface surface) => switch (surface) {
     find.descendant(of: overlay, matching: find.byType(ListTile)).last,
   _Surface.cache => _textIn(overlay, 'Clear card cache'),
   _Surface.clearCache ||
-  _Surface.updateCheckError ||
-  _Surface.updateDownloadError => _textIn(overlay, 'Cancel'),
+  _Surface.updateCheckError => _textIn(overlay, 'Cancel'),
+  _Surface.updateDownloadError => _textIn(overlay, 'Later'),
   _Surface.about => _textIn(overlay, 'Application GitHub'),
   _Surface.share => _textIn(overlay, 'Source link'),
   _Surface.speed => _textIn(overlay, '2.00x'),
@@ -634,8 +634,9 @@ Future<void> _finish(
       await tester.tap(_textIn(overlay, 'Done'));
     case _Surface.clearCache:
     case _Surface.updateCheckError:
-    case _Surface.updateDownloadError:
       await tester.tap(_textIn(overlay, 'Cancel'));
+    case _Surface.updateDownloadError:
+      await tester.tap(_textIn(overlay, 'Later'));
     case _Surface.share:
       await tester.tap(_textIn(overlay, 'Source link'));
       await _frames(tester);
@@ -663,7 +664,7 @@ Future<void> _finish(
       await tester.binding.handlePopRoute();
       fixture.updates.check.complete(const UpdateCheckResult.noUpdate());
     case _Surface.updateAvailable:
-      await tester.tap(_textIn(overlay, 'Skip'));
+      await tester.tap(_textIn(overlay, 'Skip this version'));
       await _frames(tester);
       expect(fixture.updates.skipped, 1);
     case _Surface.updateBusy:
@@ -686,9 +687,8 @@ Future<void> _finish(
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
   }
   await _frames(tester);
-  // A nested confirmation/error intentionally returns to its parent overlay.
-  if (surface != _Surface.clearCache &&
-      surface != _Surface.updateDownloadError) {
+  // The nested cache confirmation intentionally returns to its parent overlay.
+  if (surface != _Surface.clearCache) {
     expect(_overlay(surface), findsNothing);
   }
 }

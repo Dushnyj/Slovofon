@@ -513,7 +513,30 @@ class AppStrings {
   }
 
   String get updateNow => _isRu ? 'Обновить' : 'Update';
-  String get skipUpdate => _isRu ? 'Пропустить' : 'Skip';
+  String get skipUpdate => _isRu ? 'Пропустить версию' : 'Skip this version';
+  String get updateLater => _isRu ? 'Позже' : 'Later';
+  String get updateReleaseNotes => _isRu ? 'Что нового' : 'What is new';
+  String get updateDownloadZip => _isRu ? 'Скачать ZIP' : 'Download ZIP';
+  String get updateOpenReleases =>
+      _isRu ? 'Открыть страницу релизов' : 'Open releases page';
+  String get updateManualDownloadHint => _isRu
+      ? 'Не удалось надёжно определить тип установки Windows. Выберите подходящий файл на странице релизов; приложение не будет заменено автоматически.'
+      : 'The Windows installation type could not be determined reliably. Choose the matching file on the releases page; this app will not be replaced automatically.';
+  String get updatePortableHint => _isRu
+      ? 'Будет скачан и проверен ZIP-архив. Затем закройте Словофон и распакуйте архив в новую папку. Не удаляйте папки с пользовательскими данными и скачанными книгами.'
+      : 'The ZIP archive will be downloaded and verified. Then close Slovofon and extract it into a new folder. Keep your user-data and downloaded-book folders.';
+  String get updateInstallerHint => _isRu
+      ? 'После проверки файла откроется установщик. Следуйте его инструкциям; настройки, прогресс и скачанные книги сохраняются.'
+      : 'After the file is verified, the installer will open. Follow its instructions; settings, progress and downloaded books are preserved.';
+  String get updatePortableReady => _isRu
+      ? 'Архив проверен; открыта папка загрузки. Закройте Словофон и распакуйте ZIP в новую папку.'
+      : 'The archive is verified and its folder is open. Close Slovofon and extract the ZIP into a new folder.';
+  String get updateSkipFailed => _isRu
+      ? 'Не удалось сохранить пропуск версии. Повторите попытку или нажмите «Позже».'
+      : 'Could not save the skipped version. Try again or choose Later.';
+  String get updateReleasePageFailed => _isRu
+      ? 'Не удалось открыть страницу релизов. Повторите попытку.'
+      : 'Could not open the releases page. Try again.';
   String get noUpdatesAvailable =>
       _isRu ? 'Обновлений нет' : 'No updates available';
   String get updateCheckFailed =>
@@ -539,6 +562,11 @@ class AppStrings {
   String get updateInstallerStarted => _isRu
       ? 'Установщик обновления открыт'
       : 'The update installer has been opened';
+  String get updateInstallFailed =>
+      _isRu ? 'Не удалось запустить обновление' : 'Could not start the update';
+  String get updateInstallFailedMessage => _isRu
+      ? 'Не удалось подготовить или открыть файл обновления. Проверьте разрешения системы и нажмите «Повторить». Приложение не будет закрыто автоматически.'
+      : 'The update file could not be prepared or opened. Check system permissions and choose Retry. The app will not close automatically.';
   String get updateInstallPermissionRequired => _isRu
       ? 'Разрешите установку APK для Словофона и нажмите «Обновить» ещё раз.'
       : 'Allow APK installs for Slovofon, then tap Update again.';

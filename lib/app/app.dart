@@ -125,6 +125,7 @@ class _SlovofonAppState extends ConsumerState<SlovofonApp> {
           child: child ?? const SizedBox.shrink(),
         );
         return UpdateStartupGate(
+          navigatorKey: rootNavigatorKey,
           child: MediaQuery(
             data: MediaQuery.of(context).copyWith(
               disableAnimations:

@@ -530,7 +530,10 @@ class PlaybackController extends ChangeNotifier {
   }
 
   /// Await before closing the database on a graceful application shutdown.
-  Future<void> flushPlayback() => _persistPlayback(force: true);
+  /// Required checkpoints (for example, installer handoff) surface storage
+  /// failures to their caller. Ordinary playback retains best-effort reporting.
+  Future<void> flushPlayback({bool requireSuccess = false}) =>
+      _persistPlayback(force: true, requireSuccess: requireSuccess);
 
   @override
   void dispose() {
@@ -1126,7 +1129,10 @@ class PlaybackController extends ChangeNotifier {
     }
   }
 
-  Future<void> _persistPlayback({bool force = false}) async {
+  Future<void> _persistPlayback({
+    bool force = false,
+    bool requireSuccess = false,
+  }) async {
     final persistence = _persistence;
     final activeBook = _state.book;
     if (persistence == null || activeBook == null) {
@@ -1159,16 +1165,21 @@ class PlaybackController extends ChangeNotifier {
       Object error,
       StackTrace stack,
     ) {
-      FlutterError.reportError(
-        FlutterErrorDetails(
-          exception: error,
-          stack: stack,
-          library: 'slovofon playback',
-          context: ErrorDescription('while saving playback session'),
-        ),
-      );
+      if (!requireSuccess) {
+        FlutterError.reportError(
+          FlutterErrorDetails(
+            exception: error,
+            stack: stack,
+            library: 'slovofon playback',
+            context: ErrorDescription('while saving playback session'),
+          ),
+        );
+      }
     });
-    await _persistenceOperations;
+    // Recover the queue in either mode so a failed checkpoint does not poison
+    // later saves. A required checkpoint awaits the original failing future;
+    // its caller owns user feedback, avoiding a duplicate FlutterError report.
+    await (requireSuccess ? pending : _persistenceOperations);
   }
 
   PlaybackProgressSnapshot _progressSnapshot(DateTime now) {

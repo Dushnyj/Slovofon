@@ -6,7 +6,9 @@ import 'package:slovofon/app/project_links.dart';
 import 'package:slovofon/services/updates/update_client.dart';
 import 'package:slovofon/services/updates/update_installer.dart';
 import 'package:slovofon/services/updates/update_manifest.dart';
+import 'package:slovofon/services/updates/update_preferences.dart';
 import 'package:slovofon/services/updates/update_service.dart';
+import 'package:slovofon/services/updates/windows_update_installation.dart';
 
 void main() {
   group('UpdateService GitHub release checks', () {
@@ -274,7 +276,7 @@ void main() {
     );
   });
 
-  group('UpdateService session skip', () {
+  group('UpdateService skipped versions', () {
     test(
       'automatic checks skip this release but manual checks include it',
       () async {
@@ -294,21 +296,24 @@ void main() {
       },
     );
 
-    test('skip belongs only to the current service session', () async {
-      final client = _FakeClient([_manifest()]);
-      final firstSession = _service(client);
-      await firstSession.skip((await firstSession.checkForUpdate()).info!);
-      expect(
-        (await firstSession.checkForUpdate()).status,
-        UpdateCheckStatus.skipped,
-      );
+    test(
+      'independent in-memory stores do not share skipped versions',
+      () async {
+        final client = _FakeClient([_manifest()]);
+        final firstSession = _service(client);
+        await firstSession.skip((await firstSession.checkForUpdate()).info!);
+        expect(
+          (await firstSession.checkForUpdate()).status,
+          UpdateCheckStatus.skipped,
+        );
 
-      final nextSession = _service(client);
-      expect(
-        (await nextSession.checkForUpdate()).status,
-        UpdateCheckStatus.available,
-      );
-    });
+        final nextSession = _service(client);
+        expect(
+          (await nextSession.checkForUpdate()).status,
+          UpdateCheckStatus.available,
+        );
+      },
+    );
 
     test('skipping one version does not hide a later GitHub release', () async {
       final service = _service(
@@ -405,18 +410,256 @@ void main() {
       expect(installer.installedUpdates, isEmpty);
     });
   });
+
+  group('update coordination and installed format', () {
+    test(
+      'skip survives service recreation with the same persistence',
+      () async {
+        final preferences = MemoryUpdatePreferences();
+        final first = _service(
+          _FakeClient([_manifest()]),
+          preferences: preferences,
+        );
+        await first.skip((await first.checkForUpdate()).info!);
+        final restarted = _service(
+          _FakeClient([_manifest()]),
+          preferences: preferences,
+        );
+        expect(
+          (await restarted.checkForUpdate()).status,
+          UpdateCheckStatus.skipped,
+        );
+        expect(
+          (await restarted.checkForUpdate(includeSkipped: true)).status,
+          UpdateCheckStatus.available,
+        );
+      },
+    );
+
+    test(
+      'concurrent checks share IO but apply skip policy independently',
+      () async {
+        final gate = Completer<void>();
+        final preferences = MemoryUpdatePreferences();
+        await preferences.saveSkippedVersion('1.2.4+8');
+        final client = _FakeClient([_manifest()])..fetchGate = gate.future;
+        final service = _service(client, preferences: preferences);
+        final automatic = service.checkForUpdate();
+        final manual = service.checkForUpdate(includeSkipped: true);
+        expect(client.fetchedUris, hasLength(1));
+        gate.complete();
+        expect((await automatic).status, UpdateCheckStatus.skipped);
+        expect((await manual).status, UpdateCheckStatus.available);
+      },
+    );
+
+    test(
+      'automatic cooldown never suppresses manual checks or a clock rollback',
+      () async {
+        var now = DateTime.utc(2026, 9, 6);
+        final client = _FakeClient([_manifest()]);
+        final service = _service(client, clock: () => now);
+        expect(
+          (await service.checkForAutomaticUpdate()).status,
+          UpdateCheckStatus.available,
+        );
+        expect(
+          (await service.checkForAutomaticUpdate()).status,
+          UpdateCheckStatus.noUpdate,
+        );
+        expect(client.fetchedUris, hasLength(1));
+        await service.checkForUpdate(includeSkipped: true);
+        expect(client.fetchedUris, hasLength(2));
+        now = now.add(const Duration(minutes: 30));
+        await service.checkForAutomaticUpdate();
+        expect(client.fetchedUris, hasLength(3));
+        now = now.subtract(const Duration(hours: 1));
+        await service.checkForAutomaticUpdate();
+        expect(client.fetchedUris, hasLength(4));
+      },
+    );
+
+    test('a failed shared request can be retried manually', () async {
+      final client = _FakeClient([_manifest()])
+        ..fetchFailure = const UpdateClientException('fixture error');
+      final service = _service(client);
+      await expectLater(
+        service.checkForAutomaticUpdate(),
+        throwsA(isA<UpdateClientException>()),
+      );
+      client.fetchFailure = null;
+      expect(
+        (await service.checkForUpdate(includeSkipped: true)).status,
+        UpdateCheckStatus.available,
+      );
+      expect(client.fetchedUris, hasLength(2));
+    });
+
+    final packages = <WindowsInstallKind, UpdateAsset>{
+      WindowsInstallKind.setup: _windowsAsset(),
+      WindowsInstallKind.msi: _windowsAsset(
+        kind: UpdateAssetKind.msi,
+        fileName: 'Slovofon-v1.2.4-windows-x64-msi.msi',
+      ),
+      WindowsInstallKind.portable: _windowsAsset(
+        kind: UpdateAssetKind.portable,
+        fileName: 'Slovofon-v1.2.4-windows-x64-portable.zip',
+      ),
+    };
+    for (final entry in packages.entries) {
+      test('${entry.key} selects only its own Windows package', () async {
+        final installer = _FakeInstaller([])
+          ..installation = WindowsUpdateInstallation(
+            kind: entry.key,
+            directory: r'C:\Slovofon',
+            scope: WindowsInstallScope.user,
+          );
+        final service = _service(
+          _FakeClient([_manifest(assets: packages.values.toList())]),
+          platform: UpdateRuntimePlatform.windows,
+          installer: installer,
+        );
+        final info = (await service.checkForUpdate()).info!;
+        expect(info.asset, same(entry.value));
+        expect(info.requiresManualDownload, isFalse);
+        expect(info.isPortableUpdate, entry.key == WindowsInstallKind.portable);
+      });
+      test('${entry.key} never falls back to another installer type', () async {
+        final installer = _FakeInstaller([])
+          ..installation = WindowsUpdateInstallation(
+            kind: entry.key,
+            directory: r'C:\Slovofon',
+            scope: WindowsInstallScope.user,
+          );
+        final service = _service(
+          _FakeClient([
+            _manifest(
+              assets: packages.entries
+                  .where((package) => package.key != entry.key)
+                  .map((package) => package.value)
+                  .toList(),
+            ),
+          ]),
+          platform: UpdateRuntimePlatform.windows,
+          installer: installer,
+        );
+        expect(
+          (await service.checkForUpdate()).status,
+          UpdateCheckStatus.unsupported,
+        );
+      });
+    }
+
+    test(
+      'unknown Windows context offers manual release info, not a launch',
+      () async {
+        final events = <String>[];
+        final installer = _FakeInstaller(events)
+          ..installation = const WindowsUpdateInstallation.unknown();
+        final client = _FakeClient([
+          _manifest(assets: packages.values.toList()),
+        ]);
+        final service = _service(
+          client,
+          platform: UpdateRuntimePlatform.windows,
+          installer: installer,
+        );
+        final info = (await service.checkForUpdate()).info!;
+        expect(info.requiresManualDownload, isTrue);
+        await expectLater(
+          service.downloadAndInstall(info),
+          throwsA(isA<UpdateInstallException>()),
+        );
+        expect(client.downloadedAssets, isEmpty);
+        expect(events, isEmpty);
+      },
+    );
+
+    test('verified Windows installer waits for playback persistence', () async {
+      final events = <String>[];
+      final flush = Completer<void>();
+      final client = _FakeClient([_manifest()], events: events);
+      final installer = _FakeInstaller(events);
+      final service = _service(
+        client,
+        platform: UpdateRuntimePlatform.windows,
+        installer: installer,
+        beforeInstall: () {
+          events.add('flush');
+          return flush.future;
+        },
+      );
+      final operation = service.downloadAndInstall(
+        (await service.checkForUpdate()).info!,
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(events, ['ensureReady', 'download', 'flush']);
+      expect(installer.installedUpdates, isEmpty);
+      flush.complete();
+      await operation;
+      expect(events.last, 'install');
+    });
+
+    test(
+      'failed persistence prevents launch and permits a clean retry',
+      () async {
+        var fail = true;
+        final events = <String>[];
+        final service = _service(
+          _FakeClient([_manifest()], events: events),
+          platform: UpdateRuntimePlatform.windows,
+          installer: _FakeInstaller(events),
+          beforeInstall: () async {
+            if (fail) throw StateError('write failed');
+          },
+        );
+        final info = (await service.checkForUpdate()).info!;
+        await expectLater(
+          service.downloadAndInstall(info),
+          throwsA(isA<UpdateInstallException>()),
+        );
+        expect(events, ['ensureReady', 'download']);
+        fail = false;
+        await service.downloadAndInstall(info);
+        expect(events.last, 'install');
+      },
+    );
+
+    test('only one download/installer operation can run at a time', () async {
+      final ready = Completer<void>();
+      final installer = _FakeInstaller([])..readiness = ready.future;
+      final client = _FakeClient([_manifest()]);
+      final service = _service(client, installer: installer);
+      final info = (await service.checkForUpdate()).info!;
+      final first = service.downloadAndInstall(info);
+      await expectLater(
+        service.downloadAndInstall(info),
+        throwsA(isA<UpdateInstallException>()),
+      );
+      ready.complete();
+      await first;
+      expect(client.downloadedAssets, hasLength(1));
+      expect(installer.installedUpdates, hasLength(1));
+    });
+  });
 }
 
 UpdateService _service(
   _FakeClient client, {
   UpdateRuntimePlatform platform = UpdateRuntimePlatform.android,
   _FakeInstaller? installer,
+  UpdatePreferences? preferences,
+  Future<void> Function()? beforeInstall,
+  DateTime Function()? clock,
 }) => UpdateService(
   client: client,
   installer: installer ?? _FakeInstaller([]),
   runtimePlatform: platform,
   currentVersion: '1.2.3',
   currentBuild: '7',
+  preferences: preferences,
+  beforeInstall: beforeInstall,
+  clock: clock,
 );
 
 UpdateManifest _manifest({
@@ -484,6 +727,7 @@ class _FakeClient extends UpdateClient {
   final fetchedUris = <Uri>[];
   final downloadedAssets = <UpdateAsset>[];
   Object? fetchFailure;
+  Future<void>? fetchGate;
   Object? downloadFailure;
   DownloadedUpdate? lastDownloadedUpdate;
   int _manifestIndex = 0;
@@ -491,6 +735,7 @@ class _FakeClient extends UpdateClient {
   @override
   Future<UpdateManifest> fetchManifest(Uri uri) async {
     fetchedUris.add(uri);
+    await fetchGate;
     final failure = fetchFailure;
     if (failure != null) throw failure;
     final index = _manifestIndex.clamp(0, manifests.length - 1);
@@ -523,6 +768,14 @@ class _FakeInstaller extends PlatformUpdateInstaller {
   final installedUpdates = <DownloadedUpdate>[];
   Future<void>? readiness;
   Object? readinessFailure;
+  WindowsUpdateInstallation installation = const WindowsUpdateInstallation(
+    kind: WindowsInstallKind.setup,
+    scope: WindowsInstallScope.user,
+    directory: r'C:\Slovofon',
+  );
+
+  @override
+  Future<WindowsUpdateInstallation> windowsInstallation() async => installation;
 
   @override
   Future<void> ensureReadyToInstall() async {

@@ -14,7 +14,10 @@ import '../services/deep_links/slovofon_deep_link.dart';
 import '../sources/sources.dart';
 import '../ui/adaptive/slovofon_shell.dart';
 
+final rootNavigatorKey = GlobalKey<NavigatorState>(debugLabel: 'app-root');
+
 final GoRouter appRouter = GoRouter(
+  navigatorKey: rootNavigatorKey,
   initialLocation: '/',
   routes: [
     StatefulShellRoute.indexedStack(
