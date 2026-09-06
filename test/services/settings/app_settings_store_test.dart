@@ -169,6 +169,22 @@ void main() {
       expect(store.settings.compactCards, isTrue);
     },
   );
+  test(
+    'transient hydration failure can retry without replacing saved settings',
+    () async {
+      final persistence = _RetrySettingsStore();
+      final store = AppSettingsStore(persistence);
+      addTearDown(store.dispose);
+      await expectLater(store.load(), throwsStateError);
+      expect(persistence.saveCount, 0);
+      await store.setTextScale(1.5);
+      expect(persistence.loads, 2);
+      expect(persistence.saved!.themeMode, AppThemeMode.dark);
+      expect(persistence.saved!.languageCode, 'uk');
+      expect(persistence.saved!.compactCards, isTrue);
+      expect(persistence.saved!.textScale, 1.5);
+    },
+  );
 }
 
 class _RecordingSettingsStore implements AppSettingsPersistenceStore {
@@ -195,4 +211,25 @@ class _DelayedSettingsStore implements AppSettingsPersistenceStore {
     AppSettings settings, {
     required DateTime updatedAt,
   }) async {}
+}
+
+class _RetrySettingsStore implements AppSettingsPersistenceStore {
+  int loads = 0;
+  int saveCount = 0;
+  AppSettings? saved;
+  @override
+  Future<AppSettings?> load() async {
+    if (++loads == 1) throw StateError('Temporary read error');
+    return const AppSettings(
+      themeMode: AppThemeMode.dark,
+      languageCode: 'uk',
+      compactCards: true,
+    );
+  }
+
+  @override
+  Future<void> save(AppSettings settings, {required DateTime updatedAt}) async {
+    saveCount++;
+    saved = settings;
+  }
 }

@@ -75,7 +75,8 @@ void main() {
         DateTime.utc(2026, 5, 30, 10),
       );
 
-      final taskId = 'chapter:${_playbackBook.versionId}:chapter-1';
+      final taskId =
+          'chapter:${_playbackBook.sourceId}:${_playbackBook.versionId}:chapter-1';
       expect(downloadManager.bookForTask(taskId)?.title, _playbackBook.title);
       expect(
         downloadManager.bookForTask(taskId)?.coverUrl,

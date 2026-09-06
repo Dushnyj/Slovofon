@@ -107,6 +107,39 @@ void main() {
       expect(details.version.canDownload, isFalse);
       expect(chapters, isEmpty);
     });
+
+    test('missing variant lists remain a valid unplayable book', () {
+      for (final files in [
+        <String, Object?>{},
+        {'full': null, 'mobile': null},
+      ]) {
+        final book = Map<String, Object?>.from(_bookFixture())
+          ..['files'] = files;
+        expect(mapper.bookDetails(book).version.canStream, isFalse);
+        expect(mapper.chapters(book), isEmpty);
+        expect(mapper.audioTracks(book), isEmpty);
+      }
+    });
+
+    test('unusable mobile slots do not hide available full tracks', () {
+      final book = Map<String, Object?>.from(_bookFixture())
+        ..['files'] = {
+          'mobile': [
+            {'id': 1, 'index': 1, 'url': ''},
+            {'id': 2, 'index': 2, 'url': null},
+          ],
+          'full': [
+            {'id': 11, 'index': 2, 'url': 'https://audio.izib.uk/002.mp3'},
+            {'id': 10, 'index': 1, 'url': 'https://audio.izib.uk/001.mp3'},
+          ],
+        };
+      expect(mapper.bookDetails(book).version.canStream, isTrue);
+      expect(mapper.chapters(book).map((chapter) => chapter.sourceChapterId), [
+        '10',
+        '11',
+      ]);
+      expect(mapper.audioTracks(book), hasLength(2));
+    });
   });
 }
 

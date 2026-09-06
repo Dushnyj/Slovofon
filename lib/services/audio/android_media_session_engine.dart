@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import 'audio_engine.dart';
@@ -229,6 +230,7 @@ class AndroidMediaSessionEngine
   int _playGeneration = 0;
   int _commandEpoch = 0;
   double _speed = 1;
+  bool _reportedPlatformFailure = false;
 
   @override
   Stream<AudioEngineSnapshot> get snapshots => _snapshots.stream;
@@ -327,13 +329,19 @@ class AndroidMediaSessionEngine
     await _commandSubscription.cancel();
     await _commandQueue;
     await _delegateSubscription.cancel();
-    await _platform.clear();
-    await _delegate.dispose();
-    if (_platform
-        case final MethodChannelAndroidMediaSessionPlatform platform) {
-      await platform.dispose();
+    await _clearPlatform();
+    try {
+      await _delegate.dispose();
+    } finally {
+      try {
+        if (_platform
+            case final MethodChannelAndroidMediaSessionPlatform platform) {
+          await platform.dispose();
+        }
+      } finally {
+        await _snapshots.close();
+      }
     }
-    await _snapshots.close();
   }
 
   Future<void> _handleCommand(AndroidMediaSessionCommand command) async {
@@ -352,7 +360,7 @@ class AndroidMediaSessionEngine
         await (_chapterNavigation.onPause?.call() ?? pause());
       case AndroidMediaSessionCommandType.stop:
         await (_chapterNavigation.onPause?.call() ?? pause());
-        if (!_lastSnapshot.isPlaying) await _platform.clear();
+        if (!_lastSnapshot.isPlaying) await _clearPlatform();
       case AndroidMediaSessionCommandType.seek:
         await _seekFromCommand(command.position ?? Duration.zero);
       case AndroidMediaSessionCommandType.rewind:
@@ -431,7 +439,49 @@ class AndroidMediaSessionEngine
     }
 
     _lastPublishedSnapshot = snapshot;
-    await _platform.update(snapshot);
+    try {
+      await _platform.update(snapshot);
+      _reportedPlatformFailure = false;
+    } catch (_, stack) {
+      // Notification/service availability is independent of the audio backend.
+      // Do not let an unawaited channel failure escape, and allow a later tick
+      // to retry the same state instead of treating this update as delivered.
+      if (identical(_lastPublishedSnapshot, snapshot)) {
+        _lastPublishedSnapshot = null;
+      }
+      _reportPlatformFailure(stack);
+    }
+  }
+
+  Future<void> _clearPlatform() async {
+    _lastPublishedSnapshot = null;
+    try {
+      await _platform.clear();
+      _reportedPlatformFailure = false;
+    } catch (_, stack) {
+      // Cleanup of the actual player must still run if the native service has
+      // already gone away (for example, during process/activity teardown).
+      _reportPlatformFailure(stack);
+    }
+  }
+
+  void _reportPlatformFailure(StackTrace stack) {
+    if (_reportedPlatformFailure) return;
+    _reportedPlatformFailure = true;
+    FlutterError.reportError(
+      FlutterErrorDetails(
+        // PlatformException details may contain channel payloads. Keep tokens,
+        // headers and media URLs out of this diagnostic.
+        exception: const AudioEngineException(
+          'System media session unavailable.',
+        ),
+        stack: stack,
+        library: 'slovofon media session',
+        context: ErrorDescription(
+          'while updating the system playback controls',
+        ),
+      ),
+    );
   }
 
   bool _shouldPublish(AndroidMediaSessionSnapshot snapshot) {

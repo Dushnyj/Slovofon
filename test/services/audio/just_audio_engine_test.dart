@@ -46,7 +46,7 @@ void main() {
         const Duration(minutes: 2),
       ]);
       expect(adapter.playCount, 1);
-      expect(adapter.pauseCount, 1);
+      expect(adapter.pauseCount, 2); // Paused load, then explicit user pause.
     });
 
     test('fails explicitly when a chapter has no playable media source', () {

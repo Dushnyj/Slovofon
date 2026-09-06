@@ -97,15 +97,17 @@ class YaknigaSourceConnector
 
   @override
   Future<List<BookSearchResult>> search(SearchRequest request) async {
+    // This endpoint exposes only an autocomplete collection, not remote pages.
+    // Do not repeat a discarded API call for pages known to be unsupported.
+    if (request.page > 1) {
+      return const [];
+    }
     final data = await _client.searchBooks(term: request.query);
     final items = data['search'];
     if (items is! List<Object?>) {
       return const [];
     }
     final pageSize = request.pageSize < 1 ? 20 : request.pageSize;
-    if (request.page > 1) {
-      return const [];
-    }
     return _mapper.searchResults(items).take(pageSize).toList();
   }
 

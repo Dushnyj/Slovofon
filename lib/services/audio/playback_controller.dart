@@ -9,6 +9,11 @@ import 'audio_state.dart';
 
 typedef PlaybackBookResolver =
     Future<AudioPlaybackBook> Function(AudioPlaybackBook book);
+typedef PlaybackAccessGuard =
+    FutureOr<void> Function(
+      AudioPlaybackBook book,
+      AudioPlaybackChapter chapter,
+    );
 
 class PlaybackController extends ChangeNotifier {
   PlaybackController({
@@ -17,6 +22,7 @@ class PlaybackController extends ChangeNotifier {
     PlaybackBookMetadataStore? bookMetadataStore,
     PlaybackBookResolver? playbackBookResolver,
     PlaybackBookResolver? playbackErrorBookResolver,
+    PlaybackAccessGuard? playbackAccessGuard,
     DateTime Function()? clock,
     Duration persistenceInterval = const Duration(seconds: 5),
   }) : _engine = engine,
@@ -24,6 +30,7 @@ class PlaybackController extends ChangeNotifier {
        _bookMetadataStore = bookMetadataStore,
        _playbackBookResolver = playbackBookResolver,
        _playbackErrorBookResolver = playbackErrorBookResolver,
+       _playbackAccessGuard = playbackAccessGuard,
        _clock = clock ?? DateTime.now,
        _persistenceInterval = persistenceInterval {
     _engineSubscription = _engine.snapshots.listen(_handleEngineSnapshot);
@@ -45,6 +52,7 @@ class PlaybackController extends ChangeNotifier {
   final PlaybackBookMetadataStore? _bookMetadataStore;
   final PlaybackBookResolver? _playbackBookResolver;
   final PlaybackBookResolver? _playbackErrorBookResolver;
+  final PlaybackAccessGuard? _playbackAccessGuard;
   final DateTime Function() _clock;
   final Duration _persistenceInterval;
   late final StreamSubscription<AudioEngineSnapshot> _engineSubscription;
@@ -150,10 +158,14 @@ class PlaybackController extends ChangeNotifier {
       return;
     }
 
-    await _bookMetadataStore?.saveBook(_state.book!);
+    await _persistMetadata(_state.book!);
     if (!await _configureEngine(generation)) return;
 
     if (autoPlay) {
+      if (!await _authorizeEnginePlayback(generation) ||
+          !_isCurrent(generation)) {
+        return;
+      }
       _startEnginePlayback(generation);
     }
 
@@ -227,10 +239,14 @@ class PlaybackController extends ChangeNotifier {
       return;
     }
 
-    await _bookMetadataStore?.saveBook(_state.book!);
+    await _persistMetadata(_state.book!);
     if (!await _configureEngine(generation)) return;
 
     if (session.isPlaying) {
+      if (!await _authorizeEnginePlayback(generation) ||
+          !_isCurrent(generation)) {
+        return;
+      }
       _startEnginePlayback(generation);
     }
 
@@ -272,6 +288,10 @@ class PlaybackController extends ChangeNotifier {
     final generation = ++_operationGeneration;
     if (!await _preparePositionForPlayback(generation)) return;
     if (!_isCurrent(generation)) return;
+    if (!await _authorizeEnginePlayback(generation) ||
+        !_isCurrent(generation)) {
+      return;
+    }
     _startEnginePlayback(generation);
     _state = _state.copyWith(
       status: AudioPlaybackStatus.playing,
@@ -306,10 +326,10 @@ class PlaybackController extends ChangeNotifier {
     if (_disposed || chapter == null) return;
     final generation = ++_operationGeneration;
     final normalized = _clampPosition(position, chapter);
-    if (!await _runEngineOperation(
-      generation,
-      () => _engine.seek(normalized),
-    )) {
+    if (!await _runEngineOperation(generation, () async {
+      await _guardPlaybackAccess(_state.book!, chapter);
+      if (_isCurrent(generation)) await _engine.seek(normalized);
+    })) {
       return;
     }
     _state = _state.copyWith(position: normalized);
@@ -530,6 +550,10 @@ class PlaybackController extends ChangeNotifier {
       _snapshotDuringLoad = snapshot;
       return;
     }
+    // A failed/replaced load has no decoder bound to the selected chapter.
+    // Late pause/position events still belong to the previous decoder and must
+    // not erase the saved resume position or dismiss the recoverable error.
+    if (_loadedChapterIdentity == null) return;
     var chapter = _state.currentChapter;
     if (chapter == null) {
       return;
@@ -681,9 +705,15 @@ class PlaybackController extends ChangeNotifier {
     final retry = _state.status == AudioPlaybackStatus.error;
     var book = await _refreshActiveBookForPlayback(generation);
     if (!_isCurrent(generation) || book == null) return false;
+    final currentChapter = _state.currentChapter;
+    if (currentChapter == null ||
+        !await _checkPlaybackAccess(book, currentChapter, generation)) {
+      return false;
+    }
     if (retry &&
         _playbackErrorBookResolver != null &&
-        _state.currentChapter?.mediaSource?.type != AudioMediaSourceType.file) {
+        currentChapter.mediaSource?.type != AudioMediaSourceType.file &&
+        currentChapter.mediaSource?.type != AudioMediaSourceType.asset) {
       book = await _refreshActiveBookForPlayback(generation, retryMedia: true);
       if (!_isCurrent(generation) || book == null) return false;
     }
@@ -781,6 +811,11 @@ class PlaybackController extends ChangeNotifier {
       return;
     }
     if (!await _configureEngine(generation)) return;
+    if (wasPlaying &&
+        (!await _authorizeEnginePlayback(generation) ||
+            !_isCurrent(generation))) {
+      return;
+    }
     _state = _state.copyWith(
       status: wasPlaying
           ? AudioPlaybackStatus.playing
@@ -806,14 +841,17 @@ class PlaybackController extends ChangeNotifier {
       _snapshotDuringLoad = null;
       _loadedChapterIdentity = null;
       try {
+        await _guardPlaybackAccess(book, chapter);
+        if (!_isCurrent(generation)) return;
         await _engine.load(chapter, position: position, book: book);
-        // Stream wrappers may have one final microtask queued by load().
-        await Future<void>.value();
-        loadedSnapshot = _snapshotDuringLoad;
         if (_isCurrent(generation)) {
           _loadedChapterIdentity = _chapterLoadIdentity(book, chapter);
         }
       } finally {
+        // Stream wrappers can queue a final pause/position microtask even when
+        // load throws. Keep both successful and failed loads inside the guard.
+        await Future<void>.value();
+        loadedSnapshot = _snapshotDuringLoad;
         _engineLoadDepth--;
       }
     });
@@ -912,21 +950,63 @@ class PlaybackController extends ChangeNotifier {
   }
 
   void _saveMetadata(AudioPlaybackBook book) {
-    unawaited(
-      _bookMetadataStore?.saveBook(book).catchError((
-        Object error,
-        StackTrace stack,
-      ) {
-        FlutterError.reportError(
-          FlutterErrorDetails(
-            exception: error,
-            stack: stack,
-            library: 'slovofon playback',
-            context: ErrorDescription('while saving playback metadata'),
-          ),
-        );
-      }),
+    unawaited(_persistMetadata(book));
+  }
+
+  Future<void> _persistMetadata(AudioPlaybackBook book) async {
+    try {
+      await _bookMetadataStore?.saveBook(book);
+    } catch (error, stack) {
+      // A cache/disk write failure must not strand an already loaded decoder
+      // in "loading" or prevent Pause/Play. Persistence stays best-effort and
+      // visible in diagnostics, as it is for runtime duration metadata updates.
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: error,
+          stack: stack,
+          library: 'slovofon playback',
+          context: ErrorDescription('while saving playback metadata'),
+        ),
+      );
+    }
+  }
+
+  Future<bool> _checkPlaybackAccess(
+    AudioPlaybackBook book,
+    AudioPlaybackChapter chapter,
+    int generation,
+  ) {
+    if (_playbackAccessGuard == null) {
+      return Future<bool>.value(_isCurrent(generation));
+    }
+    return _runEngineOperation(
+      generation,
+      () => _guardPlaybackAccess(book, chapter),
     );
+  }
+
+  Future<void> _guardPlaybackAccess(
+    AudioPlaybackBook book,
+    AudioPlaybackChapter chapter,
+  ) async {
+    try {
+      await _playbackAccessGuard?.call(book, chapter);
+    } catch (_) {
+      // A denied switch/resume must not leave an older remote decoder sounding.
+      // Preserve the policy error even if cleanup itself cannot reach a backend.
+      try {
+        await _engine.pause();
+      } catch (_) {}
+      rethrow;
+    }
+  }
+
+  Future<bool> _authorizeEnginePlayback(int generation) async {
+    if (!_isCurrent(generation)) return false;
+    final book = _state.book;
+    final chapter = _state.currentChapter;
+    if (book == null || chapter == null) return false;
+    return _checkPlaybackAccess(book, chapter, generation);
   }
 
   void _startEnginePlayback(int generation) {

@@ -181,6 +181,33 @@ void main() {
     });
 
     test(
+      'other narration fallback has a distinct three-token budget',
+      () async {
+        final connector = _CountingNarrationSearchConnector();
+        final service = SourceCatalogService(
+          registry: SourceRegistry([connector]),
+        );
+        final alternatives = await service.findOtherNarrations(
+          _sourceSnapshot(
+            sourceId: 'izib',
+            sourceName: 'Izib',
+            sourceBookId: 'fixture',
+            title: 'Один один два три четыре пять шесть',
+            author: 'Автор',
+            narrator: 'Чтец',
+          ),
+        );
+        expect(alternatives, isEmpty);
+        expect(connector.queries, [
+          'один один два три четыре пять шесть',
+          'один',
+          'два',
+          'три',
+        ]);
+      },
+    );
+
+    test(
       'finds other narrations across sources by title and reordered author',
       () async {
         final service = SourceCatalogService(
@@ -865,6 +892,19 @@ class _ZeroChapterDurationConnector implements SourceConnector {
   @override
   Future<SourceHealth> checkHealth() async {
     return SourceHealth.working(sourceId: id);
+  }
+}
+
+class _CountingNarrationSearchConnector extends _NarrationSourceConnector {
+  _CountingNarrationSearchConnector()
+    : super(id: 'izib', name: 'Izib', results: const []);
+
+  final queries = <String>[];
+
+  @override
+  Future<List<BookSearchResult>> search(SearchRequest request) async {
+    queries.add(request.query);
+    return const [];
   }
 }
 

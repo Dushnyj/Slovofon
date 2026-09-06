@@ -48,6 +48,8 @@ class SourceSettingsStore extends ChangeNotifier {
     return _settings[sourceId]?.isEnabled ?? true;
   }
 
+  SourceSettings? settingsFor(String sourceId) => _settings[sourceId];
+
   Future<void> load() {
     return _loadFuture ??= _load();
   }
@@ -75,9 +77,34 @@ class SourceSettingsStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> setMediaPermissions(
+    String sourceId, {
+    bool? allowStreaming,
+    bool? allowDownload,
+  }) async {
+    await load();
+    if (allowStreaming == null && allowDownload == null) {
+      return;
+    }
+    final current =
+        _settings[sourceId] ??
+        SourceSettings(sourceId: sourceId, updatedAt: _clock());
+    final next = current.copyWith(
+      allowStreaming: allowStreaming,
+      allowDownload: allowDownload,
+      updatedAt: _clock(),
+    );
+    _settings[sourceId] = next;
+    await _persistence.save(next);
+    notifyListeners();
+  }
+
   Future<void> _load() async {
     final loaded = await _persistence.load();
     _settings = {
+      // Keep explicitly stored preferences even for a source not present in the
+      // current built-in registry. Absence still uses the permissive default.
+      ...loaded,
       for (final id in defaultSourceIds)
         id: loaded[id] ?? SourceSettings(sourceId: id, updatedAt: _clock()),
     };

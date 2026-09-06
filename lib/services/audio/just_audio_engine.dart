@@ -66,18 +66,18 @@ class PackageJustAudioPlayerAdapter implements JustAudioPlayerAdapter {
         ),
       );
     });
-    _playbackEventSubscription = _player.playbackEventStream.listen(
-      (_) {},
-      onError: (Object error, StackTrace stackTrace) {
-        _playbackSnapshots.add(
-          JustAudioAdapterSnapshot(
-            processingState: JustAudioAdapterProcessingState.error,
-            isPlaying: false,
-            errorMessage: _errorMessage(error),
-          ),
-        );
-      },
-    );
+    // just_audio 0.10 reports runtime failures as values on errorStream, not
+    // playbackEventStream.onError. Without this subscription a network/decoder
+    // failure after load never reaches the controller's recoverable error state.
+    _errorSubscription = _player.errorStream.listen((error) {
+      _playbackSnapshots.add(
+        JustAudioAdapterSnapshot(
+          processingState: JustAudioAdapterProcessingState.error,
+          isPlaying: false,
+          errorMessage: _errorMessage(error),
+        ),
+      );
+    });
   }
 
   final just_audio.AudioPlayer _player;
@@ -85,8 +85,7 @@ class PackageJustAudioPlayerAdapter implements JustAudioPlayerAdapter {
       StreamController<JustAudioAdapterSnapshot>.broadcast();
   late final StreamSubscription<just_audio.PlayerState>
   _playerStateSubscription;
-  late final StreamSubscription<just_audio.PlaybackEvent>
-  _playbackEventSubscription;
+  late final StreamSubscription<just_audio.PlayerException> _errorSubscription;
   bool _disposed = false;
 
   @override
@@ -106,7 +105,7 @@ class PackageJustAudioPlayerAdapter implements JustAudioPlayerAdapter {
     }
     _disposed = true;
     await _playerStateSubscription.cancel();
-    await _playbackEventSubscription.cancel();
+    await _errorSubscription.cancel();
     await _playbackSnapshots.close();
     await _player.dispose();
   }
@@ -243,6 +242,12 @@ class JustAudioEngine implements AudioEngine {
     required Duration position,
     AudioPlaybackBook? book,
   }) async {
+    // setUrl/setFilePath preserve just_audio's existing playWhenReady state.
+    // Loading is explicitly paused in our engine contract: the controller alone
+    // decides whether to resume after its load/seek generation still wins.
+    // Stop the previous source even when the new chapter has no playable media.
+    await _player.pause();
+    _isPlaying = false;
     final mediaSource = chapter.mediaSource;
     if (mediaSource == null) {
       throw AudioEngineException(

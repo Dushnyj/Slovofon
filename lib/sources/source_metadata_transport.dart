@@ -1,7 +1,7 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'source_models.dart';
+import 'source_response_reader.dart';
 
 /// Enforced both by clients (including injected transports) and before every
 /// native HTTP request, including redirects. Book IDs must not select a host.
@@ -51,6 +51,7 @@ class SourceMetadataTransport {
   SourceMetadataTransport({
     required this.policy,
     required this.timeout,
+    this.maxResponseBytes = 8 * 1024 * 1024,
     HttpClient Function()? httpClientFactory,
     DateTime Function()? clock,
   }) : _httpClientFactory = httpClientFactory ?? HttpClient.new,
@@ -58,6 +59,7 @@ class SourceMetadataTransport {
 
   final SourceMetadataPolicy policy;
   final Duration timeout;
+  final int maxResponseBytes;
   final HttpClient Function() _httpClientFactory;
   final DateTime Function() _clock;
   final _cookies = <(String, String, String), _MetadataCookie>{};
@@ -116,10 +118,11 @@ class SourceMetadataTransport {
           }
           continue;
         }
-        final body = await response
-            .transform(utf8.decoder)
-            .join()
-            .timeout(timeout);
+        final body = await readSourceResponseBody(
+          response,
+          sourceId: policy.sourceId,
+          maxBytes: maxResponseBytes,
+        ).timeout(timeout);
         return SourceMetadataResponse(response.statusCode, body);
       }
     } finally {

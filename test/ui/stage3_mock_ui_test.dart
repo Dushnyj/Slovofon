@@ -1120,6 +1120,19 @@ Future<DownloadManager> _seededDownloadManager(WidgetTester tester) async {
     persistence: persistence,
   );
   await tester.runAsync(manager.loadPersistedTasks);
+  // Production never guesses metadata from fixture ids. Attach the books that
+  // these synthetic download tasks were explicitly seeded from.
+  for (final book in [
+    stage3MockBooks[2],
+    stage3MockBooks[0],
+    stage3MockBooks[3],
+  ]) {
+    manager.attachBookContext(mockAudioPlaybackBook(book));
+  }
+  for (final task in manager.tasks) {
+    expect(manager.bookForTask(task.id)?.versionId, task.bookVersionId);
+    expect(manager.bookForTask(task.id)?.sourceId, task.sourceId);
+  }
   return manager;
 }
 
@@ -1134,7 +1147,7 @@ DownloadTask _seedTask({
   final playbackBook = mockAudioPlaybackBook(book);
   final chapter = playbackBook.chapters.first;
   return DownloadTask(
-    id: 'chapter:${playbackBook.versionId}:${chapter.id}',
+    id: 'chapter:${playbackBook.sourceId}:${playbackBook.versionId}:${chapter.id}',
     bookId: playbackBook.id,
     bookVersionId: playbackBook.versionId,
     chapterId: chapter.id,

@@ -7,10 +7,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'android_media_session_engine.dart';
 import 'audio_persistence.dart';
 import 'audio_engine.dart';
+import 'audio_state.dart';
 import 'just_audio_engine.dart';
 import 'playback_controller.dart';
 import '../downloads/download_manager_provider.dart';
 import '../sources/source_catalog_provider.dart';
+import '../sources/source_access_policy.dart';
+import '../sources/source_access_policy_provider.dart';
 
 final audioEngineProvider = Provider<AudioEngine>((ref) {
   final engine = InMemoryAudioEngine();
@@ -38,14 +41,18 @@ final _playbackProgressRevisionProvider = StreamProvider<int>((ref) async* {
 });
 
 final playbackControllerProvider = Provider<PlaybackController>((ref) {
+  final accessPolicy = ref.watch(sourceAccessPolicyProvider);
   final service = PlaybackController(
     engine: ref.watch(audioEngineProvider),
     persistence: ref.watch(playbackPersistenceStoreProvider),
     bookMetadataStore: ref.watch(downloadStorageProvider),
+    playbackAccessGuard: (book, chapter) =>
+        ensurePlaybackAllowedByPolicy(accessPolicy, book, chapter),
     playbackBookResolver: (book) {
       return ref.read(downloadStorageProvider).offlinePlaybackBook(book);
     },
     playbackErrorBookResolver: (book) async {
+      await ensureRemotePlaybackAllowedByPolicy(accessPolicy, book.sourceId);
       final refreshed = await ref
           .read(sourceCatalogServiceProvider)
           .refreshBookForPlayback(book);
@@ -63,6 +70,31 @@ final playbackControllerProvider = Provider<PlaybackController>((ref) {
   return service;
 });
 
+/// Translate policy codes at the composition boundary, keeping the controller
+/// independent of source preferences and preserving localized error handling.
+Future<void> ensurePlaybackAllowedByPolicy(
+  SourceAccessPolicy policy,
+  AudioPlaybackBook book,
+  AudioPlaybackChapter chapter,
+) async {
+  try {
+    await policy.ensurePlaybackAllowed(book, chapter);
+  } on SourceAccessDeniedException catch (error) {
+    throw AudioEngineException(error.code, cause: error);
+  }
+}
+
+Future<void> ensureRemotePlaybackAllowedByPolicy(
+  SourceAccessPolicy policy,
+  String sourceId,
+) async {
+  try {
+    await policy.ensureRemoteAllowed(sourceId, SourceAccessOperation.streaming);
+  } on SourceAccessDeniedException catch (error) {
+    throw AudioEngineException(error.code, cause: error);
+  }
+}
+
 Future<AudioEngine> createPlatformAudioEngine({
   TargetPlatform? platform,
 }) async {
@@ -74,19 +106,17 @@ Future<AudioEngine> createPlatformAudioEngine({
   }
 
   final realEngine = JustAudioEngine();
-  final fallbackEngine = InMemoryAudioEngine();
 
   if (effectivePlatform == TargetPlatform.android) {
-    return SwitchingAudioEngine(
-      primary: AndroidMediaSessionEngine(
-        delegate: realEngine,
-        platform: MethodChannelAndroidMediaSessionPlatform(),
-      ),
-      fallback: fallbackEngine,
+    return AndroidMediaSessionEngine(
+      delegate: realEngine,
+      platform: MethodChannelAndroidMediaSessionPlatform(),
     );
   }
 
-  return SwitchingAudioEngine(primary: realEngine, fallback: fallbackEngine);
+  // Missing cached media must fail recoverably, not select a silent simulator.
+  // Mock/story/test entry points explicitly override audioEngineProvider.
+  return realEngine;
 }
 
 Future<void> configureAudiobookAudioSession() async {

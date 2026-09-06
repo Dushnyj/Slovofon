@@ -164,8 +164,13 @@ class DriftLibraryPersistenceStore
   );
 
   @override
-  Future<List<AudioPlaybackBook>> loadPlaybackBooks() async {
-    final versions = await _db.select(_db.bookVersions).get();
+  Future<List<AudioPlaybackBook>> loadPlaybackBooks({
+    Set<String>? versionIds,
+  }) async {
+    if (versionIds != null && versionIds.isEmpty) return [];
+    final query = _db.select(_db.bookVersions);
+    if (versionIds != null) query.where((row) => row.id.isIn(versionIds));
+    final versions = await query.get();
     return [for (final version in versions) await _playbackBook(version)];
   }
 
@@ -209,8 +214,11 @@ class DriftLibraryPersistenceStore
       id: version.bookId,
       versionId: version.id,
       sourceId: version.sourceId,
-      sourceBookId: metadata.containsKey('librarySourceBookId')
-          ? metadata['librarySourceBookId'] as String?
+      sourceBookId: metadata['librarySourceBookId'] is String
+          ? metadata['librarySourceBookId'] as String
+          : metadata.containsKey('librarySourceBookId') &&
+                metadata['librarySourceBookId'] == null
+          ? null
           : version.sourceBookId,
       title: card.title,
       author: card.author,
@@ -291,7 +299,12 @@ class DriftLibraryPersistenceStore
   }
 
   List<String> _decodePeople(String jsonText) {
-    final decoded = jsonDecode(jsonText);
+    Object? decoded;
+    try {
+      decoded = jsonDecode(jsonText);
+    } on FormatException {
+      return const [];
+    }
     if (decoded is! List<Object?>) {
       return const [];
     }
@@ -306,11 +319,17 @@ class DriftLibraryPersistenceStore
     if (jsonText == null || jsonText.isEmpty) {
       return const {};
     }
-    final decoded = jsonDecode(jsonText);
-    if (decoded is Map<String, Object?>) {
-      return decoded;
+    Object? decoded;
+    try {
+      decoded = jsonDecode(jsonText);
+    } on FormatException {
+      /* Keep recovery data below. */
     }
-    return const {};
+    if (decoded is Map<String, Object?>) return decoded;
+    // Optional connector metadata must not hide otherwise valid favorites or
+    // bookmarks. A later metadata refresh retains the original rather than
+    // silently overwriting damaged source data with a fresh empty map.
+    return {'_legacyUnparsedSourceData': jsonText};
   }
 
   int _intValue(Object? value) {

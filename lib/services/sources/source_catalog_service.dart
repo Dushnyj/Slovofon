@@ -330,15 +330,18 @@ class SourceCatalogService {
       }, tokens);
       if (filtered.isEmpty && tokens.length > 1) {
         final fallbackResponses = await Future.wait(
-          tokens.map(
-            (token) => _registry.search(
-              SearchRequest(
-                query: token,
-                kinds: const {SearchKind.title},
-                pageSize: limit < 20 ? 20 : limit * 2,
+          tokens
+              .toSet()
+              .take(3)
+              .map(
+                (token) => _registry.search(
+                  SearchRequest(
+                    query: token,
+                    kinds: const {SearchKind.title},
+                    pageSize: limit < 20 ? 20 : limit * 2,
+                  ),
+                ),
               ),
-            ),
-          ),
         );
         final fallbackResults = <BookSearchResult>[
           for (final response in fallbackResponses) ...response.results,

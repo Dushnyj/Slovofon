@@ -41,6 +41,35 @@ void main() {
       expect(results.single.author, 'Дмитрий Глуховский');
     });
 
+    test('search preserves a recognized fragment before enrichment', () {
+      const html = '''
+<div class="content__main__articles--item">
+  <a class="content__article-main-link" href="/fixture">Книга</a>
+  <h2 class="caption__article-main">Книга</h2>
+  <a href="https://akniga.org/paid/">Фрагмент</a>
+</div>''';
+      final result = mapper.searchResults(html).single;
+      expect(result.isFull, isFalse);
+      expect(result.isFragment, isTrue);
+    });
+
+    test('author fallback does not invent a missing narrator', () {
+      const html = '''
+<article data-bid="1">
+  <h1 class="caption__article-main">Книга</h1>
+  <div class="about-author"><a href="/author/fixture">Автор книги</a></div>
+</article>''';
+      const ref = SourceBookRef(sourceId: 'akniga', sourceBookId: 'fixture');
+      final details = mapper.bookDetails(html, ref);
+      expect(details.version.authors, ['Автор книги']);
+      expect(details.version.narrators, isEmpty);
+      final narrated = mapper.bookDetails(
+        '$html<div class="link__action"><i class="icon--performer"></i><a href="/reader/fixture">Автор книги</a></div>',
+        ref,
+      );
+      expect(narrated.version.narrators, ['Автор книги']);
+    });
+
     test('uses Akniga slug year when search card has no year label', () {
       final results = mapper.searchResults(_searchHtmlWithSlugYear);
 

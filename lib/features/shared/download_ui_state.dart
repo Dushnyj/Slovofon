@@ -277,27 +277,4 @@ bool _taskBelongsToBook(
   DownloadManager manager,
   DownloadTask task,
   AudioPlaybackBook book,
-) {
-  if (task.bookVersionId == book.versionId || task.bookId == book.id) {
-    return true;
-  }
-
-  final sourceBookId = book.sourceBookId;
-  if (sourceBookId != null &&
-      (task.bookVersionId == sourceBookId ||
-          task.bookVersionId == '${book.sourceId}-$sourceBookId' ||
-          task.bookId == sourceBookId ||
-          task.bookId == '${book.sourceId}-book-$sourceBookId')) {
-    return true;
-  }
-
-  final taskBook = manager.bookForTask(task.id);
-  if (taskBook == null || taskBook.sourceId != book.sourceId) {
-    return false;
-  }
-
-  return taskBook.versionId == book.versionId ||
-      taskBook.id == book.id ||
-      (taskBook.sourceBookId != null &&
-          taskBook.sourceBookId == book.sourceBookId);
-}
+) => manager.taskMatchesBook(task, book);

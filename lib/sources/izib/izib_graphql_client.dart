@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../source_models.dart';
+import '../source_response_reader.dart';
 import 'izib_signer.dart';
 
 const izibBookCommonFragment = '''fragment BookCommon on Book {
@@ -99,11 +100,13 @@ class IzibGraphQlTransportResponse {
 class DartIoIzibGraphQlTransport implements IzibGraphQlTransport {
   DartIoIzibGraphQlTransport({
     Duration timeout = const Duration(seconds: 8),
+    this.maxResponseBytes = 8 * 1024 * 1024,
     HttpClient Function()? httpClientFactory,
   }) : _timeout = timeout,
        _httpClientFactory = httpClientFactory ?? HttpClient.new;
 
   final Duration _timeout;
+  final int maxResponseBytes;
   final HttpClient Function() _httpClientFactory;
 
   @override
@@ -117,6 +120,9 @@ class DartIoIzibGraphQlTransport implements IzibGraphQlTransport {
 
     try {
       final request = await client.postUrl(uri).timeout(_timeout);
+      // A fixed GraphQL endpoint must not forward its per-body SIGN to a
+      // redirect target (including a POST -> 303 -> GET transition).
+      request.followRedirects = false;
       for (final entry in headers.entries) {
         request.headers.set(entry.key, entry.value);
       }
@@ -125,10 +131,11 @@ class DartIoIzibGraphQlTransport implements IzibGraphQlTransport {
       request.add(bodyBytes);
 
       final response = await request.close().timeout(_timeout);
-      final responseBody = await response
-          .transform(utf8.decoder)
-          .join()
-          .timeout(_timeout);
+      final responseBody = await readSourceResponseBody(
+        response,
+        sourceId: 'izib',
+        maxBytes: maxResponseBytes,
+      ).timeout(_timeout);
 
       return IzibGraphQlTransportResponse(
         statusCode: response.statusCode,

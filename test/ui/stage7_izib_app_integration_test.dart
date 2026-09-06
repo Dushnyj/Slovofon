@@ -37,34 +37,38 @@ import 'package:slovofon/ui/components/download_action_button.dart';
 import 'test_search_history_store.dart';
 
 void main() {
-  test('book download state matches persisted tasks by book id fallback', () {
-    final manager = _MemoryDownloadManager();
-    addTearDown(manager.dispose);
-    const book = AudioPlaybackBook(
-      id: 'izib-book-7098',
-      versionId: 'izib-canonical-7098',
-      sourceId: 'izib',
-      sourceBookId: 'canonical-7098',
-      title: 'S.T.A.L.K.E.R. Полураспад',
-      author: 'Александр Зорич',
-      narrator: 'Чайцын Александр',
-      sourceName: 'Izib',
-      chapters: [
-        AudioPlaybackChapter(
-          id: 'chapter-1',
-          index: 0,
-          title: 'Глава 00. 000-01',
-          duration: Duration(minutes: 10),
-        ),
-      ],
-    );
-    manager.seedTask(
-      DownloadTask(
-        id: 'chapter:izib-search-7098:chapter-1',
-        bookId: book.id,
-        bookVersionId: 'izib-search-7098',
-        chapterId: 'chapter-1',
+  test(
+    'book download state accepts legacy raw identity but never another version or source',
+    () {
+      final manager = _MemoryDownloadManager();
+      addTearDown(manager.dispose);
+      const book = AudioPlaybackBook(
+        id: 'izib-book-7098',
+        versionId: 'izib-canonical-7098',
         sourceId: 'izib',
+        sourceBookId: 'canonical-7098',
+        title: 'S.T.A.L.K.E.R. Полураспад',
+        author: 'Александр Зорич',
+        narrator: 'Чайцын Александр',
+        sourceName: 'Izib',
+        chapters: [
+          AudioPlaybackChapter(
+            id: 'chapter-1',
+            index: 0,
+            title: 'Глава 00. 000-01',
+            duration: Duration(minutes: 10),
+          ),
+        ],
+      );
+      DownloadTask persistedTask(
+        String versionId, {
+        String sourceId = 'izib',
+      }) => DownloadTask(
+        id: 'persisted-task',
+        bookId: book.id,
+        bookVersionId: versionId,
+        chapterId: 'chapter-1',
+        sourceId: sourceId,
         type: DownloadTaskType.chapter,
         status: DownloadTaskStatus.completed,
         progress: 1,
@@ -72,14 +76,29 @@ void main() {
         totalBytes: 10,
         createdAt: DateTime(2026, 5, 26),
         updatedAt: DateTime(2026, 5, 26),
-      ),
-    );
+      );
 
-    expect(
-      downloadStateForBook(manager, book),
-      BookCardDownloadState.downloaded,
-    );
-  });
+      manager.seedTask(persistedTask('izib-search-7098'));
+      expect(downloadStateForBook(manager, book), BookCardDownloadState.none);
+      expect(downloadProgressForBook(manager, book), 0);
+
+      manager.seedTask(persistedTask(book.sourceBookId!));
+      expect(
+        downloadStateForBook(manager, book),
+        BookCardDownloadState.downloaded,
+      );
+
+      manager.seedTask(persistedTask(book.versionId, sourceId: 'other-source'));
+      expect(downloadStateForBook(manager, book), BookCardDownloadState.none);
+
+      manager.seedTask(persistedTask(book.versionId));
+
+      expect(
+        downloadStateForBook(manager, book),
+        BookCardDownloadState.downloaded,
+      );
+    },
+  );
 
   test('book download state treats partial completed tasks as resumable', () {
     final manager = _MemoryDownloadManager();
@@ -230,7 +249,7 @@ void main() {
     for (final chapter in snapshot.playbackBook.chapters) {
       await persistence.saveTask(
         DownloadTask(
-          id: 'chapter:${snapshot.playbackBook.versionId}:${chapter.id}',
+          id: 'chapter:${snapshot.playbackBook.sourceId}:${snapshot.playbackBook.versionId}:${chapter.id}',
           bookId: snapshot.playbackBook.id,
           bookVersionId: snapshot.playbackBook.versionId,
           chapterId: chapter.id,
@@ -253,6 +272,12 @@ void main() {
       () => seededDownloadManager.loadPersistedTasks(recoverInterrupted: false),
     );
     seededDownloadManager.attachBookContext(snapshot.playbackBook);
+    for (final task in seededDownloadManager.tasks) {
+      expect(
+        seededDownloadManager.bookForTask(task.id),
+        same(snapshot.playbackBook),
+      );
+    }
     final sourceRegistry = SourceRegistry([
       IzibSourceConnector(
         client: IzibGraphQlClient(transport: QueueIzibTransport([])),

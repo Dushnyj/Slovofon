@@ -27,7 +27,19 @@ class AppSettingsStore extends ChangeNotifier {
   AppSettings get settings => _settings;
 
   Future<void> load() {
-    return _loadFuture ??= _load();
+    final pending = _loadFuture;
+    if (pending != null) return pending;
+    final loading = _load();
+    _loadFuture = loading;
+    // Keep the error visible to this caller, but allow a later retry to read
+    // saved settings instead of permanently reusing a failed hydration future.
+    loading.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {
+        if (identical(_loadFuture, loading)) _loadFuture = null;
+      },
+    );
+    return loading;
   }
 
   Future<void> setThemeMode(AppThemeMode themeMode) {

@@ -22,6 +22,8 @@ class AudioEngineException implements Exception {
 abstract interface class AudioEngine {
   Stream<AudioEngineSnapshot> get snapshots;
 
+  /// Loads a chapter in a paused state. Playback starts only through [play],
+  /// even if a previous chapter was playing before this call.
   Future<void> load(
     AudioPlaybackChapter chapter, {
     required Duration position,

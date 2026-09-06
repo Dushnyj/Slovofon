@@ -230,6 +230,36 @@ void main() {
     await bookmarks.remove('old');
     expect(await db.select(db.bookmarks).get(), isEmpty);
   });
+  test(
+    'malformed optional book metadata does not hide persisted bookmarks',
+    () async {
+      final bookmarks = store();
+      final mark = await bookmarks.add(
+        book: _book,
+        chapterId: 'chapter-a',
+        positionMs: 3000,
+      );
+      await (db.update(
+        db.bookVersions,
+      )..where((row) => row.id.equals(_book.versionId))).write(
+        const BookVersionsCompanion(
+          rawSourceDataJson: Value('{broken'),
+          authorsJson: Value('[broken'),
+        ),
+      );
+      final restarted = store();
+      await restarted.load();
+      expect(restarted.error, isNull);
+      expect(restarted.entries.single.id, mark.id);
+      expect(restarted.entries.single.book!.title, _book.title);
+      // A fresh source snapshot repairs data but retains the damaged original.
+      await DriftLibraryPersistenceStore(db).savePlaybackBook(_book);
+      final row = await db.select(db.bookVersions).getSingle();
+      expect(row.rawSourceDataJson, contains('_legacyUnparsedSourceData'));
+      expect(row.rawSourceDataJson, contains('{broken'));
+      expect((await db.select(db.bookmarks).get()).single.id, mark.id);
+    },
+  );
 }
 
 class _DelayedPersistence extends MemoryBookmarkPersistence {

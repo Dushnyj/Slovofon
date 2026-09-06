@@ -13,10 +13,12 @@ class DriftBookmarkPersistence implements BookmarkPersistence {
     final rows = await (_db.select(
       _db.bookmarks,
     )..orderBy([(b) => OrderingTerm.desc(b.createdAt)])).get();
+    if (rows.isEmpty) return [];
     final books = {
-      for (final book in await DriftLibraryPersistenceStore(
-        _db,
-      ).loadPlaybackBooks())
+      for (final book
+          in await DriftLibraryPersistenceStore(_db).loadPlaybackBooks(
+            versionIds: rows.map((row) => row.bookVersionId).toSet(),
+          ))
         book.versionId: book,
     };
     return [

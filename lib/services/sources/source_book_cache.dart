@@ -1,11 +1,10 @@
-import 'dart:io';
-
 import '../../domain/models/audio_book.dart';
 import '../audio/audio_state.dart';
 import '../downloads/download_manager.dart';
 import '../downloads/download_storage.dart';
 import '../library/library_store.dart';
 import 'source_catalog_service.dart';
+import 'source_cover_client.dart';
 
 typedef CoverBytesLoader = Future<List<int>?> Function(Uri uri);
 
@@ -108,22 +107,5 @@ AudioPlaybackBook _copyPlaybackBook(
   );
 }
 
-Future<List<int>?> _loadCoverBytes(Uri uri) async {
-  final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
-  try {
-    final request = await client.getUrl(uri);
-    final response = await request.close().timeout(const Duration(seconds: 10));
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      return null;
-    }
-    final bytes = <int>[];
-    await for (final chunk in response) {
-      bytes.addAll(chunk);
-    }
-    return bytes;
-  } catch (_) {
-    return null;
-  } finally {
-    client.close(force: true);
-  }
-}
+Future<List<int>?> _loadCoverBytes(Uri uri) =>
+    const SourceCoverClient().load(uri);

@@ -16,12 +16,18 @@ class DownloadManager extends ChangeNotifier {
     DateTime Function()? clock,
     Future<AudioPlaybackBook> Function(AudioPlaybackBook book)?
     refreshBookForDownloads,
+    Future<void> Function(
+      AudioPlaybackBook book,
+      AudioPlaybackChapter? chapter,
+    )?
+    ensureDownloadAllowed,
     int maxConcurrentDownloads = 3,
   }) : _client = client,
        _storage = storage,
        _persistence = persistence,
        _clock = clock ?? DateTime.now,
        _refreshBookForDownloads = refreshBookForDownloads,
+       _ensureDownloadAllowed = ensureDownloadAllowed,
        _maxConcurrentDownloads = maxConcurrentDownloads.clamp(1, 3);
 
   final DownloadClient _client;
@@ -29,6 +35,11 @@ class DownloadManager extends ChangeNotifier {
   final DownloadPersistenceStore _persistence;
   final DateTime Function() _clock;
   final int _maxConcurrentDownloads;
+  final Future<void> Function(
+    AudioPlaybackBook book,
+    AudioPlaybackChapter? chapter,
+  )?
+  _ensureDownloadAllowed;
   final Future<AudioPlaybackBook> Function(AudioPlaybackBook book)?
   _refreshBookForDownloads;
 
@@ -38,6 +49,21 @@ class DownloadManager extends ChangeNotifier {
   final _activeFutures = <String, Future<void>>{};
 
   bool _disposed = false;
+  Future<void>? _loadFuture;
+  Future<void> _writes = Future<void>.value();
+  final _protectedBooks = <(String, String)>{};
+
+  void _protectBook(String sourceId, String versionId) {
+    if (_protectedBooks.add((sourceId, versionId))) {
+      _storage.retainDownloadBook(sourceId, versionId);
+    }
+  }
+
+  void _releaseBook(String sourceId, String versionId) {
+    if (_protectedBooks.remove((sourceId, versionId))) {
+      _storage.releaseDownloadBook(sourceId, versionId);
+    }
+  }
 
   List<DownloadTask> get tasks {
     return _tasks.values.toList()..sort((a, b) {
@@ -66,7 +92,7 @@ class DownloadManager extends ChangeNotifier {
     await _storage.writeMetadata(book);
     attachBookContext(book);
     for (final task in _tasks.values) {
-      if (!_taskMatchesBook(task, book)) {
+      if (!taskMatchesBook(task, book)) {
         continue;
       }
       final chapter = _chapterForTask(book, task);
@@ -92,22 +118,43 @@ class DownloadManager extends ChangeNotifier {
     AudioPlaybackChapter chapter,
   ) {
     final exactTask = _tasks[_taskId(book, chapter)];
-    if (exactTask != null) {
+    if (exactTask != null && taskMatchesBook(exactTask, book)) {
       return exactTask;
     }
 
     for (final task in _tasks.values) {
-      if (task.chapterId == chapter.id && _taskMatchesBook(task, book)) {
+      if (task.chapterId == chapter.id && taskMatchesBook(task, book)) {
         return task;
       }
     }
     return null;
   }
 
-  Future<void> loadPersistedTasks({bool recoverInterrupted = true}) async {
+  Future<void> loadPersistedTasks({bool recoverInterrupted = true}) {
+    final pending = _loadFuture;
+    if (pending != null) {
+      return pending;
+    }
+    final loading = _loadPersistedTasks(recoverInterrupted: recoverInterrupted);
+    _loadFuture = loading;
+    loading.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {
+        if (identical(_loadFuture, loading)) {
+          _loadFuture = null;
+        }
+      },
+    );
+    return loading;
+  }
+
+  Future<void> _loadPersistedTasks({required bool recoverInterrupted}) async {
     final persisted = await _persistence.loadTasks(
       recoverInterrupted: recoverInterrupted,
     );
+    for (final task in persisted) {
+      _protectBook(task.sourceId, task.bookVersionId);
+    }
     _tasks
       ..clear()
       ..addEntries(persisted.map((task) => MapEntry(task.id, task)));
@@ -117,6 +164,8 @@ class DownloadManager extends ChangeNotifier {
   }
 
   Future<List<DownloadTask>> enqueueBook(AudioPlaybackBook book) async {
+    await loadPersistedTasks();
+    _protectBook(book.sourceId, book.versionId);
     await _storage.writeMetadata(book);
     final completed = await _storage.completedChapterFiles(book);
     final queued = <DownloadTask>[];
@@ -135,6 +184,8 @@ class DownloadManager extends ChangeNotifier {
   Future<List<DownloadTask>> enqueueMissingChapters(
     AudioPlaybackBook book,
   ) async {
+    await loadPersistedTasks();
+    _protectBook(book.sourceId, book.versionId);
     await _storage.writeMetadata(book);
     final completed = await _storage.completedChapterFiles(book);
     final queued = <DownloadTask>[];
@@ -151,6 +202,8 @@ class DownloadManager extends ChangeNotifier {
     AudioPlaybackChapter chapter, {
     bool writeMetadata = true,
   }) async {
+    await loadPersistedTasks();
+    _protectBook(book.sourceId, book.versionId);
     if (writeMetadata) {
       await _storage.writeMetadata(book);
     }
@@ -165,24 +218,30 @@ class DownloadManager extends ChangeNotifier {
     File? existingFile,
   }) async {
     final current = taskForBookChapter(book, chapter);
-    if (current != null &&
-        (current.status == DownloadTaskStatus.running ||
-            current.status == DownloadTaskStatus.queued)) {
-      if (current.status == DownloadTaskStatus.queued) {
-        _schedule();
-      }
+    if (current != null && current.status == DownloadTaskStatus.running) {
       return current;
     }
     if (existingFile != null) {
       final size = await existingFile.length();
-      final completed = _newTask(
-        book,
-        chapter,
-        status: DownloadTaskStatus.completed,
-        progress: 1,
-        downloadedBytes: size,
-        totalBytes: size,
-      );
+      final completed = current == null
+          ? _newTask(
+              book,
+              chapter,
+              status: DownloadTaskStatus.completed,
+              progress: 1,
+              downloadedBytes: size,
+              totalBytes: size,
+            )
+          : _copyTask(
+              current,
+              status: DownloadTaskStatus.completed,
+              progress: 1,
+              downloadedBytes: size,
+              totalBytes: size,
+              speedBytesPerSecond: 0,
+              clearError: true,
+              updatedAt: _clock(),
+            );
       _jobs[completed.id] = _DownloadJob(book: book, chapter: chapter);
       await _saveTask(completed);
       await _persistChapter(
@@ -193,6 +252,14 @@ class DownloadManager extends ChangeNotifier {
       return completed;
     }
 
+    final denied = await _accessDeniedTask(book, chapter, current);
+    if (denied != null) {
+      return denied;
+    }
+    if (current != null && current.status == DownloadTaskStatus.queued) {
+      _schedule();
+      return current;
+    }
     final nextTask = current == null
         ? _newTask(book, chapter)
         : _copyTask(
@@ -213,6 +280,7 @@ class DownloadManager extends ChangeNotifier {
   }
 
   Future<void> pause(String taskId) async {
+    await loadPersistedTasks();
     final task = _tasks[taskId];
     if (task == null) {
       return;
@@ -240,12 +308,22 @@ class DownloadManager extends ChangeNotifier {
     AudioPlaybackBook book,
     AudioPlaybackChapter chapter,
   ) async {
+    await loadPersistedTasks();
     final current = taskForBookChapter(book, chapter);
     if (current == null) {
       await enqueueChapter(book, chapter);
       return;
     }
 
+    final completed = await _storage.completedChapterFile(book, chapter);
+    if (completed != null) {
+      await _enqueueChapter(book, chapter, existingFile: completed);
+      return;
+    }
+    if (await _accessDeniedTask(book, chapter, current, refreshing: true) !=
+        null) {
+      return;
+    }
     final retry = _copyTask(
       current,
       status: DownloadTaskStatus.queued,
@@ -263,6 +341,7 @@ class DownloadManager extends ChangeNotifier {
   }
 
   Future<void> cancel(String taskId) async {
+    await loadPersistedTasks();
     final task = _tasks[taskId];
     final job = _jobs[taskId];
     if (task == null) {
@@ -291,39 +370,76 @@ class DownloadManager extends ChangeNotifier {
     AudioPlaybackBook book,
     AudioPlaybackChapter chapter,
   ) async {
+    await loadPersistedTasks();
     final task = taskForBookChapter(book, chapter);
     if (task != null) {
       _activeTokens[task.id]?.cancel();
       _tasks.remove(task.id);
       _jobs.remove(task.id);
       await _activeFutures[task.id]?.catchError((Object _) {});
-      await _persistence.deleteTask(task.id);
+      await _write(() => _persistence.deleteTask(task.id));
     }
 
     await _storage.deleteChapter(book, chapter);
-    await _persistence.updateChapter(
-      DownloadChapterUpdate(
-        chapterId: chapter.id,
-        status: DownloadTaskStatus.canceled,
-        progress: 0,
-        localPath: null,
-        fileSizeBytes: null,
-        updatedAt: _clock(),
+    await _write(
+      () => _persistence.updateChapter(
+        DownloadChapterUpdate(
+          chapterId: chapter.id,
+          status: DownloadTaskStatus.canceled,
+          progress: 0,
+          localPath: null,
+          fileSizeBytes: null,
+          updatedAt: _clock(),
+        ),
       ),
     );
+    if (!_tasks.values.any((task) => taskMatchesBook(task, book))) {
+      _releaseBook(book.sourceId, book.versionId);
+    }
     _notify();
   }
 
   Future<void> deleteBook(AudioPlaybackBook book) async {
+    await loadPersistedTasks();
+    // The current source chapter list may have shrunk. Remove every persisted
+    // task of this version, including chapters no longer present in metadata.
+    final removed = _tasks.values
+        .where((task) => taskMatchesBook(task, book))
+        .toList();
+    for (final task in removed) {
+      _activeTokens[task.id]?.cancel();
+      _tasks.remove(task.id);
+      _jobs.remove(task.id);
+    }
+    for (final task in removed) {
+      await _activeFutures[task.id]?.catchError((Object _) {});
+      await _write(() => _persistence.deleteTask(task.id));
+      final chapterId = task.chapterId;
+      if (chapterId != null) {
+        await _write(
+          () => _persistence.updateChapter(
+            DownloadChapterUpdate(
+              chapterId: chapterId,
+              status: DownloadTaskStatus.canceled,
+              progress: 0,
+              updatedAt: _clock(),
+            ),
+          ),
+        );
+      }
+    }
     for (final chapter in book.chapters) {
       await deleteChapter(book, chapter);
     }
     await _storage.deleteBook(book);
+    _releaseBook(book.sourceId, book.versionId);
+    _notify();
   }
 
   Future<void> cancelAndDeleteBook(AudioPlaybackBook book) async {
+    await loadPersistedTasks();
     final taskIds = _tasks.values
-        .where((task) => _taskMatchesBook(task, book))
+        .where((task) => taskMatchesBook(task, book))
         .map((task) => task.id)
         .toList();
     for (final taskId in taskIds) {
@@ -355,6 +471,9 @@ class DownloadManager extends ChangeNotifier {
     for (final token in _activeTokens.values) {
       token.cancel();
     }
+    for (final identity in _protectedBooks.toList()) {
+      _releaseBook(identity.$1, identity.$2);
+    }
     final client = _client;
     if (client is DefaultDownloadClient) {
       client.close();
@@ -375,14 +494,16 @@ class DownloadManager extends ChangeNotifier {
 
       final job = _jobs[next.id];
       if (job == null) {
-        _saveTask(
-          _copyTask(
-            next,
-            status: DownloadTaskStatus.paused,
-            errorCode: 'missing_job_context',
-            errorMessage: 'Download requires book and chapter context.',
-            updatedAt: _clock(),
-          ),
+        unawaited(
+          _saveTask(
+            _copyTask(
+              next,
+              status: DownloadTaskStatus.paused,
+              errorCode: 'missing_job_context',
+              errorMessage: 'Download requires book and chapter context.',
+              updatedAt: _clock(),
+            ),
+          ).catchError((Object _) {}),
         );
         continue;
       }
@@ -395,13 +516,40 @@ class DownloadManager extends ChangeNotifier {
         speedBytesPerSecond: 0,
         updatedAt: _clock(),
       );
-      unawaited(_saveTask(running));
-      final future = _runTask(running.id, job, token).whenComplete(() {
+      final future = _startTask(running, job, token).whenComplete(() {
         _activeTokens.remove(running.id);
         _activeFutures.remove(running.id);
         _schedule();
       });
       _activeFutures[running.id] = future;
+    }
+  }
+
+  Future<void> _startTask(
+    DownloadTask running,
+    _DownloadJob job,
+    DownloadCancellationToken token,
+  ) async {
+    try {
+      await _saveTask(running);
+      if (!token.isCanceled) {
+        await _runTask(running.id, job, token);
+      }
+    } catch (_) {
+      // Storage failures must not escape from an unawaited scheduler future.
+      // Keep a truthful failed task in memory; an explicit retry may persist it.
+      final task = _tasks[running.id];
+      if (!token.isCanceled && task != null) {
+        _tasks[running.id] = _copyTask(
+          task,
+          status: DownloadTaskStatus.failed,
+          speedBytesPerSecond: 0,
+          errorCode: 'persistence_failed',
+          errorMessage: 'Could not save download state.',
+          updatedAt: _clock(),
+        );
+        _notify();
+      }
     }
   }
 
@@ -440,12 +588,11 @@ class DownloadManager extends ChangeNotifier {
     return null;
   }
 
-  bool _taskMatchesBook(DownloadTask task, AudioPlaybackBook book) {
+  bool taskMatchesBook(DownloadTask task, AudioPlaybackBook book) {
     if (task.sourceId != book.sourceId) {
       return false;
     }
-    return task.bookId == book.id ||
-        task.bookVersionId == book.versionId ||
+    return task.bookVersionId == book.versionId ||
         (book.sourceBookId != null && task.bookVersionId == book.sourceBookId);
   }
 
@@ -466,6 +613,58 @@ class DownloadManager extends ChangeNotifier {
     return queued.isEmpty ? null : queued.first;
   }
 
+  bool _requiresRemoteMedia(AudioPlaybackChapter chapter) {
+    final source = chapter.originalMediaSource ?? chapter.mediaSource;
+    return source == null || source.type == AudioMediaSourceType.url;
+  }
+
+  Future<DownloadTask?> _accessDeniedTask(
+    AudioPlaybackBook book,
+    AudioPlaybackChapter chapter,
+    DownloadTask? current, {
+    bool refreshing = false,
+  }) async {
+    try {
+      await _checkDownloadAccess(book, chapter, refreshing: refreshing);
+      return null;
+    } on DownloadClientException catch (error) {
+      if (error.code != 'source_download_disabled') {
+        rethrow;
+      }
+      final failed = _copyTask(
+        current ?? _newTask(book, chapter),
+        status: DownloadTaskStatus.failed,
+        speedBytesPerSecond: 0,
+        errorCode: error.code,
+        errorMessage: error.message,
+        updatedAt: _clock(),
+      );
+      _jobs[failed.id] = _DownloadJob(
+        book: book,
+        chapter: chapter,
+        refreshMedia: true,
+      );
+      await _saveTask(failed);
+      await _persistChapter(failed);
+      return failed;
+    }
+  }
+
+  Future<void> _checkDownloadAccess(
+    AudioPlaybackBook book,
+    AudioPlaybackChapter chapter, {
+    bool refreshing = false,
+  }) async {
+    final guard = _ensureDownloadAllowed;
+    if (guard == null || !_requiresRemoteMedia(chapter)) {
+      return;
+    }
+    final source = chapter.originalMediaSource ?? chapter.mediaSource;
+    // Null is the explicit pre-refresh remote boundary: refreshing an expired
+    // URL must not contact a source after its download permission was disabled.
+    await guard(book, refreshing || source == null ? null : chapter);
+  }
+
   Future<void> _runTask(
     String taskId,
     _DownloadJob initialJob,
@@ -476,20 +675,33 @@ class DownloadManager extends ChangeNotifier {
     try {
       final refresh = _refreshBookForDownloads;
       if (job.refreshMedia &&
+          _requiresRemoteMedia(job.chapter) &&
           refresh != null &&
           job.book.sourceBookId?.isNotEmpty == true) {
+        await _checkDownloadAccess(job.book, job.chapter, refreshing: true);
+        if (token.isCanceled) {
+          return;
+        }
         final refreshedBook = await token.waitFor(refresh(job.book));
+        final legacyVersion =
+            job.book.versionId == job.book.sourceBookId &&
+            refreshedBook.sourceBookId == job.book.sourceBookId;
         if (refreshedBook.sourceId != job.book.sourceId ||
-            (refreshedBook.versionId != job.book.versionId &&
-                refreshedBook.sourceBookId != job.book.sourceBookId)) {
+            (refreshedBook.versionId != job.book.versionId && !legacyVersion)) {
           throw const DownloadClientException('Refreshed book does not match.');
         }
-        final chapter = _refreshedChapter(refreshedBook, job.chapter);
+        // Legacy raw ids must keep their persisted directory and task identity
+        // while taking refreshed chapter media from the qualified source book.
+        final downloadBook =
+            legacyVersion && refreshedBook.versionId != job.book.versionId
+            ? job.book.copyWith(chapters: refreshedBook.chapters)
+            : refreshedBook;
+        final chapter = _refreshedChapter(downloadBook, job.chapter);
         if (chapter == null) {
           throw const DownloadClientException('Chapter no longer available.');
         }
-        await token.waitFor(cacheBookMetadata(refreshedBook));
-        job = _DownloadJob(book: refreshedBook, chapter: chapter);
+        await token.waitFor(cacheBookMetadata(downloadBook));
+        job = _DownloadJob(book: downloadBook, chapter: chapter);
         _jobs[taskId] = job;
       }
       final source = job.chapter.originalMediaSource ?? job.chapter.mediaSource;
@@ -502,6 +714,10 @@ class DownloadManager extends ChangeNotifier {
         return;
       }
       final startByte = await _storage.partialBytesFor(job.book, job.chapter);
+      await _checkDownloadAccess(job.book, job.chapter);
+      if (token.isCanceled) {
+        return;
+      }
       final response = await token.waitFor(
         _client.open(source, startByte: startByte, cancellationToken: token),
         onCanceledValue: (lateResponse) {
@@ -549,7 +765,10 @@ class DownloadManager extends ChangeNotifier {
                 progress: _progress(downloaded, total),
                 downloadedBytes: downloaded,
                 totalBytes: total,
-                speedBytesPerSecond: _speed(downloaded, startedAt),
+                speedBytesPerSecond: _speed(
+                  downloaded - (response.shouldAppend ? startByte : 0),
+                  startedAt,
+                ),
                 updatedAt: now,
               ),
             );
@@ -570,6 +789,14 @@ class DownloadManager extends ChangeNotifier {
           await _storage.resetPart(job.book, job.chapter);
         }
         return;
+      }
+
+      final receivedBytes =
+          downloaded - (response.shouldAppend ? startByte : 0);
+      if ((response.contentLength != null &&
+              receivedBytes != response.contentLength) ||
+          (total != null && downloaded != total)) {
+        throw const DownloadClientException('Incomplete media download.');
       }
 
       final finalFile = await _storage.finalizeChapter(
@@ -598,7 +825,13 @@ class DownloadManager extends ChangeNotifier {
       if (token.isCanceled) {
         return;
       }
-      await _failTask(taskId, 'download_failed', _errorMessage(error));
+      await _failTask(
+        taskId,
+        error is DownloadClientException
+            ? error.code ?? 'download_failed'
+            : 'download_failed',
+        _errorMessage(error),
+      );
     } finally {
       if (token.isCanceled &&
           _tasks[taskId]?.status == DownloadTaskStatus.canceled) {
@@ -646,9 +879,15 @@ class DownloadManager extends ChangeNotifier {
     await _persistChapter(failed);
   }
 
+  Future<void> _write(Future<void> Function() operation) {
+    final result = _writes.then((_) => operation());
+    _writes = result.then<void>((_) {}, onError: (Object _, StackTrace _) {});
+    return result;
+  }
+
   Future<void> _saveTask(DownloadTask task) async {
     _tasks[task.id] = task;
-    await _persistence.saveTask(task);
+    await _write(() => _persistence.saveTask(task));
     _notify();
   }
 
@@ -662,14 +901,19 @@ class DownloadManager extends ChangeNotifier {
       return Future.value();
     }
 
-    return _persistence.updateChapter(
-      DownloadChapterUpdate(
-        chapterId: chapterId,
-        status: task.status,
-        progress: task.progress,
-        localPath: localPath,
-        fileSizeBytes: fileSizeBytes,
-        updatedAt: task.updatedAt,
+    if (!identical(_tasks[task.id], task)) {
+      return Future.value();
+    }
+    return _write(
+      () => _persistence.updateChapter(
+        DownloadChapterUpdate(
+          chapterId: chapterId,
+          status: task.status,
+          progress: task.progress,
+          localPath: localPath,
+          fileSizeBytes: fileSizeBytes,
+          updatedAt: task.updatedAt,
+        ),
       ),
     );
   }
@@ -704,7 +948,7 @@ class DownloadManager extends ChangeNotifier {
   }
 
   String _taskId(AudioPlaybackBook book, AudioPlaybackChapter chapter) {
-    return 'chapter:${book.versionId}:${chapter.id}';
+    return 'chapter:${book.sourceId}:${book.versionId}:${chapter.id}';
   }
 
   double _progress(int downloadedBytes, int? totalBytes) {

@@ -2,6 +2,7 @@ import 'dart:io';
 
 import '../../app/localization/app_strings.dart';
 import '../../sources/source_models.dart';
+import '../shared/source_access_error_text.dart';
 
 class SourceBookErrorText {
   const SourceBookErrorText({required this.title, required this.message});
@@ -15,6 +16,10 @@ SourceBookErrorText sourceBookErrorText({
   required String sourceId,
   required Object error,
 }) {
+  final accessMessage = sourceAccessErrorText(strings, error: error);
+  if (accessMessage != null) {
+    return SourceBookErrorText(title: strings.sources, message: accessMessage);
+  }
   final sourceName = strings.sourceDisplayName(
     _errorSourceId(error) ?? sourceId,
   );

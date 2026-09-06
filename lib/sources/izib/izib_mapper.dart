@@ -249,15 +249,23 @@ class IzibMapper {
       return const [];
     }
 
-    final mobile = _fileList(files['mobile']);
-    final full = _fileList(files['full']);
+    // Compare usable tracks, not raw API slots. An incomplete mobile variant
+    // must not hide a complete full variant, and absent lists are not sortable.
+    final mobile = _playableFiles(files['mobile']);
+    final full = _playableFiles(files['full']);
     final selected = mobile.length >= full.length ? mobile : full;
     selected.sort((left, right) {
       final leftIndex = _intValue(left['index']) ?? 0;
       final rightIndex = _intValue(right['index']) ?? 0;
       return leftIndex.compareTo(rightIndex);
     });
-    return selected.where((file) => _string(file['url']).isNotEmpty).toList();
+    return selected;
+  }
+
+  static List<Map<String, Object?>> _playableFiles(Object? value) {
+    return _fileList(
+      value,
+    ).where((file) => _string(file['url']).isNotEmpty).toList();
   }
 
   static List<Map<String, Object?>> _fileList(Object? value) {

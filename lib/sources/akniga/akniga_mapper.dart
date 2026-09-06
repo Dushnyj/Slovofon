@@ -238,6 +238,7 @@ class AknigaMapper {
       ratingValue: _rating(item),
       ratingCount: _ratingCount(item),
       isFull: !isFragment,
+      isFragment: isFragment,
       isFree: !isFragment,
       accessType: isFragment ? AccessType.unknown : AccessType.free,
     );
@@ -410,7 +411,7 @@ class AknigaMapper {
         }
       }
     }
-    if (names.isNotEmpty) {
+    if (names.isNotEmpty || iconClass != 'icon--author') {
       return names;
     }
 

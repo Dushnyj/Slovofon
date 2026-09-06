@@ -1,4 +1,7 @@
 import 'dart:io';
+import 'dart:convert';
+
+import 'package:crypto/crypto.dart';
 
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -12,7 +15,46 @@ class FileDownloadStorage implements PlaybackBookMetadataStore {
     : _rootDirectory = rootDirectory;
 
   final Directory _rootDirectory;
+  final _resolvedDirectories = <String, Directory>{};
   static final _metadataWrites = <String, Future<void>>{};
+  static final _downloadProtectionCounts = <String, int>{};
+
+  String _pathKey(String path) {
+    final absolute = p.normalize(p.absolute(path));
+    return Platform.isWindows ? absolute.toLowerCase() : absolute;
+  }
+
+  /// Pending/paused tasks need metadata even before a .part file exists.
+  /// Protect both candidate paths conservatively until the manager releases
+  /// its task context; this also works across storage instances for one root.
+  void retainDownloadBook(String sourceId, String versionId) {
+    for (final directory in [
+      _newDirectory(sourceId, versionId),
+      _legacyDirectory(sourceId, versionId),
+    ]) {
+      final key = _pathKey(directory.path);
+      _downloadProtectionCounts[key] =
+          (_downloadProtectionCounts[key] ?? 0) + 1;
+    }
+  }
+
+  void releaseDownloadBook(String sourceId, String versionId) {
+    for (final directory in [
+      _newDirectory(sourceId, versionId),
+      _legacyDirectory(sourceId, versionId),
+    ]) {
+      final key = _pathKey(directory.path);
+      final next = (_downloadProtectionCounts[key] ?? 0) - 1;
+      if (next <= 0) {
+        _downloadProtectionCounts.remove(key);
+      } else {
+        _downloadProtectionCounts[key] = next;
+      }
+    }
+  }
+
+  bool _isDownloadProtected(Directory directory) =>
+      (_downloadProtectionCounts[_pathKey(directory.path)] ?? 0) > 0;
 
   Directory get rootDirectory => _rootDirectory;
 
@@ -28,9 +70,73 @@ class FileDownloadStorage implements PlaybackBookMetadataStore {
   }
 
   Directory bookDirectoryForIds(String sourceId, String versionId) {
-    return Directory(
-      p.join(_rootDirectory.path, _safeSegment('${sourceId}_$versionId')),
-    );
+    return _resolvedDirectories[_identity(sourceId, versionId)] ??
+        _newDirectory(sourceId, versionId);
+  }
+
+  String _identity(String sourceId, String versionId) =>
+      jsonEncode([sourceId, versionId]);
+
+  Directory _newDirectory(String sourceId, String versionId) {
+    final identity = _identity(sourceId, versionId);
+    final digest = sha256.convert(utf8.encode(identity));
+    final readable = _safeSegment('${sourceId}_$versionId');
+    final prefix = readable.length > 24 ? readable.substring(0, 24) : readable;
+    return Directory(p.join(_rootDirectory.path, '$prefix-$digest'));
+  }
+
+  Directory _legacyDirectory(String sourceId, String versionId) => Directory(
+    p.join(_rootDirectory.path, _safeSegment('${sourceId}_$versionId')),
+  );
+
+  Future<Directory> _resolveDirectory(
+    String sourceId,
+    String versionId, {
+    bool destructive = false,
+  }) async {
+    final key = _identity(sourceId, versionId);
+    final cached = _resolvedDirectories[key];
+    if (cached != null && !destructive && await cached.exists()) {
+      return cached;
+    }
+    final preferred = _newDirectory(sourceId, versionId);
+    if (await preferred.exists()) {
+      final metadata = await AtomicJsonFile(
+        File(p.join(preferred.path, 'metadata.json')),
+      ).read();
+      if (metadata is Map &&
+          metadata['sourceId'] is String &&
+          metadata['bookVersionId'] is String &&
+          (metadata['sourceId'] != sourceId ||
+              metadata['bookVersionId'] != versionId)) {
+        throw const FileSystemException('Download directory identity mismatch');
+      }
+      // A full digest identifies new directories even when metadata needs
+      // recovery; malformed metadata is retained by AtomicJsonFile on write.
+      return _resolvedDirectories[key] = preferred;
+    }
+    final legacy = _legacyDirectory(sourceId, versionId);
+    if (await legacy.exists()) {
+      final metadata = await AtomicJsonFile(
+        File(p.join(legacy.path, 'metadata.json')),
+      ).read();
+      if (metadata is Map &&
+          metadata['sourceId'] == sourceId &&
+          metadata['bookVersionId'] == versionId) {
+        return _resolvedDirectories[key] = legacy;
+      }
+      if (destructive &&
+          (metadata is! Map ||
+              metadata['sourceId'] is! String ||
+              metadata['bookVersionId'] is! String)) {
+        // No guessed ownership: an old directory without usable metadata may
+        // contain another book whose punctuation collapsed to the same name.
+        throw const FileSystemException(
+          'Legacy download metadata needs recovery',
+        );
+      }
+    }
+    return _resolvedDirectories[key] = preferred;
   }
 
   Directory chaptersDirectoryFor(AudioPlaybackBook book) {
@@ -75,6 +181,7 @@ class FileDownloadStorage implements PlaybackBookMetadataStore {
     AudioPlaybackBook book,
     AudioPlaybackChapter chapter,
   ) async {
+    await _resolveDirectory(book.sourceId, book.versionId, destructive: false);
     final partFile = partFileFor(book, chapter);
     if (!await partFile.exists()) {
       return 0;
@@ -87,6 +194,7 @@ class FileDownloadStorage implements PlaybackBookMetadataStore {
     AudioPlaybackChapter chapter, {
     required bool append,
   }) async {
+    await _resolveDirectory(book.sourceId, book.versionId, destructive: false);
     final partFile = partFileFor(book, chapter);
     await partFile.parent.create(recursive: true);
     return partFile.openWrite(mode: append ? FileMode.append : FileMode.write);
@@ -97,12 +205,12 @@ class FileDownloadStorage implements PlaybackBookMetadataStore {
     AudioPlaybackChapter chapter, {
     required String extension,
   }) async {
+    await _resolveDirectory(book.sourceId, book.versionId, destructive: true);
     final partFile = partFileFor(book, chapter);
     final finalFile = chapterFileFor(book, chapter, extension: extension);
     await finalFile.parent.create(recursive: true);
-    if (await finalFile.exists()) {
-      await finalFile.delete();
-    }
+    // Replace atomically; deleting first loses a good download when rename
+    // fails (for example a missing/locked part or a full disk).
     return partFile.rename(finalFile.path);
   }
 
@@ -110,6 +218,7 @@ class FileDownloadStorage implements PlaybackBookMetadataStore {
     AudioPlaybackBook book,
     AudioPlaybackChapter chapter,
   ) async {
+    await _resolveDirectory(book.sourceId, book.versionId, destructive: true);
     final partFile = partFileFor(book, chapter);
     if (await partFile.exists()) {
       await partFile.delete();
@@ -120,6 +229,7 @@ class FileDownloadStorage implements PlaybackBookMetadataStore {
     AudioPlaybackBook book,
     AudioPlaybackChapter chapter,
   ) async {
+    await _resolveDirectory(book.sourceId, book.versionId, destructive: true);
     final partFile = partFileFor(book, chapter);
     if (await partFile.exists()) {
       await partFile.delete();
@@ -132,10 +242,12 @@ class FileDownloadStorage implements PlaybackBookMetadataStore {
   }
 
   Future<void> deleteBook(AudioPlaybackBook book) async {
+    await _resolveDirectory(book.sourceId, book.versionId, destructive: true);
     final directory = bookDirectoryFor(book);
     if (await directory.exists()) {
       await directory.delete(recursive: true);
     }
+    _resolvedDirectories.remove(_identity(book.sourceId, book.versionId));
   }
 
   Future<CardCacheStats> cardCacheStats() async {
@@ -157,11 +269,15 @@ class FileDownloadStorage implements PlaybackBookMetadataStore {
     return CardCacheStats(bytes: bytes, bookCount: bookCount);
   }
 
-  Future<CardCacheStats> clearCardCache() async {
+  Future<CardCacheStats> clearCardCache() =>
+      _serializeMetadata(_clearCardCache);
+
+  Future<CardCacheStats> _clearCardCache() async {
     var bytes = 0;
     var bookCount = 0;
     await for (final directory in _bookDirectories()) {
-      if (await _hasChapterFiles(directory)) {
+      if (_isDownloadProtected(directory) ||
+          await _hasChapterFiles(directory)) {
         continue;
       }
       final files = _cardCacheFiles(directory);
@@ -195,13 +311,17 @@ class FileDownloadStorage implements PlaybackBookMetadataStore {
     return readMetadataForIds(sourceId, versionId);
   }
 
-  Future<void> writeMetadata(AudioPlaybackBook book) {
-    final absolute = p.normalize(metadataFileFor(book).absolute.path);
-    final key = Platform.isWindows ? absolute.toLowerCase() : absolute;
+  Future<void> writeMetadata(AudioPlaybackBook book) =>
+      _serializeMetadata(() => _writeMetadata(book));
+
+  Future<T> _serializeMetadata<T>(Future<T> Function() operation) {
+    // Cache deletion and writes must use the same root lock: cleanup may have
+    // started before an enqueue registered its protection, and malformed
+    // metadata cannot safely supply a per-book identity for locking.
+    final key = _pathKey(_rootDirectory.path);
     final previous = _metadataWrites[key] ?? Future<void>.value();
-    final write = previous.then((_) => _writeMetadata(book));
-    // A failed write must not poison later writes or leave an unhandled tail.
-    final tail = write.then<void>((_) {}, onError: (Object _) {});
+    final write = previous.then((_) => operation());
+    final tail = write.then<void>((_) {}, onError: (Object _, StackTrace _) {});
     _metadataWrites[key] = tail;
     return write.whenComplete(() {
       if (identical(_metadataWrites[key], tail)) {
@@ -252,10 +372,14 @@ class FileDownloadStorage implements PlaybackBookMetadataStore {
     await AtomicJsonFile(metadataFile).write(metadata);
   }
 
-  Future<String> writeCoverBytes(
+  Future<String> writeCoverBytes(AudioPlaybackBook book, List<int> bytes) =>
+      _serializeMetadata(() => _writeCoverBytes(book, bytes));
+
+  Future<String> _writeCoverBytes(
     AudioPlaybackBook book,
     List<int> bytes,
   ) async {
+    await _resolveDirectory(book.sourceId, book.versionId, destructive: false);
     final coverFile = coverFileFor(book);
     await coverFile.parent.create(recursive: true);
     await coverFile.writeAsBytes(bytes, flush: true);
@@ -266,6 +390,7 @@ class FileDownloadStorage implements PlaybackBookMetadataStore {
     String sourceId,
     String versionId,
   ) async {
+    await _resolveDirectory(sourceId, versionId);
     final metadataFile = metadataFileForIds(sourceId, versionId);
     return _readMetadataFile(
       metadataFile,
@@ -275,15 +400,22 @@ class FileDownloadStorage implements PlaybackBookMetadataStore {
   }
 
   Future<List<AudioPlaybackBook>> readAllMetadata() async {
-    final books = <AudioPlaybackBook>[];
+    final books = <String, AudioPlaybackBook>{};
     await for (final entity in _bookDirectories()) {
       final metadataFile = File(p.join(entity.path, 'metadata.json'));
       final book = await _readMetadataFile(metadataFile);
       if (book != null) {
-        books.add(book);
+        final expected = _newDirectory(book.sourceId, book.versionId).path;
+        final legacy = _legacyDirectory(book.sourceId, book.versionId).path;
+        if (entity.path != expected && entity.path != legacy) continue;
+        final key = _identity(book.sourceId, book.versionId);
+        if (entity.path == expected || !books.containsKey(key)) {
+          _resolvedDirectories[key] = entity;
+          books[key] = book;
+        }
       }
     }
-    return books;
+    return books.values.toList();
   }
 
   Stream<Directory> _bookDirectories() async* {
@@ -381,6 +513,11 @@ class FileDownloadStorage implements PlaybackBookMetadataStore {
       return null;
     }
 
+    if ((fallbackSourceId != null && sourceId != fallbackSourceId) ||
+        (fallbackVersionId != null && versionId != fallbackVersionId)) {
+      return null;
+    }
+
     return AudioPlaybackBook(
       id: bookId,
       versionId: versionId,
@@ -414,6 +551,7 @@ class FileDownloadStorage implements PlaybackBookMetadataStore {
   /// One asynchronous directory scan per book, never one scan per chapter.
   /// No persistent cache: external file removal must be visible on next play.
   Future<Map<int, File>> completedChapterFiles(AudioPlaybackBook book) async {
+    await _resolveDirectory(book.sourceId, book.versionId, destructive: false);
     final directory = chaptersDirectoryFor(book);
     final files = <int, File>{};
     if (!await directory.exists()) {

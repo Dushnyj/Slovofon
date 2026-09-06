@@ -172,11 +172,17 @@ class DownloadCanceledException extends DownloadClientException {
 }
 
 class DownloadClientException implements Exception {
-  const DownloadClientException(this.message, {this.statusCode, this.cause});
+  const DownloadClientException(
+    this.message, {
+    this.statusCode,
+    this.cause,
+    this.code,
+  });
 
   final String message;
   final int? statusCode;
   final Object? cause;
+  final String? code;
 
   @override
   String toString() {
@@ -293,7 +299,15 @@ class DefaultDownloadClient implements DownloadClient {
         final match = range == null
             ? null
             : RegExp(r'^bytes (\d+)-(\d+)/(\d+|\*)$').firstMatch(range);
-        if (match == null || int.parse(match.group(1)!) != startByte) {
+        final rangeStart = match == null ? null : int.tryParse(match.group(1)!);
+        final rangeEnd = match == null ? null : int.tryParse(match.group(2)!);
+        final rangeTotal = match == null ? null : int.tryParse(match.group(3)!);
+        if (rangeStart != startByte ||
+            rangeEnd == null ||
+            rangeEnd < startByte ||
+            (rangeTotal != null && rangeEnd >= rangeTotal) ||
+            (response.contentLength >= 0 &&
+                response.contentLength != rangeEnd - startByte + 1)) {
           throw const DownloadClientException('Invalid media byte range.');
         }
       }
@@ -330,7 +344,9 @@ class DefaultDownloadClient implements DownloadClient {
   }) async {
     final file = File(source.filePath);
     final totalBytes = await file.length();
-    final normalizedStart = startByte.clamp(0, totalBytes);
+    final normalizedStart = startByte > totalBytes
+        ? 0
+        : startByte.clamp(0, totalBytes);
 
     return DownloadClientResponse(
       bytes: file.openRead(normalizedStart),
@@ -351,7 +367,9 @@ class DefaultDownloadClient implements DownloadClient {
       data.offsetInBytes,
       data.lengthInBytes,
     );
-    final normalizedStart = startByte.clamp(0, bytes.length);
+    final normalizedStart = startByte > bytes.length
+        ? 0
+        : startByte.clamp(0, bytes.length);
     final remaining = Uint8List.sublistView(bytes, normalizedStart);
 
     return DownloadClientResponse(

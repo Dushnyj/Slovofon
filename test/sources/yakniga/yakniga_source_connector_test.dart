@@ -38,6 +38,16 @@ void main() {
       expect(client.calls, ['search:дыхание зоны']);
     });
 
+    test('unsupported search pages do not call the autocomplete API', () async {
+      final client = FakeYaknigaClient();
+      final connector = YaknigaSourceConnector(client: client);
+      expect(
+        await connector.search(const SearchRequest(query: 'книга', page: 2)),
+        isEmpty,
+      );
+      expect(client.calls, isEmpty);
+    });
+
     test(
       'details, chapters, tracks, and media resolution use book API',
       () async {

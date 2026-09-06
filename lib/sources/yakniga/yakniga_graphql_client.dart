@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../source_models.dart';
+import '../source_response_reader.dart';
 
 const yaknigaSearchBooksQuery = '''query Search(\$term: String!) {
   search(autocomplete: true, term: \$term) {
@@ -96,11 +97,13 @@ class YaknigaGraphQlTransportResponse {
 class DartIoYaknigaGraphQlTransport implements YaknigaGraphQlTransport {
   DartIoYaknigaGraphQlTransport({
     Duration timeout = const Duration(seconds: 10),
+    this.maxResponseBytes = 8 * 1024 * 1024,
     HttpClient Function()? httpClientFactory,
   }) : _timeout = timeout,
        _httpClientFactory = httpClientFactory ?? HttpClient.new;
 
   final Duration _timeout;
+  final int maxResponseBytes;
   final HttpClient Function() _httpClientFactory;
 
   @override
@@ -114,6 +117,9 @@ class DartIoYaknigaGraphQlTransport implements YaknigaGraphQlTransport {
 
     try {
       final request = await client.postUrl(uri).timeout(_timeout);
+      // API redirects are errors, not permission to send source headers to
+      // another endpoint outside this connector's fixed GraphQL URL.
+      request.followRedirects = false;
       for (final entry in headers.entries) {
         request.headers.set(entry.key, entry.value);
       }
@@ -122,10 +128,11 @@ class DartIoYaknigaGraphQlTransport implements YaknigaGraphQlTransport {
       request.add(bodyBytes);
 
       final response = await request.close().timeout(_timeout);
-      final responseBody = await response
-          .transform(utf8.decoder)
-          .join()
-          .timeout(_timeout);
+      final responseBody = await readSourceResponseBody(
+        response,
+        sourceId: 'yakniga',
+        maxBytes: maxResponseBytes,
+      ).timeout(_timeout);
 
       return YaknigaGraphQlTransportResponse(
         statusCode: response.statusCode,

@@ -172,6 +172,27 @@ void main() {
       ),
     );
   });
+  for (final range in ['bytes 3-2/6', 'bytes 3-8/6', 'bytes 3-4/6']) {
+    test('invalid range $range is rejected before reading media', () async {
+      final server = await _server((request) async {
+        request.response.statusCode = HttpStatus.partialContent;
+        request.response.headers.set(HttpHeaders.contentRangeHeader, range);
+        request.response.contentLength = 3;
+        request.response.add([4, 5, 6]);
+        await request.response.close();
+      });
+      final client = DefaultDownloadClient();
+      addTearDown(client.close);
+      await expectLater(
+        client.open(
+          _source(server),
+          startByte: 3,
+          cancellationToken: DownloadCancellationToken(),
+        ),
+        throwsA(isA<DownloadClientException>()),
+      );
+    });
+  }
 }
 
 Future<HttpServer> _server(Future<void> Function(HttpRequest) handler) async {
