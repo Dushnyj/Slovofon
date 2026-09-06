@@ -1,123 +1,264 @@
-# Slovofon / Словофон
+<a name="readme-top"></a>
 
-<div align="center">
+<p align="center">
+  <img src="docs/assets/readme/slovofon-icon.png" width="112" alt="Иконка Словофон: книга, наушники и звуковая волна">
+</p>
 
-[![version](https://img.shields.io/badge/version-0.0.1-0969da?style=flat-square)](VERSION)
-[![status](https://img.shields.io/badge/status-early%20development-f59e0b?style=flat-square)](#статус)
-[![platform](https://img.shields.io/badge/platform-Android%20%7C%20Android%20TV%20%7C%20Windows-2ea44f?style=flat-square)](#платформы)
-[![ci](https://img.shields.io/github/actions/workflow/status/Dushnyj/Slovofon/ci.yml?branch=main&label=ci&style=flat-square)](https://github.com/Dushnyj/Slovofon/actions/workflows/ci.yml)
-[![code size](https://img.shields.io/github/languages/code-size/Dushnyj/Slovofon?style=flat-square)](https://github.com/Dushnyj/Slovofon)
-[![license](https://img.shields.io/github/license/Dushnyj/Slovofon?style=flat-square)](LICENSE)
+<h1 align="center">Словофон · Slovofon</h1>
 
-**Словофон** — кроссплатформенное приложение для поиска, прослушивания и оффлайн-загрузки аудиокниг из нескольких источников.
+<p align="center">
+  <strong>Поиск, прослушивание и офлайн-загрузка аудиокниг из нескольких источников</strong><br>
+  Android · Android TV · Windows<br>
+  Найдите книгу, выберите чтеца, продолжите с сохранённого места.
+</p>
 
-[Документация](#документация) · [Быстрый старт](#быстрый-старт) · [Разработка](#разработка) · [Лицензия](#лицензия)
+<p align="center">
+  <a href="VERSION"><img alt="Версия исходников 0.0.7" src="https://img.shields.io/badge/VERSION-0.0.7-91A6DF?style=flat-square&amp;labelColor=172033"></a>
+  <a href="https://github.com/Dushnyj/Slovofon/releases"><img alt="Последний опубликованный релиз" src="https://img.shields.io/github/v/release/Dushnyj/Slovofon?display_name=tag&amp;sort=semver&amp;style=flat-square&amp;label=RELEASE&amp;labelColor=172033&amp;color=D2AC69"></a>
+  <a href="#platforms"><img alt="Android 7.0 и новее" src="https://img.shields.io/badge/ANDROID-7.0%2B-3DDC84?style=flat-square&amp;labelColor=172033"></a>
+  <a href="https://github.com/Dushnyj/Slovofon/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/Dushnyj/Slovofon/ci.yml?branch=main&amp;style=flat-square&amp;label=CI&amp;labelColor=172033"></a>
+  <a href="LICENSE"><img alt="Лицензия Apache 2.0" src="https://img.shields.io/badge/LICENSE-Apache%202.0-D2AC69?style=flat-square&amp;labelColor=172033"></a>
+</p>
 
-</div>
+<p align="center">
+  <a href="https://github.com/Dushnyj/Slovofon/releases"><strong>Скачать приложение</strong></a>
+  &nbsp;•&nbsp;
+  <a href="docs/GETTING_STARTED.md"><strong>Быстрый старт</strong></a>
+  &nbsp;•&nbsp;
+  <a href="docs/README.md"><strong>Документация</strong></a>
+  &nbsp;•&nbsp;
+  <a href="https://github.com/Dushnyj/Slovofon/issues/new/choose"><strong>Сообщить о проблеме</strong></a>
+</p>
 
-## Статус
+<p align="center">
+  <strong>Навигация</strong><br>
+  <a href="#overview">О приложении</a> ·
+  <a href="#quick-start">Быстрый старт</a> ·
+  <a href="#interface">Интерфейс</a> ·
+  <a href="#features">Возможности</a> ·
+  <a href="#sources">Источники</a><br>
+  <a href="#platforms">Платформы</a> ·
+  <a href="#updates">Обновления</a> ·
+  <a href="#limitations">Ограничения</a> ·
+  <a href="#documentation">Документация</a> ·
+  <a href="#development">Разработка</a>
+</p>
 
-Проект находится на раннем этапе разработки: уже подготовлен Flutter-каркас, базовая архитектура, Android/Windows scaffolding, тема, mock data, единый PowerShell-скрипт обслуживания проекта и GitHub Actions CI с debug-сборками Android и Windows.
+<a href="docs/assets/readme/windows-home.png">
+  <img src="docs/assets/readme/windows-home.png" alt="Словофон для Windows: текущая книга, следующие главы, библиотека и постоянный плеер">
+</a>
+<p align="center"><sub>Windows · продолжение прослушивания и главы рядом. Тестовые данные, без пользовательской истории.</sub></p>
 
-Публичная версия: **0.0.1**.<br>
-Русское название приложения: **Словофон**.<br>
-Международное название и техническое имя: **Slovofon**.
+---
 
-## Что делает приложение
+<a name="overview"></a>
+## О приложении
 
-Slovofon задуман как единый клиент-агрегатор аудиокниг:
+Словофон объединяет поиск по нескольким каталогам, выбор озвучки, плеер и личную
+библиотеку. Автор и чтец показываются отдельно, а название и цвет источника помогают
+различать версии одной книги — в результатах поиска, карточке и плеере.
 
-- поиск книг по нескольким источникам;
-- выбор версии книги по источнику, чтецу, длительности и доступности;
-- онлайн-прослушивание и оффлайн-загрузка;
-- восстановление последней позиции после перезапуска;
-- mini-player и полноэкранный плеер;
-- отдельные режимы интерфейса для Android, Android TV и Windows;
-- настройки источников, темы, языка, прокси, загрузок и плеера.
+**Книга остаётся в центре:** слушайте онлайн, сохраняйте главы для офлайн-доступа,
+добавляйте закладки и возвращайтесь к последней позиции на том же устройстве.
 
-Главный принцип продукта: пользователь думает о книге, а не об источнике.
+README описывает текущие исходники **0.0.7**. Опубликованные сборки могут отставать
+от них: доступную версию и файлы смотрите в [GitHub Releases](https://github.com/Dushnyj/Slovofon/releases).
+Переход на 0.0.7 сам по себе не означает публикацию релиза или завершение всего ТЗ.
 
-## Платформы
-
-| Платформа | Цель |
-| --- | --- |
-| Android | смартфоны и планшеты |
-| Android TV | управление пультом и фокусная навигация |
-| Windows 10/11 | desktop-layout, mini-player и системная интеграция |
-
+<a name="quick-start"></a>
 ## Быстрый старт
 
-После клонирования репозитория:
+1. Откройте [релизы](https://github.com/Dushnyj/Slovofon/releases) и выберите файл:
+
+   | Устройство | Что скачать |
+   | --- | --- |
+   | Android-телефон или планшет | `Slovofon-v<version>-android-universal-release.apk` |
+   | Android TV | Тот же universal APK из версии с TV-интерфейсом; отдельное приложение не требуется |
+   | Windows 10/11 x64 | `Slovofon-v<version>-windows-x64-setup.exe` |
+   | Windows без установки | `…-windows-x64-portable.zip`, если он приложен к выбранному релизу |
+
+2. Установите приложение и откройте **Поиск**.
+3. Введите название книги, автора или чтеца. Уточнить поиск можно фильтрами.
+4. Откройте нужную версию книги и нажмите **Слушать**.
+5. Для офлайн-прослушивания загрузите книгу или отдельные главы и дождитесь завершения.
+
+Пошаговые инструкции по платформам, обновлению и первым действиям:
+**[Начало работы со Словофоном](docs/GETTING_STARTED.md)**.
+
+<a name="interface"></a>
+## Интерфейс
+
+Один набор книг и функций — разные способы управления. На телефоне используются
+сенсорные элементы и нижняя навигация, на TV — пульт и заметный фокус, на Windows —
+боковое меню, мышь и клавиатура.
+
+<p align="center">
+  <a href="docs/assets/readme/android-settings.png"><img src="docs/assets/readme/android-settings.png" width="280" alt="Настройки Словофона на Android, светлая тема"></a>
+  &nbsp;
+  <a href="docs/assets/readme/android-appearance.png"><img src="docs/assets/readme/android-appearance.png" width="280" alt="Android: акцентный цвет, размер текста от 75 до 200 процентов и настройки анимаций"></a>
+</p>
+<p align="center"><sub>Android · настройки и персонализация</sub></p>
+
+<details>
+<summary><strong>Android TV и настройки Windows</strong></summary>
+
+<br>
+
+<a href="docs/assets/readme/android-tv-home.png">
+  <img src="docs/assets/readme/android-tv-home.png" alt="Android TV: верхняя навигация, крупные карточки книг и управление воспроизведением с пульта">
+</a>
+<p align="center"><sub>Android TV · отдельная компоновка для управления пультом</sub></p>
+
+<a href="docs/assets/readme/windows-settings.png">
+  <img src="docs/assets/readme/windows-settings.png" alt="Windows: настройки внешнего вида, масштаба текста и карточек в двух колонках">
+</a>
+<p align="center"><sub>Windows · параметры оформления без цепочки вложенных диалогов</sub></p>
+
+</details>
+
+Снимки получены из настоящих Flutter-виджетов на локальных тестовых данных.
+Это не дизайн-макеты, но и не фотографии Android-устройств: системные шрифты,
+клавиатура и оболочки могут отличаться. [Как получены изображения](docs/assets/readme/README.md).
+
+<a name="features"></a>
+## Возможности
+
+| Задача | Что доступно |
+| --- | --- |
+| **Найти книгу** | Поиск по названию, автору, чтецу, циклу и жанру; история, фильтры и сортировка |
+| **Выбрать озвучку** | Автор и чтец отдельно, источник, главы, описание и другие озвучки, когда источник передаёт эти данные |
+| **Слушать** | Постоянный плеер, полный экран, переход по главам, перемотка, скорость и таймер сна |
+| **Вернуться позже** | Сохранённая позиция, прогресс, избранное, «Позже», история и закладки |
+| **Слушать без сети** | Загрузка книги или глав, очередь, пауза, продолжение и повтор после ошибки |
+| **Настроить под себя** | Светлая/тёмная/системная тема, свой акцент, текст 75–200%, анимации и вид карточек |
+| **Выбрать каталоги** | Настройка источников, участвующих в поиске |
+
+Загруженные файлы, настройки и прогресс хранятся локально.
+**Синхронизации между телефоном, TV и ПК пока нет.**
+
+<a name="sources"></a>
+## Источники
+
+Реализованы шесть коннекторов: **Изибук, Akniga, Yakniga, Книга в ухе,
+Книгоблуд и База книг**. Они подключены к поиску, карточкам, разрешению
+аудиоссылок, плееру и загрузкам.
+
+Набор метаданных и доступность записи зависят от источника. Фрагмент книги
+обозначается как фрагмент; наличие одного файла не означает полной версии.
+Изменения сайта или ограничения сети могут временно нарушить работу коннектора.
+
+Архитектура, возможности и ограничения: [Источники](docs/SOURCES.md).
+
+<a name="platforms"></a>
+## Платформы
+
+| Платформа | Интерфейс и управление | Граница проверки |
+| --- | --- | --- |
+| **Android 7.0+** | Телефоны и планшеты, touch, системная media session | Код, widget-тесты и Debug-сборка; сценарии устройства — по чеклисту |
+| **Android TV на Android 7.0+** | TV launcher, D-pad/Select, крупные кнопки, безопасные поля | TV определяется средствами Android, не по ширине; пульты и launcher требуют проверки на устройстве |
+| **Windows 10/11 x64** | Desktop layout, dock, мышь, локальные shortcuts, минимум 900×600 | Проверены работающее окно, resize и крупный текст; это не проверка всех DPI и конфигураций ПК |
+
+Подробнее: [проверка качества](docs/CROSS_PLATFORM_QUALITY.md) и
+[чеклист Android / Android TV](docs/MANUAL_DEVICE_QA_RU.md).
+
+<a name="updates"></a>
+## Обновления
+
+В **Настройках → Обновления** приложение проверяет новые стабильные версии напрямую
+в [GitHub Releases](https://github.com/Dushnyj/Slovofon/releases).
+Промежуточный update-сервер не используется.
+
+Перед открытием установщика загруженный APK или Windows setup проверяется по
+**SHA-256**. Ожидаемая сумма берётся из metadata файла на GitHub либо
+`SHA256SUMS.txt` того же релиза. Без валидной суммы установка не продолжается.
+Проверка не заменяет системную проверку подписи APK.
+
+<a name="limitations"></a>
+## Что ещё в работе
+
+- Отдельное окно Windows mini-player, tray и полная системная media-интеграция.
+  Нынешний dock находится внутри главного окна.
+- Голосовой поиск на TV и проверка разных физических пультов.
+- Настройки Wi-Fi-only, папки/квоты загрузок и автоматический retry/backoff.
+- Пользовательские proxy-профили и собственный MediaProxyService.
+- Полная UI-пагинация всех источников и настоящая отмена HTTP-запросов.
+
+Полный список технических ограничений и непроверенных сценариев не скрыт:
+[отчёт о качестве](docs/CROSS_PLATFORM_QUALITY.md). Техническое задание описывает
+также будущие функции, а не только уже доступные.
+
+<a name="support"></a>
+## Поддержка и обратная связь
+
+- [Сообщить об ошибке](https://github.com/Dushnyj/Slovofon/issues/new?template=bug_report.yml).
+- [Предложить улучшение](https://github.com/Dushnyj/Slovofon/issues/new?template=feature_request.yml).
+- [Как подготовить полезное обращение](SUPPORT.md).
+
+Укажите платформу, версию, шаги и ожидаемый результат. Для визуальных проблем —
+размер окна/экрана, тему и оба масштаба текста. Для проблемы каталога — название
+источника и книги, без временных media URL, cookies или токенов.
+
+Правила работы с данными и секретами: [Безопасность](docs/SECURITY.md).
+
+<a name="documentation"></a>
+## Документация
+
+| Пользователю | Разработчику |
+| --- | --- |
+| [Начало работы](docs/GETTING_STARTED.md) | [Архитектура](docs/ARCHITECTURE.md) |
+| [Установка и обновление](docs/GETTING_STARTED.md#обновления) | [Окружение, сборка и релизы](docs/BUILD_RELEASE.md) |
+| [Поддержка](SUPPORT.md) | [Источники и коннекторы](docs/SOURCES.md) |
+| [Проверка телефона и TV](docs/MANUAL_DEVICE_QA_RU.md) | [Темы и адаптивный интерфейс](docs/THEMING.md) |
+| [История изменений](CHANGELOG.md) | [Правила участия](CONTRIBUTING.md) |
+
+**[Вся документация →](docs/README.md)**
+
+<a name="development"></a>
+## Разработка
+
+Flutter + Dart. CI использует Flutter **3.44.0 stable**, Android-сборка — JDK **17**.
+Для Windows нужны Visual Studio Build Tools с C++ и Windows SDK.
+Точные зависимости и bootstrap описаны в [руководстве сборки](docs/BUILD_RELEASE.md).
 
 ```powershell
+git clone https://github.com/Dushnyj/Slovofon.git
+cd Slovofon
 ./tools/slovofon.ps1 bootstrap
 ./tools/slovofon.ps1 check
 ```
 
-Запуск базовых проверок:
+<details>
+<summary><strong>Локальные проверки и Debug-сборки</strong></summary>
 
 ```powershell
 ./tools/slovofon.ps1 format
 ./tools/slovofon.ps1 analyze
 ./tools/slovofon.ps1 test
-```
 
-Сборка debug-версии:
-
-```powershell
 ./tools/slovofon.ps1 build -Target android -Configuration debug
 ./tools/slovofon.ps1 build -Target windows -Configuration debug
 ```
 
-## Разработка
+Общий скрипт — `tools/slovofon.ps1`. Обычная сборка не меняет версию,
+не создаёт тег и не публикует релиз. Debug-артефакты CI не являются release-сборками.
 
-### Обновления приложения
+Перед изменениями прочитайте [CONTRIBUTING.md](CONTRIBUTING.md);
+для ИИ-агентов обязательны [AGENTS.md](AGENTS.md).
 
-Android и Windows проверяют новые стабильные версии напрямую в
-[GitHub Releases](https://github.com/Dushnyj/Slovofon/releases), без промежуточного
-update-сервера. Файл загружается из того же релиза и проверяется по SHA-256 до
-открытия системного установщика. Ручная проверка находится в настройках приложения.
-Автоматический updater выбирает universal APK для Android и x64 setup EXE для
-Windows; другие артефакты доступны для ручной загрузки на GitHub.
-
-### Работа с проектом
-
-Главный скрипт проекта:
-
-```text
-tools/slovofon.ps1
-```
-
-Перед началом любой задачи Codex и другие ИИ-агенты обязаны читать `AGENTS.md`.
-
-Значимые изменения должны проходить:
-
-```powershell
-./tools/slovofon.ps1 format
-./tools/slovofon.ps1 analyze
-./tools/slovofon.ps1 test
-```
-
-## Документация
-
-| Файл | Назначение |
-| --- | --- |
-| `AGENTS.md` | постоянные правила Codex, Git/GitHub, версии, релизы и запреты |
-| `docs/SLOVOFON_TECHNICAL_SPEC_RU.md` | продуктово-техническое ТЗ |
-| `docs/ARCHITECTURE.md` | архитектура, слои, модули и data flow |
-| `docs/BUILD_RELEASE.md` | bootstrap, сборка, установщики и релизы |
-| `docs/SECURITY.md` | секреты, прокси, пользовательские данные и логи |
-| `docs/THEMING.md` | темы, цвета, контраст и ThemePreviewScreen |
-| `docs/SOURCES.md` | источники, адаптеры и media allowlist |
-| `CHANGELOG.md` | история изменений |
-| `THIRD_PARTY_NOTICES.md` | сторонние библиотеки, ассеты и лицензии |
-
-## Репозиторий
-
-[github.com/Dushnyj/Slovofon](https://github.com/Dushnyj/Slovofon)
+</details>
 
 ## Лицензия
 
-Slovofon распространяется по лицензии [Apache License 2.0](LICENSE).
+[Apache License 2.0](LICENSE) · [NOTICE](NOTICE) ·
+[Сторонние компоненты](THIRD_PARTY_NOTICES.md).
 
-При использовании, изменении или распространении кода необходимо сохранять `LICENSE`, copyright notice и содержимое `NOTICE` в соответствии с условиями Apache-2.0.
+---
+
+<p align="center">
+  <a href="https://github.com/Dushnyj/Slovofon/releases">Релизы</a> ·
+  <a href="CHANGELOG.md">Изменения</a> ·
+  <a href="docs/README.md">Документация</a> ·
+  <a href="SUPPORT.md">Поддержка</a> ·
+  <a href="docs/SECURITY.md">Безопасность</a>
+</p>
+<p align="center"><a href="#readme-top">Наверх ↑</a></p>

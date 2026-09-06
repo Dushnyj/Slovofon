@@ -1,0 +1,54 @@
+name: Улучшение
+description: Предложить функцию или улучшение взаимодействия.
+title: "[Идея]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Опишите задачу пользователя, а не только желаемую кнопку.
+        Проверьте [существующие issues](https://github.com/Dushnyj/Slovofon/issues) и [известные ограничения](https://github.com/Dushnyj/Slovofon/blob/main/docs/CROSS_PLATFORM_QUALITY.md).
+        Не включайте секреты и персональные данные в примеры или изображения.
+  - type: checkboxes
+    id: preparation
+    attributes:
+      label: Перед отправкой
+      options:
+        - label: Я проверил существующие предложения; если есть связанные обсуждения, приведу ссылки ниже.
+          required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Затронутые платформы
+      multiple: true
+      options:
+        - Android — телефон или планшет
+        - Android TV
+        - Windows
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Какую задачу сейчас неудобно решать?
+      description: Опишите реальный сценарий и текущую трудность.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Предлагаемое поведение
+      description: Как это должно работать? Для UI учтите touch, клавиатуру/мышь или пульт на выбранных платформах.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Как проверить результат?
+      description: Какие наблюдаемые действия или состояния покажут, что задача решена?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Альтернативы и связанные обсуждения
+      description: Необязательно — обходной способ, другая реализация, ссылки на issues или обезличенный эскиз.
