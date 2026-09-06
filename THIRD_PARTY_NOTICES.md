@@ -209,6 +209,12 @@ Windows desktop presentation использует установленные с�
 
 Никогда не включать font files без проверки лицензии.
 
+Android TV launcher banners (`android/app/src/main/res/drawable/tv_banner.xml`
+и русская версия `drawable-ru/tv_banner.xml`) используют существующий знак
+Slovofon и векторные контуры названия продукта. Проектный генератор
+`android/tools/Generate-TvBanner.ps1` использует установленный Segoe UI для
+контуров надписи; сами font files не включаются в APK и не скачиваются.
+
 ## 6. Source logos
 
 Не использовать официальные логотипы источников без разрешения. Для источников использовать текстовые chips, цвет источника и generic source icon.

@@ -25,6 +25,14 @@ DPI и work-area вынесены в чистую геометрию `windows/ru
 
 Нельзя делать три разных приложения с разной бизнес-логикой. Android, Android TV и Windows должны использовать одни и те же модели, репозитории, источники, плеер, загрузки, прогресс и настройки.
 
+Статус реализации Android TV (2026-09-06): общий APK сохраняет телефонный launcher
+и добавляет Leanback launcher с локализованным banner. До `runApp` bootstrap получает
+`AppDeviceProfile` по каналу `com.slovofon.app/device_profile`: TV определяется через
+`UiModeManager`/`UI_MODE_TYPE_TELEVISION` либо `FEATURE_LEANBACK`, не по ширине экрана
+или отсутствию touch. Обработчик регистрируется в app-level Flutter engine до запуска
+Dart. Ошибка/отсутствие канала и timeout дают обычный non-TV профиль, не блокируя запуск.
+Контракт и отдельные native проверки: [ANDROID_TV_TESTING.md](ANDROID_TV_TESTING.md).
+
 ---
 
 ## 2. Слои приложения
@@ -118,11 +126,20 @@ Playback operations используют generation guards: поздний ре�
 
 - `DownloadManager` живёт в `lib/services/downloads/download_manager.dart`;
 - `DownloadClient` открывает `AudioMediaSource.url`, `AudioMediaSource.file` и `AudioMediaSource.asset`, передаёт headers, поддерживает Range для URL/file/asset и отдаёт поток байт в manager;
-- `FileDownloadStorage` хранит книги в app-specific папке `books/<sourceId>_<bookVersionId>/`, пишет `metadata.json`, скачивает главы в `chapters/NNN.part` и после успеха атомарно переименовывает в финальный файл;
+- `FileDownloadStorage` хранит книги в app-specific папке `books/<readable-prefix>-<sha256>/`, пишет `metadata.json`, скачивает главы в `chapters/NNN.part` и после успеха атомарно переименовывает в финальный файл;
 - `DriftDownloadPersistenceStore` сохраняет `DownloadTask`, обновляет `Chapter.localPath`, `Chapter.fileSizeBytes`, `downloadStatus` и `downloadProgress`, а при рестарте переводит `running` задачи в `paused`;
 - удаление скачанного аудио удаляет только offline files/tasks и не трогает PlaybackSession, PlaybackProgress, избранное, закладки и историю;
 - UI получает состояние через `downloadManagerProvider`; widgets не скачивают файлы напрямую.
 - Экран загрузок группирует `DownloadTask` по книге/версии, даёт общие действия pause/resume/retry/delete для всей книги и раскрывает главы внутри карточки, чтобы главный список не превращался в длинный плоский список глав.
+
+Идентичность нового каталога — полный SHA-256 от UTF-8 `jsonEncode([sourceId,
+bookVersionId])`; безопасный читаемый префикс ограничен 24 символами и не является
+ключом. Разделители и пунктуация в ID не схлопывают разные пары в один каталог.
+Старый каталог `<safe(sourceId_bookVersionId)>` используется на прежнем месте только
+при совпадении обоих ID в metadata. Файлы пользователя автоматически не перемещаются
+и не переименовываются. Несовпадение ID современного каталога вызывает ошибку;
+разрушительная операция над legacy-каталогом без проверяемой metadata отклоняется,
+а не угадывает владельца. Это адресация данных, не checksum содержимого аудио.
 
 Оффлайн-поиск строит индекс файлов одним асинхронным проходом по каталогу книги.
 `AudioPlaybackChapter.originalMediaSource` сохраняет исходный remote source при
@@ -212,6 +229,9 @@ App-level слой между feature UI и `SourceRegistry`.
 
 Управляет proxy profiles внутри приложения.
 
+Статус: целевой сервис, реализация ещё не подключена. Требования ниже сохраняются;
+прямая работа source clients не означает поддержку пользовательских proxy profiles.
+
 Обязанности:
 
 - выбрать direct/system/http/socks5;
@@ -224,6 +244,10 @@ App-level слой между feature UI и `SourceRegistry`.
 ### 3.6 MediaProxyService
 
 Локальный proxy-layer для воспроизведения и загрузок проблемных источников.
+
+Статус: целевой слой, реализация `MediaProxyService`/localhost endpoint пока
+отсутствует. Текущий playback использует прямой `AudioMediaSource` с headers либо
+локальный файл. Source allowlist и обновление media URL не заменяют этот слой.
 
 Обязанности:
 
@@ -334,6 +358,24 @@ Windows presentation отделена от бизнес-логики: `DesktopLa
 Дизайн-контракт и визуальный QA описаны в `docs/THEMING.md`, раздел 8.
 Detail routes вне StatefulShellRoute используют `DesktopStandaloneShell` с
 общей desktop presentation, не изменяя router/back stack и source lifecycle.
+
+Для подтверждённого TV-профиля `TelevisionLayout` включает `TelevisionShell` с
+верхней навигацией, `TelevisionBookCard` с явными действиями пульта и transport над
+тем же `PlaybackController`. Full player переиспользует адаптивную крупноэкранную
+компоновку, а не создаёт второй audio engine. `TelevisionViewport` оставляет 4%
+по каждой стороне, включая диалоги, и переводит Select в стандартный `ActivateIntent`.
+`TelevisionFocusFrame` выделяет текущий фокус без дополнительной остановки traversal
+и прокручивает элемент в видимую область. Back остаётся в Flutter navigation;
+системные media keys — в существующей Android Media3 интеграции. Голосовой TV-поиск
+не реализован отдельным приложенческим потоком; работа пульта/launcher/background
+на устройстве требует самостоятельной проверки и не следует из widget-тестов.
+
+Маршрут `/book/:bookId` открывает `SavedBookDetailsScreen`: точное сопоставление
+library metadata, коллекций, download context и текущей книги, без mock fallback.
+При отсутствии/неоднозначности ID отображается состояние ошибки/отсутствия, при
+наличии source reference без глав переиспользуется `SourceBookDetailsScreen`.
+Действия вызывают общие library/playback services; offline media накладывается
+через `DownloadManager.offlinePlaybackBook`, а не хранится в UI как отдельная сессия.
 
 ### Библиотека и закладки
 
