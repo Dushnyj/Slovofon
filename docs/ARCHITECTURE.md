@@ -340,6 +340,78 @@ User taps Download
 -> offlinePlaybackBook overlays local files as AudioMediaSource.file
 ```
 
+### 5.5 Проверка и запуск обновления приложения
+
+Общий update layer находится в `lib/services/updates/`; он не использует source
+connectors, отдельный backend, аккаунты или новый signing endpoint.
+
+```text
+UpdateStartupGate (startup / resume / foreground timer)
+  or Settings -> checkUpdatesManually()
+-> UpdateService (coalescing, cooldown, version comparison, skip policy)
+-> UpdateClient -> fixed public GitHub latest-release endpoint
+-> GitHubRelease (canonical identity / same-release URL / mandatory SHA256)
+-> Windows native getInstallationInfo when applicable
+-> select exact matching package -> root Navigator update dialog
+-> explicit user action -> download, size + SHA256 verification
+-> Windows Setup/MSI: PlaybackController.flushPlayback(requireSuccess: true) -> interactive installer
+-> Android: system APK installer
+-> Windows portable: Explorer opens the verified ZIP directory; manual extraction
+```
+
+`UpdateStartupGate` получает root Navigator key из router: контекст
+`MaterialApp.router.builder` находится выше Navigator и не используется для открытия
+диалога. Gate запускает проверку после первого кадра, при `resumed` и по 4-часовому
+таймеру только в foreground. Сервис ограничивает автоматические попытки cooldown
+30 минут в памяти процесса; закрытое приложение не проверяет обновления. Ручной вызов
+`checkForUpdate(includeSkipped: true)` игнорирует cooldown и пропуск. Общий in-flight
+запрос не отменяет индивидуальную skip policy вызывающего. UI coordinator предотвращает
+повторные диалоги и удаляет только принадлежащий ему route.
+
+`FileUpdatePreferences` хранит только ключ пропущенной версии в собственном
+`update-preferences.json` application-support каталога; база, library metadata и
+downloads не меняются. Чтение отсутствующего/повреждённого файла не вызывает сброс или
+запись. Сохранение сериализовано через отдельный временный файл и rename; ошибка
+доходит до UI. **«Позже»** не записывает пропуск; **«Пропустить версию»** переживает
+перезапуск и относится только к точному ключу версии.
+
+`GitHubRelease` распознаёт canonical universal APK, Windows x64 Setup EXE, MSI и
+portable ZIP. Версия имени, tag и точный URL должны совпадать. `UpdateClient` требует
+известный SHA256 для **всех** распознанных assets, даже другой платформы/формата:
+`digest` API либо точная запись `SHA256SUMS.txt` того же release. Неизвестный hash —
+ошибка всего manifest. Download повторно проверяет identity, тип, архитектуру, URL,
+лимиты и размер, разрешает только проверенные GitHub CDN redirects, пишет в собственный
+partial и передаёт файл дальше после проверки фактических bytes. MSIX, ABI APK и AAB
+не выбираются; произвольный URL и fallback на старый update-сервер запрещены.
+
+Windows channel `com.slovofon.app/windows_update` / `getInstallationInfo` возвращает
+`WindowsUpdateInstallation`. Native слой read-only сопоставляет регистрацию Setup/MSI
+с каталогом **запущенного** `Slovofon.exe`; другая установленная копия не задаёт формат
+updater. Неоднозначные/недоступные сведения дают `unknown`, а не догадку о Setup.
+Registry, MSI и файловая диагностика выполняются в отдельном worker; Flutter
+ответ отправляет только platform thread. Таймаут и закрытие окна инвалидируют
+поздний ответ, не отменяя системный вызов; single-flight предотвращает накопление
+workers, если WinAPI задерживается.
+Известный формат выбирает только свой artifact; при отсутствии подходящего пакета
+возвращается `unsupported`. Для `unknown` metadata используется только в UI для кнопки
+**«Открыть страницу релизов»** с фиксированным URL проекта; download/install блокируется.
+
+`PlatformUpdateInstaller` повторно читает Windows-контекст перед передачей управления:
+Setup получает `/CURRENTUSER` либо `/ALLUSERS` и текущий `/DIR`, MSI — системный
+`msiexec.exe /i <file> /norestart`. Оба работают интерактивно. Portable handler только
+открывает Explorer с папкой проверенного ZIP; распаковка в новую папку и закрытие
+приложения остаются ручными. Самовыхода, silent install, смены формата и перезаписи
+работающих файлов нет. `UpdateService` сериализует download/install и сохраняет
+playback через `flushPlayback(requireSuccess: true)` перед запуском Windows Setup/MSI.
+В отличие от best-effort автосохранения этот режим передаёт ошибку записи updater
+и блокирует запуск до успешного повторного сохранения. Успешный запуск
+процесса не означает успешное завершение установки.
+
+Реализованный поток не равен real-upgrade QA: обновление предыдущей Windows-версии,
+UAC/отмена/rollback и переход portable на новую папку в этой итерации не проводились.
+Сборка, bump версии и публикация релиза остаются отдельными действиями; детали
+контракта и проверки — [BUILD_RELEASE.md, раздел 5.3](BUILD_RELEASE.md#53-канал-обновлений-приложения).
+
 ---
 
 ## 6. Adaptive UI
