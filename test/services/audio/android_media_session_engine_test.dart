@@ -259,6 +259,9 @@ class RecordingAudioEngine implements AudioEngine {
 
   @override
   Future<void> setSpeed(double speed) async {}
+
+  @override
+  Future<void> setVolume(double volume) async {}
 }
 
 class RecordingAndroidMediaSessionPlatform

@@ -111,7 +111,7 @@ class IzibMapper {
             ? PlaybackAccess.streamAndDownload
             : PlaybackAccess.none,
         isFull: hasFiles,
-        isFragment: !hasFiles,
+        isFragment: false,
         isAccessibleForFree: hasFiles,
         canStream: hasFiles,
         canDownload: hasFiles,

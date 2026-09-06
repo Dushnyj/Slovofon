@@ -125,7 +125,7 @@ class YaknigaMapper {
             ? PlaybackAccess.streamAndDownload
             : PlaybackAccess.none,
         isFull: hasPlayableChapters,
-        isFragment: !hasPlayableChapters,
+        isFragment: false,
         isPaid: paid,
         isAccessibleForFree: !blocked && !paid,
         canStream: hasPlayableChapters,
@@ -145,9 +145,10 @@ class YaknigaMapper {
     final now = _clock();
     final id = _bookId(book);
     final sourceUri = _bookUri(book);
+    final items = _chapters(book);
     return [
-      for (var index = 0; index < _chapters(book).length; index++)
-        _chapter(book, _chapters(book)[index], index, now, sourceUri, id),
+      for (var index = 0; index < items.length; index++)
+        _chapter(book, items[index], index, now, sourceUri, id),
     ];
   }
 

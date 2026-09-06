@@ -77,6 +77,7 @@ class AndroidMediaSessionSnapshot {
     this.coverUrl,
     this.canSkipPrevious = true,
     this.canSkipNext = true,
+    this.speed = 1,
   });
 
   final String appName;
@@ -90,6 +91,7 @@ class AndroidMediaSessionSnapshot {
   final bool isPlaying;
   final bool canSkipPrevious;
   final bool canSkipNext;
+  final double speed;
 
   Map<String, Object?> toMap() {
     return {
@@ -104,6 +106,7 @@ class AndroidMediaSessionSnapshot {
       'isPlaying': isPlaying,
       'canSkipPrevious': canSkipPrevious,
       'canSkipNext': canSkipNext,
+      'speed': speed,
     };
   }
 }
@@ -179,9 +182,26 @@ class AndroidMediaSessionEngine
        _platform = platform {
     _delegateSubscription = _delegate.snapshots.listen(_handleSnapshot);
     _commandSubscription = _platform.commands.listen((command) {
+      if (command.type == AndroidMediaSessionCommandType.pause ||
+          command.type == AndroidMediaSessionCommandType.stop) {
+        _commandEpoch++;
+        // A user pause must invalidate a controller resolver/load immediately,
+        // not wait behind chapter navigation in the native command queue.
+        unawaited(
+          _handleCommand(command).catchError(
+            (Object error, StackTrace stack) => _reportCommandError(error),
+          ),
+        );
+        return;
+      }
+      final epoch = _commandEpoch;
       _commandQueue = _commandQueue
-          .then((_) => _handleCommand(command))
-          .catchError((Object _) {});
+          .then<void>((_) async {
+            if (epoch == _commandEpoch) await _handleCommand(command);
+          })
+          .catchError(
+            (Object error, StackTrace stack) => _reportCommandError(error),
+          );
     });
   }
 
@@ -206,6 +226,9 @@ class AndroidMediaSessionEngine
   );
   AndroidMediaSessionSnapshot? _lastPublishedSnapshot;
   bool _disposed = false;
+  int _playGeneration = 0;
+  int _commandEpoch = 0;
+  double _speed = 1;
 
   @override
   Stream<AudioEngineSnapshot> get snapshots => _snapshots.stream;
@@ -227,6 +250,7 @@ class AndroidMediaSessionEngine
     required Duration position,
     AudioPlaybackBook? book,
   }) async {
+    _playGeneration++;
     _loadedChapter = chapter;
     _loadedBook = book;
     _lastSnapshot = AudioEngineSnapshot(
@@ -241,19 +265,21 @@ class AndroidMediaSessionEngine
 
   @override
   Future<void> play() async {
-    await _delegate.play();
-    _lastSnapshot = AudioEngineSnapshot(
-      position: _lastSnapshot.position,
-      duration: _effectiveDuration,
-      processingState: _lastSnapshot.processingState,
-      isPlaying: true,
-      errorMessage: _lastSnapshot.errorMessage,
+    final generation = ++_playGeneration;
+    // just_audio.play completes on pause/end, not on start. Never hold the
+    // native command queue (including its Pause command) on that future.
+    unawaited(
+      _delegate.play().catchError((Object error, StackTrace stack) {
+        if (!_disposed && generation == _playGeneration) {
+          _reportCommandError(error);
+        }
+      }),
     );
-    unawaited(_publishToPlatform());
   }
 
   @override
   Future<void> pause() async {
+    _playGeneration++;
     await _delegate.pause();
     _lastSnapshot = AudioEngineSnapshot(
       position: _lastSnapshot.position,
@@ -281,7 +307,14 @@ class AndroidMediaSessionEngine
 
   @override
   Future<void> setSpeed(double speed) {
+    _speed = speed;
+    unawaited(_publishToPlatform());
     return _delegate.setSpeed(speed);
+  }
+
+  @override
+  Future<void> setVolume(double volume) {
+    return _delegate.setVolume(volume);
   }
 
   @override
@@ -290,6 +323,7 @@ class AndroidMediaSessionEngine
       return;
     }
     _disposed = true;
+    _playGeneration++;
     await _commandSubscription.cancel();
     await _commandQueue;
     await _delegateSubscription.cancel();
@@ -309,23 +343,47 @@ class AndroidMediaSessionEngine
 
     switch (command.type) {
       case AndroidMediaSessionCommandType.play:
-        await play();
+        unawaited(
+          (_chapterNavigation.onPlay?.call() ?? play()).catchError(
+            (Object error, StackTrace stack) => _reportCommandError(error),
+          ),
+        );
       case AndroidMediaSessionCommandType.pause:
-        await pause();
+        await (_chapterNavigation.onPause?.call() ?? pause());
       case AndroidMediaSessionCommandType.stop:
-        await pause();
-        await _platform.clear();
+        await (_chapterNavigation.onPause?.call() ?? pause());
+        if (!_lastSnapshot.isPlaying) await _platform.clear();
       case AndroidMediaSessionCommandType.seek:
-        await seek(command.position ?? Duration.zero);
+        await _seekFromCommand(command.position ?? Duration.zero);
       case AndroidMediaSessionCommandType.rewind:
-        await seek(_lastSnapshot.position - skipInterval);
+        await _seekFromCommand(_lastSnapshot.position - skipInterval);
       case AndroidMediaSessionCommandType.fastForward:
-        await seek(_lastSnapshot.position + skipInterval);
+        await _seekFromCommand(_lastSnapshot.position + skipInterval);
       case AndroidMediaSessionCommandType.previousChapter:
         await _chapterNavigation.onPreviousChapter?.call();
       case AndroidMediaSessionCommandType.nextChapter:
         await _chapterNavigation.onNextChapter?.call();
     }
+  }
+
+  Future<void> _seekFromCommand(Duration position) {
+    return _chapterNavigation.onSeek?.call(_clampPosition(position)) ??
+        seek(position);
+  }
+
+  void _reportCommandError(Object error) {
+    if (_disposed) return;
+    _handleSnapshot(
+      AudioEngineSnapshot(
+        position: _lastSnapshot.position,
+        duration: _effectiveDuration,
+        processingState: AudioEngineProcessingState.error,
+        isPlaying: false,
+        errorMessage: error is AudioEngineException
+            ? error.message
+            : 'Audio playback failed.',
+      ),
+    );
   }
 
   void _handleSnapshot(AudioEngineSnapshot snapshot) {
@@ -361,6 +419,12 @@ class AndroidMediaSessionEngine
       duration: _effectiveDuration,
       processingState: _lastSnapshot.processingState,
       isPlaying: _lastSnapshot.isPlaying,
+      speed: _speed,
+      canSkipPrevious:
+          book.chapters.indexWhere((item) => item.id == chapter.id) > 0,
+      canSkipNext:
+          book.chapters.indexWhere((item) => item.id == chapter.id) <
+          book.chapters.length - 1,
     );
     if (!_shouldPublish(snapshot)) {
       return;
@@ -384,6 +448,7 @@ class AndroidMediaSessionEngine
         previous.duration != snapshot.duration ||
         previous.processingState != snapshot.processingState ||
         previous.isPlaying != snapshot.isPlaying ||
+        previous.speed != snapshot.speed ||
         previous.canSkipPrevious != snapshot.canSkipPrevious ||
         previous.canSkipNext != snapshot.canSkipNext) {
       return true;

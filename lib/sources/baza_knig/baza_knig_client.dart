@@ -1,7 +1,7 @@
-import 'dart:convert';
 import 'dart:io';
 
 import '../source_models.dart';
+import '../source_metadata_transport.dart';
 
 abstract interface class BazaKnigTransport {
   Future<BazaKnigTransportResponse> get(
@@ -24,74 +24,36 @@ class DartIoBazaKnigTransport implements BazaKnigTransport {
   DartIoBazaKnigTransport({
     Duration timeout = const Duration(seconds: 12),
     HttpClient Function()? httpClientFactory,
-  }) : _timeout = timeout,
-       _httpClientFactory = httpClientFactory ?? HttpClient.new;
+    SourceMetadataPolicy policy = BazaKnigClient.metadataPolicy,
+  }) : _transport = SourceMetadataTransport(
+         policy: policy,
+         timeout: timeout,
+         httpClientFactory: httpClientFactory,
+       );
 
-  final Duration _timeout;
-  final HttpClient Function() _httpClientFactory;
-  final _cookiesByHost = <String, Map<String, Cookie>>{};
+  final SourceMetadataTransport _transport;
 
   @override
   Future<BazaKnigTransportResponse> get(
     Uri uri, {
     required Map<String, String> headers,
   }) async {
-    final client = _httpClientFactory();
-    client.connectionTimeout = _timeout;
-
-    try {
-      final request = await client.getUrl(uri).timeout(_timeout);
-      for (final entry in headers.entries) {
-        request.headers.set(entry.key, entry.value);
-      }
-      request.cookies.addAll(_cookiesFor(uri));
-      final response = await request.close().timeout(_timeout);
-      _storeCookies(uri, response.cookies);
-      final responseBody = await response
-          .transform(utf8.decoder)
-          .join()
-          .timeout(_timeout);
-      return BazaKnigTransportResponse(
-        statusCode: response.statusCode,
-        body: responseBody,
-      );
-    } finally {
-      client.close(force: true);
-    }
-  }
-
-  List<Cookie> _cookiesFor(Uri uri) {
-    final now = DateTime.now().toUtc();
-    final jar = _cookiesByHost[uri.host.toLowerCase()];
-    if (jar == null || jar.isEmpty) {
-      return const [];
-    }
-    return [
-      for (final cookie in jar.values)
-        if (cookie.expires == null || cookie.expires!.isAfter(now)) cookie,
-    ];
-  }
-
-  void _storeCookies(Uri uri, List<Cookie> cookies) {
-    if (cookies.isEmpty) {
-      return;
-    }
-    final now = DateTime.now().toUtc();
-    final jar = _cookiesByHost.putIfAbsent(uri.host.toLowerCase(), () => {});
-    for (final cookie in cookies) {
-      if (cookie.expires != null && !cookie.expires!.isAfter(now)) {
-        jar.remove(cookie.name);
-      } else {
-        jar[cookie.name] = cookie;
-      }
-    }
+    final response = await _transport.send(uri, headers: headers);
+    return BazaKnigTransportResponse(
+      statusCode: response.statusCode,
+      body: response.body,
+    );
   }
 }
 
 class BazaKnigClient {
-  BazaKnigClient({BazaKnigTransport? transport, Uri? baseUri})
-    : _transport = transport ?? DartIoBazaKnigTransport(),
-      baseUri = baseUri ?? defaultBaseUri;
+  BazaKnigClient({
+    BazaKnigTransport? transport,
+    Uri? baseUri,
+    SourceMetadataPolicy policy = metadataPolicy,
+  }) : _transport = transport ?? DartIoBazaKnigTransport(policy: policy),
+       baseUri = baseUri ?? defaultBaseUri,
+       _policy = policy;
 
   static final defaultBaseUri = Uri.parse('https://baza-knig.top/');
   static const userAgent =
@@ -100,6 +62,11 @@ class BazaKnigClient {
       'Chrome/125.0 Safari/537.36';
 
   final BazaKnigTransport _transport;
+  static const metadataPolicy = SourceMetadataPolicy(
+    sourceId: 'baza_knig',
+    hosts: {'baza-knig.top', 'www.baza-knig.top'},
+  );
+  final SourceMetadataPolicy _policy;
   final Uri baseUri;
 
   Future<String> searchBooksHtml({required String query, int page = 1}) {
@@ -117,7 +84,7 @@ class BazaKnigClient {
   }
 
   Future<String> bookHtml(SourceBookRef ref) {
-    final uri = ref.sourceUri ?? baseUri.resolve(ref.sourceBookId);
+    final uri = _policy.bookUri(baseUri, ref);
     return _getText(uri, referer: baseUri.toString());
   }
 
@@ -130,6 +97,7 @@ class BazaKnigClient {
   }
 
   Future<String> _getText(Uri uri, {String? referer}) async {
+    _policy.validate(uri);
     final response = await _transport.get(
       uri,
       headers: _htmlHeaders(referer: referer),

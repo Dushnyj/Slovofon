@@ -4,24 +4,24 @@ import '../../services/audio/audio_state.dart';
 import '../source_connector.dart';
 import '../source_media_validator.dart';
 import '../source_models.dart';
+import '../source_request_cache.dart';
 import 'izib_graphql_client.dart';
 import 'izib_mapper.dart';
 
-class IzibSourceConnector implements SourceConnector {
+class IzibSourceConnector implements SourceConnector, SourceCacheInvalidator {
   IzibSourceConnector({
     IzibGraphQlClient? client,
     IzibMapper? mapper,
     DateTime Function()? clock,
   }) : _client = client ?? IzibGraphQlClient(),
        _clock = clock ?? DateTime.now,
-       _mapper = mapper ?? IzibMapper(clock: clock);
+       _mapper = mapper ?? IzibMapper(clock: clock),
+       _bookCache = SourceRequestCache(clock: clock);
 
   final IzibGraphQlClient _client;
   final IzibMapper _mapper;
   final DateTime Function() _clock;
-  final _bookCache = <int, _IzibBookCacheEntry>{};
-
-  static const _bookCacheTtl = Duration(minutes: 5);
+  final SourceRequestCache<int, Map<String, Object?>> _bookCache;
 
   @override
   String get id => 'izib';
@@ -210,19 +210,13 @@ class IzibSourceConnector implements SourceConnector {
   }
 
   Future<Map<String, Object?>> _cachedBook(int bookId) {
-    final cached = _bookCache[bookId];
-    if (cached != null &&
-        _clock().difference(cached.createdAt) < _bookCacheTtl) {
-      return cached.future;
-    }
+    return _bookCache.getOrLoad(bookId, () => _client.book(id: bookId));
+  }
 
-    late final Future<Map<String, Object?>> future;
-    future = _client.book(id: bookId).catchError((Object error) {
-      _bookCache.remove(bookId);
-      throw error;
-    });
-    _bookCache[bookId] = _IzibBookCacheEntry(future, _clock());
-    return future;
+  @override
+  void invalidateBook(SourceBookRef ref) {
+    final id = int.tryParse(ref.sourceBookId) ?? _extractBookId(ref.sourceUri);
+    if (id != null) _bookCache.remove(id);
   }
 
   static int? _extractBookId(Uri? uri) {
@@ -233,11 +227,4 @@ class IzibSourceConnector implements SourceConnector {
     final match = RegExp(r'/art(\d+)(?:\D|$)').firstMatch(uri.path);
     return match == null ? null : int.tryParse(match.group(1)!);
   }
-}
-
-class _IzibBookCacheEntry {
-  const _IzibBookCacheEntry(this.future, this.createdAt);
-
-  final Future<Map<String, Object?>> future;
-  final DateTime createdAt;
 }

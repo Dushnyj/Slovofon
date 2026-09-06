@@ -56,14 +56,23 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
     std::optional<LRESULT> result =
         flutter_controller_->HandleTopLevelWindowProc(hwnd, message, wparam,
                                                       lparam);
-    if (result) {
+    // Plugins still receive these messages, but cannot bypass the main native
+    // window's sizing policy or prevent the normal WM_SIZE/WM_MOVE dispatch.
+    const bool sizing_message = message == WM_GETMINMAXINFO ||
+        message == WM_WINDOWPOSCHANGING || message == WM_WINDOWPOSCHANGED ||
+        message == WM_DPICHANGED || message == WM_SIZE ||
+        message == WM_DISPLAYCHANGE ||
+        (message == WM_SETTINGCHANGE && wparam == SPI_SETWORKAREA);
+    if (result && !sizing_message) {
       return *result;
     }
   }
 
   switch (message) {
     case WM_FONTCHANGE:
-      flutter_controller_->engine()->ReloadSystemFonts();
+      if (flutter_controller_ && flutter_controller_->engine()) {
+        flutter_controller_->engine()->ReloadSystemFonts();
+      }
       break;
   }
 

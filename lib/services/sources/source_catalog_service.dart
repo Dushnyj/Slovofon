@@ -4,6 +4,7 @@ import '../../domain/models/audio_book.dart';
 import '../../domain/models/book_version.dart';
 import '../../domain/models/chapter.dart';
 import '../../sources/sources.dart';
+import '../../sources/source_request_cache.dart';
 import '../audio/audio_state.dart';
 
 class SourceBookSnapshot {
@@ -34,7 +35,8 @@ class SourceCatalogService {
   final SourceRegistry _registry;
   final Duration _searchEnrichmentTimeout;
   final int _searchEnrichmentLimit;
-  final _searchDetailsCache = <String, Future<BookVersionDetails?>>{};
+  final _searchDetailsCache = SourceRequestCache<String, BookVersionDetails?>();
+  final _bookRefreshes = <String, Future<SourceBookSnapshot>>{};
 
   Future<SourceSearchResponse> search(SearchRequest request) async {
     final normalizedQuery = _normalizeSearchText(request.query);
@@ -50,28 +52,34 @@ class SourceCatalogService {
     final failures = <SourceFailure>[...primaryResponse.failures];
     _addSearchResults(resultsByKey, primaryResponse.results);
 
-    var filtered = _filteredSortedResults(
+    var candidates = _searchCandidates(
       resultsByKey.values,
       request.effectiveKinds,
       tokens,
     );
-    if (filtered.isEmpty && tokens.length > 1) {
+    if (candidates.isEmpty && tokens.length > 1) {
       final fallbackResponses = await Future.wait(
-        tokens.map((token) => _registry.search(request.copyWith(query: token))),
+        tokens
+            .toSet()
+            .take(3)
+            .map((token) => _registry.search(request.copyWith(query: token))),
       );
       for (final response in fallbackResponses) {
         failures.addAll(response.failures);
         _addSearchResults(resultsByKey, response.results);
       }
-      filtered = _filteredSortedResults(
+      candidates = _searchCandidates(
         resultsByKey.values,
         request.effectiveKinds,
         tokens,
       );
     }
-    final enriched = await _enrichSearchResults(filtered, request.pageSize);
+    final enriched = await _enrichSearchResults(candidates, request.pageSize);
+    final filtered = enriched.where(
+      (result) => _matchesRequest(result, request.effectiveKinds, tokens),
+    );
     final sorted = _sortResults(
-      enriched,
+      filtered,
       request.effectiveKinds,
       tokens,
       request.sort,
@@ -90,6 +98,35 @@ class SourceCatalogService {
     for (final result in results) {
       resultsByKey['${result.sourceId}:${result.sourceBookId}'] = result;
     }
+  }
+
+  static List<BookSearchResult> _searchCandidates(
+    Iterable<BookSearchResult> results,
+    Set<SearchKind> kinds,
+    List<String> tokens,
+  ) {
+    // Missing metadata is not evidence of a mismatch. Give sparse cards the
+    // existing bounded enrichment budget before applying the exact filter.
+    return _sortResults(
+      results.where(
+        (result) =>
+            _matchesRequest(result, kinds, tokens) ||
+            kinds.any(
+              (kind) => switch (kind) {
+                SearchKind.author => result.author?.trim().isNotEmpty != true,
+                SearchKind.narrator =>
+                  result.narrator?.trim().isNotEmpty != true,
+                SearchKind.series => result.series?.trim().isNotEmpty != true,
+                SearchKind.genre => result.genres.isEmpty,
+                SearchKind.title => result.title.trim().isEmpty,
+                SearchKind.all => false,
+              },
+            ),
+      ),
+      kinds,
+      tokens,
+      SearchSort.relevance,
+    );
   }
 
   static List<BookSearchResult> _filteredSortedResults(
@@ -205,23 +242,9 @@ class SourceCatalogService {
     }
 
     final key = _detailsCacheKey(result.ref);
-    final cached = _searchDetailsCache[key];
-    if (cached != null) {
-      return cached;
-    }
-
-    late final Future<BookVersionDetails?> future;
-    future = connector
-        .getBookDetails(result.ref)
-        .then<BookVersionDetails?>(
-          (details) => details,
-          onError: (Object _) {
-            _searchDetailsCache.remove(key);
-            return null;
-          },
-        );
-    _searchDetailsCache[key] = future;
-    return future;
+    return _searchDetailsCache
+        .getOrLoad(key, () => connector.getBookDetails(result.ref))
+        .catchError((Object _) => null);
   }
 
   BookSearchResult _mergeSearchDetails(
@@ -252,8 +275,9 @@ class SourceCatalogService {
       year: version.publishedYear ?? result.year,
       audioYear: version.audioYear ?? result.audioYear,
       chapterCount: result.chapterCount,
-      isFull: version.isFull || (result.isFull ?? false),
-      isFree: version.isAccessibleForFree || (result.isFree ?? false),
+      isFull: version.isFull,
+      isFragment: version.isFragment,
+      isFree: version.isAccessibleForFree,
       accessType: version.accessType == AccessType.unknown
           ? result.accessType
           : version.accessType,
@@ -339,13 +363,67 @@ class SourceCatalogService {
     return List.unmodifiable(alternatives.take(limit));
   }
 
-  Future<SourceBookSnapshot> loadBook(SourceBookRef ref) async {
+  Future<SourceBookSnapshot> loadBook(
+    SourceBookRef ref, {
+    bool forceRefresh = false,
+    MediaResolvePurpose purpose = MediaResolvePurpose.playback,
+  }) {
+    if (!forceRefresh) return _loadBook(ref, purpose);
+    final key = '${_detailsCacheKey(ref)}:${purpose.name}';
+    final pending = _bookRefreshes[key];
+    if (pending != null) return pending;
+    final connector = _registry.connectorById(ref.sourceId);
+    if (connector is SourceCacheInvalidator) {
+      (connector as SourceCacheInvalidator).invalidateBook(ref);
+    }
+    _searchDetailsCache.remove(_detailsCacheKey(ref));
+    late final Future<SourceBookSnapshot> future;
+    future = _loadBook(ref, purpose).whenComplete(() {
+      if (identical(_bookRefreshes[key], future)) _bookRefreshes.remove(key);
+    });
+    _bookRefreshes[key] = future;
+    return future;
+  }
+
+  /// Refreshes original remote media, not a local-file overlay. DownloadManager
+  /// owns completed files/progress and reapplies that state by chapter identity.
+  Future<AudioPlaybackBook> refreshBookForDownloads(AudioPlaybackBook book) =>
+      _refreshBookMedia(book, MediaResolvePurpose.download);
+
+  /// Called on a remote playback retry; callers keep pause/local-only playback
+  /// offline and overlay existing local files after this explicit refresh.
+  Future<AudioPlaybackBook> refreshBookForPlayback(AudioPlaybackBook book) =>
+      _refreshBookMedia(book, MediaResolvePurpose.playback);
+
+  Future<AudioPlaybackBook> _refreshBookMedia(
+    AudioPlaybackBook book,
+    MediaResolvePurpose purpose,
+  ) async {
+    final sourceBookId = book.sourceBookId;
+    if (sourceBookId == null || sourceBookId.isEmpty) {
+      throw SourceException(
+        sourceId: book.sourceId,
+        kind: SourceErrorKind.notFound,
+        message: 'Source book reference is missing for media refresh.',
+      );
+    }
+    return (await loadBook(
+      SourceBookRef(sourceId: book.sourceId, sourceBookId: sourceBookId),
+      forceRefresh: true,
+      purpose: purpose,
+    )).playbackBook;
+  }
+
+  Future<SourceBookSnapshot> _loadBook(
+    SourceBookRef ref,
+    MediaResolvePurpose purpose,
+  ) async {
     final connector = _registry.connectorById(ref.sourceId);
     final details = await connector.getBookDetails(ref);
     final chapters = await connector.getChapters(ref);
     final playbackChapters = await Future.wait([
       for (final chapter in chapters)
-        _resolvePlaybackChapter(connector, chapter),
+        _resolvePlaybackChapter(connector, chapter, purpose),
     ]);
 
     final audioBook = audioBookForDetails(details, chapters.length);
@@ -366,11 +444,9 @@ class SourceCatalogService {
   Future<AudioPlaybackChapter> _resolvePlaybackChapter(
     SourceConnector connector,
     Chapter chapter,
+    MediaResolvePurpose purpose,
   ) async {
-    final resolved = await connector.resolveMedia(
-      chapter,
-      MediaResolvePurpose.playback,
-    );
+    final resolved = await connector.resolveMedia(chapter, purpose);
     return _playbackChapter(chapter, resolved);
   }
 
@@ -387,6 +463,7 @@ class SourceCatalogService {
       chapterCount: result.chapterCount ?? 0,
       progress: 0,
       access: _bookAccess(result.accessType),
+      isFragment: result.isFragment,
       coverUrl: result.coverUri?.toString(),
       seriesTitle: _emptyToNull(result.series),
       seriesNumber: result.seriesNumber,
@@ -411,6 +488,7 @@ class SourceCatalogService {
       chapterCount: chapterCount,
       progress: 0,
       access: _bookAccess(version.accessType),
+      isFragment: version.isFragment,
       coverUrl: version.coverUrl,
       description: version.description,
       seriesTitle: _emptyToNull(version.seriesTitle),
@@ -440,6 +518,7 @@ class SourceCatalogService {
       sourceId: version.sourceId,
       sourceBookId: sourceBookId,
       title: version.title,
+      isFragment: version.isFragment,
       author: version.authors.join(', '),
       narrator: version.narrators.join(', '),
       sourceName: _sourceName(version.sourceId),
@@ -562,7 +641,8 @@ class SourceCatalogService {
         result.duration == null ||
         result.year == null ||
         result.ratingValue == null ||
-        result.ratingCount == null;
+        result.ratingCount == null ||
+        result.genres.isEmpty;
   }
 
   static Uri? _uriOrNull(String? value) {

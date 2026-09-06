@@ -5,14 +5,13 @@ void main() {
   test('project links use only public HTTPS endpoints', () {
     final links = [
       ProjectLinks.githubRepository,
+      ProjectLinks.githubReleases,
+      ProjectLinks.githubLatestRelease,
       ProjectLinks.telegramSupportBot,
       ProjectLinks.telegramChannel,
       ProjectLinks.telegramChat,
       ProjectLinks.site,
       ProjectLinks.api,
-      ProjectLinks.updatesBase,
-      ProjectLinks.updatesStableManifest,
-      ProjectLinks.updatesBetaManifest,
     ];
 
     for (final link in links) {
@@ -23,12 +22,12 @@ void main() {
       );
     }
     expect(
-      ProjectLinks.updatesStableManifest,
-      'https://slovofon-updates.duckdns.org/v1/channels/stable/latest.json',
+      ProjectLinks.githubLatestRelease,
+      'https://api.github.com/repos/Dushnyj/Slovofon/releases/latest',
     );
     expect(
-      ProjectLinks.updatesBetaManifest,
-      'https://slovofon-updates.duckdns.org/v1/channels/beta/latest.json',
+      ProjectLinks.githubReleases,
+      'https://github.com/Dushnyj/Slovofon/releases',
     );
   });
 }

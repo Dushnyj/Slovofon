@@ -98,11 +98,15 @@ data class SlovofonMediaSessionState(
     val durationMs: Long,
     val processingState: String,
     val isPlaying: Boolean,
+    val speed: Float,
     val canSkipPrevious: Boolean,
     val canSkipNext: Boolean,
 ) {
     val hasMedia: Boolean
         get() = bookTitle.isNotBlank() || chapterTitle.isNotBlank()
+
+    val keepAliveAfterTaskRemoval: Boolean
+        get() = hasMedia && (isPlaying || processingState == "loading" || processingState == "buffering")
 
     companion object {
         fun idle(): SlovofonMediaSessionState {
@@ -116,6 +120,7 @@ data class SlovofonMediaSessionState(
                 durationMs = 0L,
                 processingState = "idle",
                 isPlaying = false,
+                speed = 1.0f,
                 canSkipPrevious = false,
                 canSkipNext = false,
             )
@@ -133,6 +138,8 @@ data class SlovofonMediaSessionState(
                 durationMs = map.longValue("durationMs"),
                 processingState = map.stringValue("processingState") ?: "idle",
                 isPlaying = map.booleanValue("isPlaying"),
+                speed = (map["speed"] as? Number)?.toFloat()
+                    ?.takeIf { it.isFinite() && it > 0f } ?: 1.0f,
                 canSkipPrevious = map.booleanValue("canSkipPrevious", defaultValue = true),
                 canSkipNext = map.booleanValue("canSkipNext", defaultValue = true),
             )

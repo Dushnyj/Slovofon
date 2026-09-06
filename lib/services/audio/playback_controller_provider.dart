@@ -10,6 +10,7 @@ import 'audio_engine.dart';
 import 'just_audio_engine.dart';
 import 'playback_controller.dart';
 import '../downloads/download_manager_provider.dart';
+import '../sources/source_catalog_provider.dart';
 
 final audioEngineProvider = Provider<AudioEngine>((ref) {
   final engine = InMemoryAudioEngine();
@@ -25,9 +26,16 @@ final playbackPersistenceStoreProvider = Provider<PlaybackPersistenceStore?>((
 
 final playbackProgressSnapshotsProvider =
     FutureProvider<List<PlaybackProgressSnapshot>>((ref) async {
+      ref.watch(_playbackProgressRevisionProvider);
       final store = ref.watch(playbackPersistenceStoreProvider);
       return store?.loadProgress() ?? const <PlaybackProgressSnapshot>[];
     });
+
+final _playbackProgressRevisionProvider = StreamProvider<int>((ref) async* {
+  final controller = ref.watch(playbackControllerProvider);
+  yield controller.progressRevision;
+  yield* controller.progressChanges;
+});
 
 final playbackControllerProvider = Provider<PlaybackController>((ref) {
   final service = PlaybackController(
@@ -36,6 +44,12 @@ final playbackControllerProvider = Provider<PlaybackController>((ref) {
     bookMetadataStore: ref.watch(downloadStorageProvider),
     playbackBookResolver: (book) {
       return ref.read(downloadStorageProvider).offlinePlaybackBook(book);
+    },
+    playbackErrorBookResolver: (book) async {
+      final refreshed = await ref
+          .read(sourceCatalogServiceProvider)
+          .refreshBookForPlayback(book);
+      return ref.read(downloadStorageProvider).offlinePlaybackBook(refreshed);
     },
   );
   final sleepTimerTicker = Timer.periodic(const Duration(seconds: 1), (_) {

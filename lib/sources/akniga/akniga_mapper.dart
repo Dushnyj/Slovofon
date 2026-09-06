@@ -227,6 +227,11 @@ class AknigaMapper {
       narrator: _peopleForIcon(item, 'icon--performer').join(', '),
       series: _seriesFromRaw(seriesRaw),
       seriesNumber: _seriesNumberFromRaw(seriesRaw),
+      genres: _splitLabels(
+        _text(item, '.section__title span').isNotEmpty
+            ? _text(item, '.section__title span')
+            : _text(item, '.section__title'),
+      ),
       coverUri: _coverUri(item, const {}),
       duration: duration,
       year: _searchResultYear(item, slug),

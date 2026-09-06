@@ -1,26 +1,28 @@
 package com.slovofon.app
 
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
-import android.os.Process
 import android.provider.Settings
 import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
-import kotlin.system.exitProcess
 
 class MainActivity : FlutterActivity() {
     private var updateInstallerChannel: MethodChannel? = null
 
+    override fun provideFlutterEngine(context: Context): FlutterEngine {
+        return SlovofonFlutterEngine.getOrCreate(context)
+    }
+
+    // The player and downloads belong to the app, not to a visible Activity.
+    override fun shouldDestroyEngineWithHost(): Boolean = false
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        SlovofonMediaSessionBridge.attach(
-            flutterEngine.dartExecutor.binaryMessenger,
-            applicationContext,
-        )
         updateInstallerChannel = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "com.slovofon.app/update_installer",
@@ -49,7 +51,6 @@ class MainActivity : FlutterActivity() {
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
         updateInstallerChannel?.setMethodCallHandler(null)
         updateInstallerChannel = null
-        SlovofonMediaSessionBridge.detach()
         super.cleanUpFlutterEngine(flutterEngine)
     }
 
@@ -88,16 +89,5 @@ class MainActivity : FlutterActivity() {
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         startActivity(intent)
         result.success(null)
-    }
-
-    override fun onDestroy() {
-        val shouldTerminateProcess = isFinishing && !isChangingConfigurations
-
-        super.onDestroy()
-
-        if (shouldTerminateProcess) {
-            Process.killProcess(Process.myPid())
-            exitProcess(0)
-        }
     }
 }

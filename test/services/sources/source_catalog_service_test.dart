@@ -12,6 +12,7 @@ import 'package:slovofon/services/sources/source_catalog_provider.dart';
 import 'package:slovofon/services/sources/source_catalog_service.dart';
 import 'package:slovofon/services/sources/source_settings_store.dart';
 import 'package:slovofon/sources/izib/izib_graphql_client.dart';
+import 'package:slovofon/sources/knigoblud/knigoblud_mapper.dart';
 import 'package:slovofon/sources/sources.dart';
 
 void main() {
@@ -252,6 +253,41 @@ void main() {
           'groshev-nikolay-dyhanie-zony',
         );
         expect(alternatives.single.narrator, 'Олег Шубин');
+      },
+    );
+
+    test(
+      'other narrations preserve separated Knigoblud search roles',
+      () async {
+        final searchResults = KnigobludMapper().searchResults(
+          File(
+            'test/sources/knigoblud/fixtures/search_combined_people.html',
+          ).readAsStringSync(),
+        );
+        final service = SourceCatalogService(
+          registry: SourceRegistry([
+            _NarrationSourceConnector(
+              id: 'knigoblud',
+              name: 'Knigoblud',
+              results: searchResults,
+            ),
+          ]),
+        );
+        final alternatives = await service.findOtherNarrations(
+          _sourceSnapshot(
+            sourceId: 'izib',
+            sourceName: 'Izib',
+            sourceBookId: 'poluraspad',
+            title: 'S.T.A.L.K.E.R. Полураспад',
+            author: 'Александр Зорич',
+            narrator: 'Чайцын Александр (Алекс)',
+          ),
+        );
+
+        expect(alternatives, hasLength(1));
+        expect(alternatives.single.sourceId, 'knigoblud');
+        expect(alternatives.single.author, 'Александр Зорич');
+        expect(alternatives.single.narrator, 'Чайцын Александр (Алекс)');
       },
     );
 

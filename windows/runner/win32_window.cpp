@@ -4,6 +4,7 @@
 #include <flutter_windows.h>
 
 #include "resource.h"
+#include "window_size_policy.h"
 
 namespace {
 
@@ -31,10 +32,72 @@ static int g_active_window_count = 0;
 
 using EnableNonClientDpiScaling = BOOL __stdcall(HWND hwnd);
 
-// Scale helper to convert logical scaler values to physical using passed in
-// scale factor
-int Scale(int source, double scale_factor) {
-  return static_cast<int>(source * scale_factor);
+window_size_policy::Bounds WorkAreaForMonitor(HMONITOR monitor) {
+  MONITORINFO info{};
+  info.cbSize = sizeof(info);
+  RECT work{};
+  if (GetMonitorInfo(monitor, &info)) {
+    work = info.rcWork;
+  } else if (!SystemParametersInfo(SPI_GETWORKAREA, 0, &work, 0)) {
+    work = {0, 0, GetSystemMetrics(SM_CXSCREEN),
+            GetSystemMetrics(SM_CYSCREEN)};
+  }
+  return {work.left, work.top, work.right - work.left, work.bottom - work.top};
+}
+
+window_size_policy::Bounds WorkAreaForRect(const RECT& rect) {
+  return WorkAreaForMonitor(MonitorFromRect(&rect, MONITOR_DEFAULTTONEAREST));
+}
+
+window_size_policy::Size NonClientFrame(HWND hwnd, UINT dpi) {
+  // Use the restored frame even while Windows asks about tracking limits of a
+  // minimized/maximized window. The minimum always describes normal client DIPs.
+  const DWORD style = hwnd
+      ? static_cast<DWORD>(GetWindowLongPtr(hwnd, GWL_STYLE)) &
+            ~(WS_MAXIMIZE | WS_MINIMIZE)
+      : WS_OVERLAPPEDWINDOW;
+  const DWORD ex_style =
+      hwnd ? static_cast<DWORD>(GetWindowLongPtr(hwnd, GWL_EXSTYLE)) : 0;
+  RECT frame{};
+  if (!AdjustWindowRectExForDpi(&frame, style, hwnd && GetMenu(hwnd), ex_style,
+                               dpi)) {
+    AdjustWindowRectEx(&frame, style, hwnd && GetMenu(hwnd), ex_style);
+  }
+  return {frame.right - frame.left, frame.bottom - frame.top};
+}
+
+window_size_policy::Insets InvisibleResizeInsets(HWND hwnd, UINT dpi) {
+  if (!hwnd || !(GetWindowLongPtr(hwnd, GWL_STYLE) & WS_THICKFRAME)) {
+    return {0, 0, 0, 0};
+  }
+  const int padding = GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
+  const int horizontal =
+      std::max(0, GetSystemMetricsForDpi(SM_CXSIZEFRAME, dpi) + padding);
+  const int vertical =
+      std::max(0, GetSystemMetricsForDpi(SM_CYSIZEFRAME, dpi) + padding);
+  // During creation/DPI transitions DWM may still describe the old frame.
+  // The fallback never allows the caption's top edge outside the work area.
+  const window_size_policy::Insets fallback{horizontal, 0, horizontal, vertical};
+  if (IsIconic(hwnd) || IsZoomed(hwnd) || GetDpiForWindow(hwnd) != dpi) {
+    return fallback;
+  }
+  RECT outer{}, visible{};
+  if (!GetWindowRect(hwnd, &outer) ||
+      FAILED(DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, &visible,
+                                   sizeof(visible)))) {
+    return fallback;
+  }
+  const window_size_policy::Insets actual{
+      visible.left - outer.left, visible.top - outer.top,
+      outer.right - visible.right, outer.bottom - visible.bottom};
+  // Reject stale/animation bounds rather than treating an arbitrary difference
+  // as an invisible border. All permitted overflow is bounded by frame metrics.
+  if (actual.left < 0 || actual.top < 0 || actual.right < 0 || actual.bottom < 0 ||
+      actual.left > horizontal || actual.right > horizontal ||
+      actual.top > vertical || actual.bottom > vertical) {
+    return fallback;
+  }
+  return actual;
 }
 
 // Dynamically loads the |EnableNonClientDpiScaling| from the User32 module.
@@ -131,13 +194,22 @@ bool Win32Window::Create(const std::wstring& title,
   const POINT target_point = {static_cast<LONG>(origin.x),
                               static_cast<LONG>(origin.y)};
   HMONITOR monitor = MonitorFromPoint(target_point, MONITOR_DEFAULTTONEAREST);
-  UINT dpi = FlutterDesktopGetDpiForMonitor(monitor);
-  double scale_factor = dpi / 96.0;
+  current_dpi_ = FlutterDesktopGetDpiForMonitor(monitor);
+  if (current_dpi_ == 0) current_dpi_ = 96;
+  const auto frame = NonClientFrame(nullptr, current_dpi_);
+  const auto outer = window_size_policy::OuterSize(
+      {static_cast<int>(size.width), static_cast<int>(size.height)},
+      current_dpi_, frame);
+  const auto work = WorkAreaForMonitor(monitor);
+  const auto limits = window_size_policy::GetLimits(
+      {static_cast<int>(minimum_client_size_.width),
+       static_cast<int>(minimum_client_size_.height)}, current_dpi_, frame, work);
+  const auto initial = window_size_policy::FitToWorkArea(
+      {origin.x, origin.y, outer.width, outer.height}, work, limits);
 
   HWND window = CreateWindow(
       window_class, title.c_str(), WS_OVERLAPPEDWINDOW,
-      Scale(origin.x, scale_factor), Scale(origin.y, scale_factor),
-      Scale(size.width, scale_factor), Scale(size.height, scale_factor),
+      initial.x, initial.y, initial.width, initial.height,
       nullptr, nullptr, GetModuleHandle(nullptr), this);
 
   if (!window) {
@@ -179,6 +251,48 @@ Win32Window::MessageHandler(HWND hwnd,
                             WPARAM const wparam,
                             LPARAM const lparam) noexcept {
   switch (message) {
+    case WM_GETMINMAXINFO: {
+      // Preserve the OS maximize/snap policy, changing only minimum tracking.
+      const LRESULT result = DefWindowProc(hwnd, message, wparam, lparam);
+      if (HasMinimumClientSize()) {
+        RECT window_rect{};
+        GetWindowRect(hwnd, &window_rect);
+        const auto work = WorkAreaForRect(window_rect);
+        const auto limits = window_size_policy::GetLimits(
+            {static_cast<int>(minimum_client_size_.width),
+             static_cast<int>(minimum_client_size_.height)},
+            current_dpi_, NonClientFrame(hwnd, current_dpi_), work);
+        auto info = reinterpret_cast<MINMAXINFO*>(lparam);
+        info->ptMinTrackSize = {limits.minimum.width, limits.minimum.height};
+      }
+      return result;
+    }
+
+    case WM_WINDOWPOSCHANGING: {
+      // DefWindowProc also consults WM_GETMINMAXINFO. The explicit normal-size
+      // guard covers MoveWindow/SetWindowPos/restore, not just border dragging.
+      const LRESULT result = DefWindowProc(hwnd, message, wparam, lparam);
+      auto position = reinterpret_cast<WINDOWPOS*>(lparam);
+      if (!HasMinimumClientSize() || IsIconic(hwnd) || IsZoomed(hwnd) ||
+          (position->flags & SWP_NOSIZE)) {
+        return result;
+      }
+      RECT current{};
+      GetWindowRect(hwnd, &current);
+      const int x = (position->flags & SWP_NOMOVE) ? current.left : position->x;
+      const int y = (position->flags & SWP_NOMOVE) ? current.top : position->y;
+      const RECT requested{x, y, x + position->cx, y + position->cy};
+      const RECT bounded = ConstrainNormalBounds(requested, current_dpi_);
+      position->cx = bounded.right - bounded.left;
+      position->cy = bounded.bottom - bounded.top;
+      if (bounded.left != x || bounded.top != y) {
+        position->flags &= ~SWP_NOMOVE;
+        position->x = bounded.left;
+        position->y = bounded.top;
+      }
+      return result;
+    }
+
     case WM_DESTROY:
       window_handle_ = nullptr;
       Destroy();
@@ -188,16 +302,22 @@ Win32Window::MessageHandler(HWND hwnd,
       return 0;
 
     case WM_DPICHANGED: {
-      auto newRectSize = reinterpret_cast<RECT*>(lparam);
-      LONG newWidth = newRectSize->right - newRectSize->left;
-      LONG newHeight = newRectSize->bottom - newRectSize->top;
-
-      SetWindowPos(hwnd, nullptr, newRectSize->left, newRectSize->top, newWidth,
-                   newHeight, SWP_NOZORDER | SWP_NOACTIVATE);
-
+      current_dpi_ = LOWORD(wparam);
+      if (current_dpi_ == 0) current_dpi_ = 96;
+      // Never restore or activate a background/minimized window on DPI change.
+      if (IsIconic(hwnd)) return 0;
+      const auto suggested = reinterpret_cast<RECT*>(lparam);
+      const RECT next = HasMinimumClientSize() && !IsZoomed(hwnd)
+          ? ConstrainNormalBounds(*suggested, current_dpi_)
+          : *suggested;
+      SetWindowPos(hwnd, nullptr, next.left, next.top, next.right - next.left,
+                   next.bottom - next.top, SWP_NOZORDER | SWP_NOACTIVATE);
       return 0;
     }
     case WM_SIZE: {
+      // Also handles callers using SWP_NOSENDCHANGING and restores whose old
+      // iconic/maximized style was still set during WM_WINDOWPOSCHANGING.
+      if (wparam == SIZE_RESTORED) EnforceNormalBounds();
       RECT rect = GetClientArea();
       if (child_content_ != nullptr) {
         // Size and position the child window.
@@ -206,6 +326,14 @@ Win32Window::MessageHandler(HWND hwnd,
       }
       return 0;
     }
+
+    case WM_DISPLAYCHANGE:
+      EnforceNormalBounds();
+      break;
+
+    case WM_SETTINGCHANGE:
+      if (wparam == SPI_SETWORKAREA) EnforceNormalBounds();
+      break;
 
     case WM_ACTIVATE:
       if (child_content_ != nullptr) {
@@ -261,6 +389,45 @@ HWND Win32Window::GetHandle() {
 
 void Win32Window::SetQuitOnClose(bool quit_on_close) {
   quit_on_close_ = quit_on_close;
+}
+
+void Win32Window::SetMinimumClientSize(const Size& size) {
+  minimum_client_size_ = size;
+  EnforceNormalBounds();
+}
+
+bool Win32Window::HasMinimumClientSize() const {
+  return minimum_client_size_.width > 0 || minimum_client_size_.height > 0;
+}
+
+RECT Win32Window::ConstrainNormalBounds(const RECT& requested, UINT dpi) const {
+  const auto work = WorkAreaForRect(requested);
+  const auto limits = window_size_policy::GetLimits(
+      {static_cast<int>(minimum_client_size_.width),
+       static_cast<int>(minimum_client_size_.height)},
+      dpi, NonClientFrame(window_handle_, dpi), work);
+  const auto bounded = window_size_policy::FitToVisibleWorkArea(
+      {requested.left, requested.top, requested.right - requested.left,
+       requested.bottom - requested.top}, work, limits,
+      InvisibleResizeInsets(window_handle_, dpi));
+  return {bounded.x, bounded.y, bounded.x + bounded.width,
+          bounded.y + bounded.height};
+}
+
+void Win32Window::EnforceNormalBounds() {
+  if (!window_handle_ || !HasMinimumClientSize() || adjusting_bounds_ ||
+      IsIconic(window_handle_) || IsZoomed(window_handle_)) {
+    return;
+  }
+  RECT current{};
+  if (!GetWindowRect(window_handle_, &current)) return;
+  const RECT bounded = ConstrainNormalBounds(current, current_dpi_);
+  if (EqualRect(&current, &bounded)) return;
+  adjusting_bounds_ = true;
+  SetWindowPos(window_handle_, nullptr, bounded.left, bounded.top,
+               bounded.right - bounded.left, bounded.bottom - bounded.top,
+               SWP_NOZORDER | SWP_NOACTIVATE);
+  adjusting_bounds_ = false;
 }
 
 bool Win32Window::OnCreate() {

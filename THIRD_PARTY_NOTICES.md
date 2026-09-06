@@ -189,7 +189,7 @@ License/terms: Telegram brand assets / trademark terms
 URL: https://telegram.org
 Files:
 - assets/icons/system/telegram.svg
-Purpose: Links to the Slovofon Telegram channel and support bot on the About screen.
+Purpose: Retained bundled brand asset; Telegram links have been removed from the About screen.
 
 Icon set: Flutter Material Icons
 License: Provided through Flutter/Material icon font distribution
@@ -203,8 +203,28 @@ Purpose: Temporary fallback icons during UI scaffolding.
 
 По умолчанию использовать системные шрифты Flutter/платформы, если владелец не утвердит другой шрифт.
 
+Windows desktop presentation использует установленные системные Segoe UI
+(UI/текст) и Georgia (wordmark и инициалы обложки). Font files не включаются
+в bundle и не загружаются из сети; при отсутствии используется font fallback.
+
 Никогда не включать font files без проверки лицензии.
 
 ## 6. Source logos
 
 Не использовать официальные логотипы источников без разрешения. Для источников использовать текстовые chips, цвет источника и generic source icon.
+
+## 7. Windows compiler runtime
+
+```text
+Component: Microsoft Visual C++ runtime (MSVC redistributable DLLs)
+Version: From the Visual Studio toolchain used for the build
+License/terms: Microsoft Visual Studio license and the matching REDIST list
+URL: https://learn.microsoft.com/en-us/cpp/windows/redistributing-visual-cpp-files
+Files: App-local redistributable runtime DLLs in Windows Profile/Release bundles
+Purpose: Run Slovofon and its native plugins on Windows without relying on a preinstalled Visual C++ runtime.
+```
+
+CMake `InstallRequiredSystemLibraries` selects the runtime from the installed
+compiler toolchain. Debug runtime libraries are not release redistributables
+and are not included in the Profile/Release artifact set. The build validates
+the runtime DLL import closure before packaging.

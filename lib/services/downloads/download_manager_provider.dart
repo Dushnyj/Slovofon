@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:path/path.dart' as p;
 
+import '../sources/source_catalog_provider.dart';
 import 'download_client.dart';
 import 'download_manager.dart';
 import 'download_persistence.dart';
@@ -33,6 +34,11 @@ final downloadManagerProvider = ChangeNotifierProvider<DownloadManager>((ref) {
     client: ref.watch(downloadClientProvider),
     storage: ref.watch(downloadStorageProvider),
     persistence: ref.watch(downloadPersistenceStoreProvider),
+    refreshBookForDownloads: (book) {
+      return ref
+          .read(sourceCatalogServiceProvider)
+          .refreshBookForDownloads(book);
+    },
   );
   unawaited(manager.loadPersistedTasks());
   ref.onDispose(manager.dispose);

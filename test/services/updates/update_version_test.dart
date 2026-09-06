@@ -61,8 +61,9 @@ void main() {
             'platform': 'android',
             'arch': 'universal',
             'kind': 'apk',
-            'url': 'https://slovofon-updates.duckdns.org/v1/files/app.apk',
-            'file_name': 'app.apk',
+            'url':
+                'https://github.com/Dushnyj/Slovofon/releases/download/v0.4.1/Slovofon-v0.4.1-android-universal-release.apk',
+            'file_name': 'Slovofon-v0.4.1-android-universal-release.apk',
             'sha256': 'a' * 64,
             'size': 123,
           },
@@ -123,8 +124,9 @@ UpdateManifest _availableManifest({
         'platform': 'android',
         'arch': 'universal',
         'kind': 'apk',
-        'url': 'https://slovofon-updates.duckdns.org/v1/files/app.apk',
-        'file_name': 'app.apk',
+        'url':
+            'https://github.com/Dushnyj/Slovofon/releases/download/v$version/Slovofon-v$version-android-universal-release.apk',
+        'file_name': 'Slovofon-v$version-android-universal-release.apk',
         'sha256': 'a' * 64,
         'size': 123,
       },

@@ -85,6 +85,10 @@ sourceIds[]
 
 Для каждого источника должны быть allowlist домены для metadata/media/cover.
 
+Metadata boundary для HTML-источников (2026-09-05): `SourceMetadataPolicy` применяется в Akniga/Baza Knig/Knigavuhe/Knigoblud clients, включая injected transport, и повторно в общем `SourceMetadataTransport` перед каждым native HTTP request. `sourceBookId`/`sourceUri` из deeplink не могут выбирать произвольный host. Отклоняются credentials, схемы вне http/https, protocol-relative book IDs и hosts вне source allowlist. Разрешённый исходный URL не даёт разрешения на redirect к другому host: каждый Location проверяется до отправки запроса, automatic redirects отключены, лимит переходов — 5. Ошибка не содержит полный URL/credentials. Для локальных HTTP fixtures тесты передают отдельную явную policy; production defaults остаются source-only.
+
+Существующие session cookies HTML-транспортов остаются только в памяти, без записи на диск и логирования. Cookie scope учитывает host-only/Domain, Path, Secure и срок действия (Max-Age имеет приоритет над Expires). Domain cookie отклоняется, если домен не соответствует выдавшему её host или выходит за metadata policy источника; разрешённые alias redirects не теряют session-контекст.
+
 Нельзя проксировать или скачивать произвольный URL, переданный из UI.
 
 MediaProxyService принимает только internal token, связанный с sourceId/bookVersionId/chapterId.
@@ -272,14 +276,58 @@ Release workflow должен:
 
 ## 12. Обновления и публичная инфраструктура
 
-В клиентском приложении разрешено хранить только публичные HTTPS URL:
+### 12.1 Текущий updater: GitHub Releases + SHA256
+
+По явному решению владельца от 2026-09-05 update metadata и файлы берутся напрямую
+из публичного **Dushnyj/Slovofon** через HTTPS. Единственный discovery endpoint:
 
 ```text
-https://slovofon.duckdns.org
-https://slovofon-api.duckdns.org
-https://slovofon-updates.duckdns.org
-https://slovofon-admin.duckdns.org
+https://api.github.com/repos/Dushnyj/Slovofon/releases/latest
 ```
+
+Источник доверия — этот фиксированный GitHub repository и HTTPS transport, а не
+серверный Ed25519 manifest. SHA256 обязателен для проверки целостности, но hash и
+metadata размещены у того же издателя на GitHub: это не независимая подпись
+издателя. Отказ от прежней серверной подписи согласован владельцем.
+
+Требования к текущему клиенту:
+
+- Не принимать другой owner/repository, arbitrary release URL или файл из ответа,
+  не принадлежащий выбранному release. Версия tag и имя artifact должны совпадать.
+- Автоматически устанавливать только Android universal release APK или Windows
+  x64 `setup.exe` установленной схемы именования. ABI APK/AAB/MSI/ZIP/MSIX не
+  подставляются вместо отсутствующего поддерживаемого installer; их возможная
+  публикация для ручной загрузки не разрешает автоматический запуск.
+- Не использовать draft/prerelease как stable update. GitHub release/asset ID
+  нельзя интерпретировать как build number.
+- Выполнять запросы без GitHub token, credentials, cookies и Authorization headers.
+  Публичный API rate limit обрабатывается как ошибка/повтор, а не повод добавить
+  токен в приложение или переключиться на старый сервер.
+- Разрешать download только из GitHub release assets с проверкой каждого HTTPS
+  redirect к разрешённым GitHub CDN hosts. HTTP downgrade, URL с credentials и
+  произвольный внешний redirect запрещены.
+- Получать ожидаемый SHA256 из валидного `digest` выбранного API asset
+  (`sha256:<64 hex>`). При отсутствии digest использовать точную запись имени
+  artifact в `SHA256SUMS.txt` **того же release**; checksum другого релиза или
+  неопределённое/неоднозначное соответствие не принимаются.
+- Не устанавливать файл без валидного ожидаемого SHA256. Перед запуском вычислить
+  hash скачанных bytes; несовпадение блокирует установку.
+- Ограничить filename одним безопасным basename внутри временной update-папки.
+  Release metadata не может задавать абсолютный путь или выход через `..`.
+- Не делать fallback к серверному `latest.json`, зеркалу, unsigned manifest или
+  загрузке без hash при ошибке GitHub. Ошибки API/сети не подменять успешным
+  результатом «обновлений нет».
+
+Android APK/AAB продолжает подписываться прежним утверждённым upload/release key;
+системная проверка package/signing certificate при установке не отключается.
+Windows signing config и certificates этим переходом не меняются. Открытие APK
+или запуск Windows installer по-прежнему требует согласия пользователя.
+
+### 12.2 Публичные ссылки и секреты
+
+В клиенте допустимы только публичные HTTPS product/API/repository URLs. Ссылки на
+сайт продукта или контакты не делают соответствующий host разрешённым transport
+для обновлений. Updater использует только GitHub-контракт раздела 12.1.
 
 Запрещено встраивать или коммитить:
 
@@ -292,7 +340,17 @@ database credentials
 private update/signing keys
 ```
 
-Проверка обновлений должна скачивать manifest с `slovofon-updates.duckdns.org`, проверять Ed25519 signature встроенным public key, выбирать asset под платформу и обязательно сверять `sha256` до запуска установщика или открытия APK. Update manifest private key хранится только на сервере/CI, не попадает в клиент, Git, CI logs или release artifacts.
+### 12.3 Исторический Ed25519 manifest — legacy
+
+Серверный update manifest с key id `slovofon-updates-2026-06` относится к старому
+updater. Текущий GitHub updater не читает этот manifest, не использует его подпись
+и не обращается к старому серверу как к fallback. Это изменение не является
+изменением Android APK signing и не затрагивает подпись сетевых источников книг.
+
+Private keys старой схемы остаются вне клиента, Git, CI logs и release artifacts.
+Переход не разрешает удалять, читать, переносить, ротировать или загружать эти ключи.
+Старые установленные клиенты могут продолжать пользоваться прежним сервером;
+отключать его или менять конфигурацию `SlovofonBot` без отдельной команды нельзя.
 
 ---
 

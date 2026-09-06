@@ -45,6 +45,32 @@ void main() {
     });
 
     test(
+      'round-trips chapter-end mode without converting it to a duration timer',
+      () async {
+        await store.saveSession(
+          PlaybackSession(
+            id: 'active',
+            activeBookId: 'book-1',
+            activeBookVersionId: 'version-1',
+            activeChapterId: 'chapter-2',
+            positionMs: 480000,
+            speed: 2,
+            volume: 0.4,
+            sleepTimerRemainingMs: 120000,
+            sleepTimerMode: SleepTimerMode.stopAtChapterEnd,
+            updatedAt: DateTime.utc(2026, 9, 5),
+          ),
+        );
+        final restored = await store.loadSession();
+        expect(restored?.sleepTimerMode, SleepTimerMode.stopAtChapterEnd);
+        expect(restored?.sleepTimerRemainingMs, 120000);
+        expect(restored?.activeChapterId, 'chapter-2');
+        expect(restored?.speed, 2);
+        expect(restored?.volume, 0.4);
+      },
+    );
+
+    test(
       'upserts playback progress without decreasing max reached position',
       () async {
         final first = PlaybackProgressSnapshot(

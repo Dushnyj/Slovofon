@@ -314,6 +314,11 @@ function Invoke-Build {
 
     if ($Target -eq 'windows' -or $Target -eq 'all') {
         Invoke-Tool -Executable $flutter -Arguments @('build', 'windows', $buildMode)
+        if ($Configuration -ne 'debug') {
+            $bundleConfiguration = if ($Configuration -eq 'profile') { 'Profile' } else { 'Release' }
+            & (Join-Path $Script:Root 'tools/windows/Assert-WindowsRuntime.ps1') `
+                -BundleDir (Join-Path $Script:Root "build/windows/x64/runner/$bundleConfiguration")
+        }
     }
 }
 

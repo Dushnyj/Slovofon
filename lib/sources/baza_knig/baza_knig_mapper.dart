@@ -323,6 +323,7 @@ class BazaKnigMapper {
       narrator: _labelPeople(item, ['Читает', 'Исполнитель']).join(', '),
       series: _seriesFromValue(seriesValue),
       seriesNumber: _seriesNumberFromValue(seriesValue),
+      genres: _genres(item),
       coverUri: _coverUri(item),
       duration: SourceParserHelpers.parseDuration(
         _labelValue(item, ['Время звучания', 'Длительность']),
@@ -353,7 +354,7 @@ class BazaKnigMapper {
         : SourceParserHelpers.parseSeriesNumber(match.group(1)!);
   }
 
-  static List<String> _genres(dom.Document document) {
+  static List<String> _genres(Object document) {
     final values = _labelPeople(document, ['Жанр', 'Жанры']);
     if (values.isNotEmpty) {
       return _splitLabels(values.join(', '));

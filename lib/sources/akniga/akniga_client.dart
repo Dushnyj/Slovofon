@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../source_models.dart';
+import '../source_metadata_transport.dart';
 import 'akniga_security.dart';
 
 abstract interface class AknigaTransport {
@@ -28,19 +29,25 @@ class DartIoAknigaTransport implements AknigaTransport {
   DartIoAknigaTransport({
     Duration timeout = const Duration(seconds: 12),
     HttpClient Function()? httpClientFactory,
-  }) : _timeout = timeout,
-       _httpClientFactory = httpClientFactory ?? HttpClient.new;
+    SourceMetadataPolicy policy = AknigaClient.metadataPolicy,
+  }) : _transport = SourceMetadataTransport(
+         policy: policy,
+         timeout: timeout,
+         httpClientFactory: httpClientFactory,
+       );
 
-  final Duration _timeout;
-  final HttpClient Function() _httpClientFactory;
-  final _cookiesByHost = <String, Map<String, Cookie>>{};
+  final SourceMetadataTransport _transport;
 
   @override
   Future<AknigaTransportResponse> get(
     Uri uri, {
     required Map<String, String> headers,
   }) async {
-    return _send(uri, method: 'GET', headers: headers);
+    final response = await _transport.send(uri, headers: headers);
+    return AknigaTransportResponse(
+      statusCode: response.statusCode,
+      body: response.body,
+    );
   }
 
   @override
@@ -49,75 +56,16 @@ class DartIoAknigaTransport implements AknigaTransport {
     required List<int> bodyBytes,
     required Map<String, String> headers,
   }) async {
-    return _send(uri, method: 'POST', headers: headers, bodyBytes: bodyBytes);
-  }
-
-  Future<AknigaTransportResponse> _send(
-    Uri uri, {
-    required String method,
-    required Map<String, String> headers,
-    List<int> bodyBytes = const [],
-  }) async {
-    final client = _httpClientFactory();
-    client.connectionTimeout = _timeout;
-
-    try {
-      final request = await client.openUrl(method, uri).timeout(_timeout);
-      for (final entry in headers.entries) {
-        request.headers.set(entry.key, entry.value);
-      }
-      request.cookies.addAll(_cookiesFor(uri));
-      if (bodyBytes.isNotEmpty) {
-        request.contentLength = bodyBytes.length;
-        request.add(bodyBytes);
-      }
-
-      final response = await request.close().timeout(_timeout);
-      _storeCookies(uri, response.cookies);
-      final responseBody = await response
-          .transform(utf8.decoder)
-          .join()
-          .timeout(_timeout);
-      return AknigaTransportResponse(
-        statusCode: response.statusCode,
-        body: responseBody,
-      );
-    } finally {
-      client.close(force: true);
-    }
-  }
-
-  List<Cookie> _cookiesFor(Uri uri) {
-    final now = DateTime.now().toUtc();
-    final jar = _cookiesByHost[_cookieKey(uri)];
-    if (jar == null || jar.isEmpty) {
-      return const [];
-    }
-
-    return [
-      for (final cookie in jar.values)
-        if (cookie.expires == null || cookie.expires!.isAfter(now)) cookie,
-    ];
-  }
-
-  void _storeCookies(Uri uri, List<Cookie> cookies) {
-    if (cookies.isEmpty) {
-      return;
-    }
-
-    final now = DateTime.now().toUtc();
-    final jar = _cookiesByHost.putIfAbsent(_cookieKey(uri), () => {});
-    for (final cookie in cookies) {
-      if (cookie.expires != null && !cookie.expires!.isAfter(now)) {
-        jar.remove(cookie.name);
-      } else {
-        jar[cookie.name] = cookie;
-      }
-    }
-  }
-
-  static String _cookieKey(Uri uri) {
-    return uri.host.toLowerCase();
+    final response = await _transport.send(
+      uri,
+      method: 'POST',
+      headers: headers,
+      bodyBytes: bodyBytes,
+    );
+    return AknigaTransportResponse(
+      statusCode: response.statusCode,
+      body: response.body,
+    );
   }
 }
 
@@ -126,9 +74,11 @@ class AknigaClient {
     AknigaTransport? transport,
     AknigaSecurityEncoder? securityEncoder,
     Uri? baseUri,
-  }) : _transport = transport ?? DartIoAknigaTransport(),
+    SourceMetadataPolicy policy = metadataPolicy,
+  }) : _transport = transport ?? DartIoAknigaTransport(policy: policy),
        _securityEncoder = securityEncoder ?? AknigaSecurityEncoder(),
-       baseUri = baseUri ?? defaultBaseUri;
+       baseUri = baseUri ?? defaultBaseUri,
+       _policy = policy;
 
   static final defaultBaseUri = Uri.parse('https://akniga.org/');
   static const userAgent =
@@ -138,6 +88,11 @@ class AknigaClient {
 
   final AknigaTransport _transport;
   final AknigaSecurityEncoder _securityEncoder;
+  static const metadataPolicy = SourceMetadataPolicy(
+    sourceId: 'akniga',
+    hosts: {'akniga.org', 'www.akniga.org'},
+  );
+  final SourceMetadataPolicy _policy;
   final Uri baseUri;
 
   Future<String> searchBooksHtml({required String query, int page = 1}) async {
@@ -154,7 +109,7 @@ class AknigaClient {
   }
 
   Future<String> bookHtml(SourceBookRef ref) {
-    final uri = ref.sourceUri ?? baseUri.resolve(ref.sourceBookId);
+    final uri = _policy.bookUri(baseUri, ref);
     return _getText(uri, referer: baseUri.toString());
   }
 
@@ -172,6 +127,8 @@ class AknigaClient {
       );
     }
 
+    _policy.validate(baseUri.resolve('/ajax/bid/$normalizedBookId'));
+    _policy.validate(referer);
     final key = securityKey ?? extractSecurityKey(await homeHtml());
     final body = _securityEncoder.securityBody(
       bookId: normalizedBookId,
@@ -235,6 +192,7 @@ class AknigaClient {
   }
 
   Future<String> _getText(Uri uri, {String? referer}) async {
+    _policy.validate(uri);
     final response = await _transport.get(
       uri,
       headers: _htmlHeaders(referer: referer),

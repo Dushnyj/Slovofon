@@ -22,7 +22,9 @@ import '../../services/sources/source_catalog_provider.dart';
 import '../../services/sources/source_catalog_service.dart';
 import '../../services/deep_links/slovofon_deep_link.dart';
 import '../../sources/sources.dart';
+import '../../ui/components/app_bar_text.dart';
 import '../../ui/components/book_cover.dart';
+import '../../ui/components/book_fragment_badge.dart';
 import '../../ui/components/chapter_tile.dart';
 import '../../ui/components/app_buttons.dart';
 import '../../ui/components/download_action_button.dart';
@@ -30,6 +32,9 @@ import '../../ui/components/mini_player_bar.dart';
 import '../../ui/components/section_header.dart';
 import '../../ui/components/source_badge.dart';
 import '../../ui/adaptive/slovofon_shell.dart';
+import '../../ui/adaptive/adaptive_sheet.dart';
+import '../../ui/adaptive/desktop_layout.dart';
+import '../../ui/adaptive/desktop_book_details_layout.dart';
 import '../../ui/icons/app_icons.dart';
 import '../shared/download_ui_state.dart';
 import '../shared/playback_resume.dart';
@@ -65,63 +70,81 @@ class _SourceBookDetailsScreenState
   }
 
   Future<SourceBookSnapshot> _loadSnapshot() {
-    return ref.read(sourceCatalogServiceProvider).loadBook(widget.ref);
+    final future = ref.read(sourceCatalogServiceProvider).loadBook(widget.ref);
+    // A retry can fail before the next frame subscribes its FutureBuilder.
+    // Observe errors immediately, but return the original future so the error
+    // screen still receives them (including after a route change or disposal).
+    future.ignore();
+    return future;
   }
 
   void _retrySnapshot() {
-    setState(() => _snapshotFuture = _loadSnapshot());
+    setState(() {
+      _snapshotFuture = _loadSnapshot();
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
+    final desktop = DesktopLayout.isActive(context);
 
+    final screen = Scaffold(
+      appBar: AppBar(
+        toolbarHeight: appBarToolbarHeight(context),
+        title: preserveAppBarTextScale(context, Text(strings.bookDetails)),
+      ),
+      bottomNavigationBar: desktop
+          ? null
+          : Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const MiniPlayerBar(),
+                SlovofonBottomNavigationBar(
+                  selectedIndex: -1,
+                  onDestinationSelected: (index) =>
+                      goToSlovofonTab(context, index),
+                ),
+              ],
+            ),
+      body: SafeArea(
+        top: false,
+        child: FutureBuilder<SourceBookSnapshot>(
+          future: _snapshotFuture,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState != ConnectionState.done) {
+              return const Center(child: CircularProgressIndicator());
+            }
+
+            if (snapshot.hasError) {
+              final errorText = sourceBookErrorText(
+                strings: strings,
+                sourceId: widget.ref.sourceId,
+                error: snapshot.error!,
+              );
+              return _DetailsError(
+                title: errorText.title,
+                message: errorText.message,
+                onRetry: _retrySnapshot,
+              );
+            }
+
+            final book = snapshot.data!;
+            return _SourceBookDetailsBody(snapshot: book);
+          },
+        ),
+      ),
+    );
+    if (desktop) {
+      return DesktopStandaloneShell(selectedIndex: 1, child: screen);
+    }
     return GestureDetector(
       onHorizontalDragEnd: (details) {
         if ((details.primaryVelocity ?? 0) > 450) {
           unawaited(Navigator.of(context).maybePop());
         }
       },
-      child: Scaffold(
-        appBar: AppBar(title: Text(strings.bookDetails)),
-        bottomNavigationBar: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const MiniPlayerBar(),
-            SlovofonBottomNavigationBar(
-              selectedIndex: -1,
-              onDestinationSelected: (index) => goToSlovofonTab(context, index),
-            ),
-          ],
-        ),
-        body: SafeArea(
-          top: false,
-          child: FutureBuilder<SourceBookSnapshot>(
-            future: _snapshotFuture,
-            builder: (context, snapshot) {
-              if (snapshot.connectionState != ConnectionState.done) {
-                return const Center(child: CircularProgressIndicator());
-              }
-
-              if (snapshot.hasError) {
-                final errorText = sourceBookErrorText(
-                  strings: strings,
-                  sourceId: widget.ref.sourceId,
-                  error: snapshot.error!,
-                );
-                return _DetailsError(
-                  title: errorText.title,
-                  message: errorText.message,
-                  onRetry: _retrySnapshot,
-                );
-              }
-
-              final book = snapshot.data!;
-              return _SourceBookDetailsBody(snapshot: book);
-            },
-          ),
-        ),
-      ),
+      child: screen,
     );
   }
 }
@@ -173,6 +196,7 @@ class _SourceBookDetailsBodyState
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
+    final desktop = DesktopLayout.isActive(context);
     final colorScheme = Theme.of(context).colorScheme;
     final downloadManager = ref.watch(downloadManagerProvider);
     final libraryStore = ref.watch(libraryStoreProvider);
@@ -222,6 +246,242 @@ class _SourceBookDetailsBodyState
             ? playbackState.bookProgress
             : ((savedProgress?.percent ?? 0) / 100).clamp(0, 1).toDouble();
 
+        final actions = Wrap(
+          spacing: desktop ? 12 : 18,
+          runSpacing: desktop ? 12 : 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            if (desktop)
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  key: showPlayLoading
+                      ? null
+                      : const ValueKey('source-details-play'),
+                  onPressed: showPlayLoading
+                      ? null
+                      : () => _handlePlayButton(
+                          context,
+                          playbackController,
+                          isCurrentBook,
+                          isPlaying,
+                        ),
+                  icon: showPlayLoading
+                      ? SizedBox.square(
+                          key: const ValueKey('source-details-play-loading'),
+                          dimension: 24,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.7,
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                        )
+                      : AppIcon(
+                          isPlaying
+                              ? AppIconAssets.playerPause
+                              : AppIconAssets.playerPlay,
+                        ),
+                  label: Text(
+                    isPlaying ? strings.pause : strings.play,
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              )
+            else if (showPlayLoading)
+              SizedBox.square(
+                dimension: 36,
+                child: Center(
+                  child: SizedBox.square(
+                    key: const ValueKey('source-details-play-loading'),
+                    dimension: 24,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.7,
+                      color: colorScheme.primary,
+                    ),
+                  ),
+                ),
+              )
+            else
+              AppIconActionButton(
+                buttonKey: const ValueKey('source-details-play'),
+                tooltip: isPlaying ? strings.pause : strings.play,
+                onPressed: () => _handlePlayButton(
+                  context,
+                  playbackController,
+                  isCurrentBook,
+                  isPlaying,
+                ),
+                iconAsset: isPlaying
+                    ? AppIconAssets.playerPause
+                    : AppIconAssets.playerPlay,
+                foregroundColor: colorScheme.primary,
+                buttonSize: desktop ? 44 : 36,
+                iconSize: 26,
+              ),
+            DownloadActionButton(
+              buttonKey: const ValueKey('source-details-download'),
+              state: bookDownloadState,
+              progress: bookDownloadProgress,
+              size: desktop ? 44 : 36,
+              onPressed: () =>
+                  unawaited(_runBookDownload(downloadManager, widget.snapshot)),
+            ),
+            AppIconActionButton(
+              buttonKey: const ValueKey('source-details-favorite'),
+              tooltip: libraryStore.isFavorite(audioBook)
+                  ? strings.removeFavorite
+                  : strings.addFavorite,
+              onPressed: () async {
+                final added = await libraryStore.toggleFavorite(audioBook);
+                if (added) {
+                  _cacheFreshSnapshot(widget.snapshot);
+                }
+              },
+              iconAsset: libraryStore.isFavorite(audioBook)
+                  ? AppIconAssets.bookFavoriteFilled
+                  : AppIconAssets.bookFavorite,
+              foregroundColor: libraryStore.isFavorite(audioBook)
+                  ? colorScheme.error
+                  : colorScheme.onSurfaceVariant,
+              buttonSize: desktop ? 44 : 36,
+              iconSize: 25,
+            ),
+            AppIconActionButton(
+              buttonKey: const ValueKey('source-details-share'),
+              tooltip: strings.share,
+              onPressed: () => _showShareSheet(context, version),
+              iconAsset: AppIconAssets.systemShare,
+              foregroundColor: colorScheme.onSurfaceVariant,
+              buttonSize: desktop ? 44 : 36,
+              iconSize: 25,
+            ),
+          ],
+        );
+        final bodyChildren = <Widget>[
+          if ((version.description ?? '').trim().isNotEmpty) ...[
+            if (!desktop) const SizedBox(height: 18),
+            SectionHeader(title: strings.description),
+            _CollapsibleDescription(
+              text: version.description!.trim(),
+              expanded: _showFullDescription,
+              onToggle: () {
+                setState(() => _showFullDescription = !_showFullDescription);
+              },
+            ),
+          ],
+          _SourceFacts(version: version),
+          const SizedBox(height: 20),
+          SectionHeader(title: strings.chapters),
+          for (var index = 0; index < visibleChapterCount; index++)
+            Builder(
+              builder: (context) {
+                final sourceChapter = snapshot.chapters[index];
+                final audioChapter = playbackBook.chapters[index];
+                final chapterProgress =
+                    savedProgress?.currentChapterId == audioChapter.id
+                    ? ((savedProgress?.currentPositionMs ?? 0) /
+                              (audioChapter.duration.inMilliseconds <= 0
+                                  ? 1
+                                  : audioChapter.duration.inMilliseconds))
+                          .clamp(0, 1)
+                          .toDouble()
+                    : 0.0;
+                return ChapterTile(
+                  index: sourceChapter.index,
+                  title: sourceChapter.title,
+                  durationLabel: _formatShortDuration(
+                    Duration(milliseconds: sourceChapter.durationMs ?? 0),
+                  ),
+                  progress: isCurrentBook && playbackState.chapterIndex == index
+                      ? playbackState.chapterProgress
+                      : chapterProgress,
+                  isDownloaded: isChapterDownloaded(
+                    downloadManager,
+                    audioChapter,
+                  ),
+                  downloadState: downloadStateForChapter(
+                    downloadManager,
+                    audioChapter,
+                  ),
+                  downloadProgress: downloadProgressForChapter(
+                    downloadManager,
+                    audioChapter,
+                  ),
+                  isCurrent:
+                      isCurrentBook && playbackState.chapterIndex == index,
+                  onTap: () {
+                    if (isCurrentBook) {
+                      unawaited(playbackController.playChapterAt(index));
+                      return;
+                    }
+                    unawaited(_play(context, ref, index));
+                  },
+                  onDownloadPressed: () =>
+                      unawaited(_runChapterDownload(downloadManager, index)),
+                );
+              },
+            ),
+          if (snapshot.chapters.length > _collapsedChapterCount)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: () {
+                  setState(() => _showAllChapters = !_showAllChapters);
+                },
+                icon: AppIcon(
+                  _showAllChapters
+                      ? AppIconAssets.systemClose
+                      : AppIconAssets.systemMore,
+                  size: 18,
+                ),
+                label: Text(
+                  _showAllChapters
+                      ? strings.collapseChapters
+                      : strings.showMoreChapters(
+                          snapshot.chapters.length - _collapsedChapterCount,
+                        ),
+                ),
+              ),
+            ),
+          _OtherNarrationsSection(future: _otherNarrationsFuture),
+        ];
+        if (desktop) {
+          return DesktopBookDetailsLayout(
+            key: const ValueKey('desktop-source-details-content'),
+            summary: DesktopBookSummary(
+              coverBuilder: (width) => BookCover(
+                title: version.title,
+                progress: effectiveProgress,
+                imageUrl: version.coverUrl,
+                width: width,
+                height: width * 1.43,
+                showProgressPercent: false,
+              ),
+              source: SourceBadge(sourceId: playbackBook.sourceId, maxLines: 2),
+              metadata: _SourceHeaderDetails(
+                snapshot: snapshot,
+                section: _SourceHeaderSection.identity,
+              ),
+              details: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _SourceHeaderDetails(
+                    snapshot: snapshot,
+                    section: _SourceHeaderSection.facts,
+                  ),
+                  if (effectiveProgress > 0) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      '${strings.bookProgress}: '
+                      '${(effectiveProgress * 100).round()}%',
+                    ),
+                  ],
+                ],
+              ),
+              actions: actions,
+            ),
+            contentSlivers: [SliverList.list(children: bodyChildren)],
+          );
+        }
         return ListView(
           padding: EdgeInsets.fromLTRB(12, 8, 12, 40 + bottomInset),
           children: [
@@ -262,169 +522,8 @@ class _SourceBookDetailsBodyState
               },
             ),
             const SizedBox(height: 14),
-            Wrap(
-              spacing: 18,
-              runSpacing: 8,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                if (showPlayLoading)
-                  SizedBox.square(
-                    dimension: 36,
-                    child: Center(
-                      child: SizedBox.square(
-                        key: const ValueKey('source-details-play-loading'),
-                        dimension: 24,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2.7,
-                          color: colorScheme.primary,
-                        ),
-                      ),
-                    ),
-                  )
-                else
-                  AppIconActionButton(
-                    buttonKey: const ValueKey('source-details-play'),
-                    tooltip: isPlaying ? strings.pause : strings.play,
-                    onPressed: () => _handlePlayButton(
-                      context,
-                      playbackController,
-                      isCurrentBook,
-                      isPlaying,
-                    ),
-                    iconAsset: isPlaying
-                        ? AppIconAssets.playerPause
-                        : AppIconAssets.playerPlay,
-                    foregroundColor: colorScheme.primary,
-                    buttonSize: 36,
-                    iconSize: 26,
-                  ),
-                DownloadActionButton(
-                  buttonKey: const ValueKey('source-details-download'),
-                  state: bookDownloadState,
-                  progress: bookDownloadProgress,
-                  size: 36,
-                  onPressed: () => unawaited(
-                    _runBookDownload(downloadManager, widget.snapshot),
-                  ),
-                ),
-                AppIconActionButton(
-                  buttonKey: const ValueKey('source-details-favorite'),
-                  tooltip: libraryStore.isFavorite(audioBook)
-                      ? strings.removeFavorite
-                      : strings.addFavorite,
-                  onPressed: () async {
-                    final added = await libraryStore.toggleFavorite(audioBook);
-                    if (added) {
-                      _cacheFreshSnapshot(widget.snapshot);
-                    }
-                  },
-                  iconAsset: libraryStore.isFavorite(audioBook)
-                      ? AppIconAssets.bookFavoriteFilled
-                      : AppIconAssets.bookFavorite,
-                  foregroundColor: libraryStore.isFavorite(audioBook)
-                      ? colorScheme.error
-                      : colorScheme.onSurfaceVariant,
-                  buttonSize: 36,
-                  iconSize: 25,
-                ),
-                AppIconActionButton(
-                  buttonKey: const ValueKey('source-details-share'),
-                  tooltip: strings.share,
-                  onPressed: () => _showShareSheet(context, version),
-                  iconAsset: AppIconAssets.systemShare,
-                  foregroundColor: colorScheme.onSurfaceVariant,
-                  buttonSize: 36,
-                  iconSize: 25,
-                ),
-              ],
-            ),
-            if ((version.description ?? '').trim().isNotEmpty) ...[
-              const SizedBox(height: 18),
-              SectionHeader(title: strings.description),
-              _CollapsibleDescription(
-                text: version.description!.trim(),
-                expanded: _showFullDescription,
-                onToggle: () {
-                  setState(() => _showFullDescription = !_showFullDescription);
-                },
-              ),
-            ],
-            _SourceFacts(version: version),
-            const SizedBox(height: 20),
-            SectionHeader(title: strings.chapters),
-            for (var index = 0; index < visibleChapterCount; index++)
-              Builder(
-                builder: (context) {
-                  final sourceChapter = snapshot.chapters[index];
-                  final audioChapter = playbackBook.chapters[index];
-                  final chapterProgress =
-                      savedProgress?.currentChapterId == audioChapter.id
-                      ? ((savedProgress?.currentPositionMs ?? 0) /
-                                (audioChapter.duration.inMilliseconds <= 0
-                                    ? 1
-                                    : audioChapter.duration.inMilliseconds))
-                            .clamp(0, 1)
-                            .toDouble()
-                      : 0.0;
-                  return ChapterTile(
-                    index: sourceChapter.index,
-                    title: sourceChapter.title,
-                    durationLabel: _formatShortDuration(
-                      Duration(milliseconds: sourceChapter.durationMs ?? 0),
-                    ),
-                    progress:
-                        isCurrentBook && playbackState.chapterIndex == index
-                        ? playbackState.chapterProgress
-                        : chapterProgress,
-                    isDownloaded: isChapterDownloaded(
-                      downloadManager,
-                      audioChapter,
-                    ),
-                    downloadState: downloadStateForChapter(
-                      downloadManager,
-                      audioChapter,
-                    ),
-                    downloadProgress: downloadProgressForChapter(
-                      downloadManager,
-                      audioChapter,
-                    ),
-                    isCurrent:
-                        isCurrentBook && playbackState.chapterIndex == index,
-                    onTap: () {
-                      if (isCurrentBook) {
-                        unawaited(playbackController.playChapterAt(index));
-                        return;
-                      }
-                      unawaited(_play(context, ref, index));
-                    },
-                    onDownloadPressed: () =>
-                        unawaited(_runChapterDownload(downloadManager, index)),
-                  );
-                },
-              ),
-            if (snapshot.chapters.length > _collapsedChapterCount)
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton.icon(
-                  onPressed: () {
-                    setState(() => _showAllChapters = !_showAllChapters);
-                  },
-                  icon: AppIcon(
-                    _showAllChapters
-                        ? AppIconAssets.systemClose
-                        : AppIconAssets.systemMore,
-                    size: 18,
-                  ),
-                  label: Text(
-                    _showAllChapters
-                        ? strings.collapseChapters
-                        : strings.showMoreChapters(
-                            snapshot.chapters.length - _collapsedChapterCount,
-                          ),
-                  ),
-                ),
-              ),
-            _OtherNarrationsSection(future: _otherNarrationsFuture),
+            actions,
+            ...bodyChildren,
           ],
         );
       },
@@ -501,12 +600,12 @@ class _SourceBookDetailsBodyState
       sourceBookId: version.sourceBookId,
     ).toString();
 
-    await showModalBottomSheet<void>(
+    await showAdaptiveSheet<void>(
       context: context,
       showDragHandle: true,
       builder: (context) {
         return SafeArea(
-          child: Padding(
+          child: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -641,6 +740,9 @@ class _OtherNarrationTile extends StatelessWidget {
     );
 
     return Card(
+      key: ValueKey(
+        'other-narration-${alternative.sourceId}-${alternative.sourceBookId}',
+      ),
       child: InkWell(
         borderRadius: BorderRadius.circular(8),
         onTap: () {
@@ -665,7 +767,7 @@ class _OtherNarrationTile extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      narrator ?? alternative.title,
+                      narrator ?? context.strings.narratorUnknown,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.titleSmall?.copyWith(
@@ -962,67 +1064,80 @@ class _SourceStats {
   bool get hasAny => views != null || likes != null || dislikes != null;
 }
 
+enum _SourceHeaderSection { all, identity, facts }
+
 class _SourceHeaderDetails extends StatelessWidget {
-  const _SourceHeaderDetails({required this.snapshot});
+  const _SourceHeaderDetails({
+    required this.snapshot,
+    this.section = _SourceHeaderSection.all,
+  });
 
   final SourceBookSnapshot snapshot;
+  final _SourceHeaderSection section;
 
   @override
   Widget build(BuildContext context) {
     final version = snapshot.details.version;
+    final identity = section != _SourceHeaderSection.facts;
+    final facts = section != _SourceHeaderSection.identity;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(version.title, style: Theme.of(context).textTheme.headlineSmall),
-        const SizedBox(height: 8),
-        if (version.authors.isNotEmpty)
+        if (identity) ...[
+          Text(version.title, style: Theme.of(context).textTheme.headlineSmall),
+          if (version.isFragment) const BookFragmentBadge(),
+          const SizedBox(height: 8),
+        ],
+        if (facts && version.authors.isNotEmpty)
           _HeaderMetaLinks(
             iconAsset: AppIconAssets.bookAuthor,
             values: version.authors,
             searchKind: SearchKind.author,
           ),
-        if (version.narrators.isNotEmpty)
+        if (identity && version.narrators.isNotEmpty)
           _HeaderMetaLinks(
             iconAsset: AppIconAssets.bookNarrator,
             values: version.narrators,
             searchKind: SearchKind.narrator,
           ),
-        if (_trimOrNull(version.seriesTitle) != null)
+        if (facts && _trimOrNull(version.seriesTitle) != null)
           _HeaderMetaLinks(
             iconAsset: AppIconAssets.bookSeries,
             values: [_seriesLabel(version.seriesTitle, version.seriesNumber)!],
             searchQueries: [version.seriesTitle!],
             searchKind: SearchKind.series,
           ),
-        const SizedBox(height: 9),
-        Wrap(
-          spacing: 10,
-          runSpacing: 4,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            if (version.publishedYear != null)
+        if (facts) ...[
+          const SizedBox(height: 9),
+          Wrap(
+            spacing: 10,
+            runSpacing: 4,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              if (version.publishedYear != null)
+                _HeaderInlineMeta(
+                  iconAsset: AppIconAssets.bookYear,
+                  label: '${version.publishedYear}',
+                ),
+              if (snapshot.audioBook.durationLabel.trim().isNotEmpty &&
+                  snapshot.audioBook.durationLabel != '—')
+                _HeaderInlineMeta(
+                  iconAsset: AppIconAssets.bookDuration,
+                  label: snapshot.audioBook.durationLabel,
+                ),
               _HeaderInlineMeta(
-                iconAsset: AppIconAssets.bookYear,
-                label: '${version.publishedYear}',
+                iconAsset: AppIconAssets.playerChapters,
+                label: context.strings.chaptersCount(snapshot.chapters.length),
               ),
-            if (snapshot.audioBook.durationLabel.trim().isNotEmpty &&
-                snapshot.audioBook.durationLabel != '—')
-              _HeaderInlineMeta(
-                iconAsset: AppIconAssets.bookDuration,
-                label: snapshot.audioBook.durationLabel,
-              ),
-            _HeaderInlineMeta(
-              iconAsset: AppIconAssets.playerChapters,
-              label: context.strings.chaptersCount(snapshot.chapters.length),
-            ),
-            if (_ratingLabel(version.ratingValue) != null)
-              _HeaderInlineMeta(
-                iconAsset: AppIconAssets.bookRating,
-                label: _ratingLabel(version.ratingValue)!,
-              ),
-          ],
-        ),
+              if (_ratingLabel(version.ratingValue) != null)
+                _HeaderInlineMeta(
+                  iconAsset: AppIconAssets.bookRating,
+                  label: _ratingLabel(version.ratingValue)!,
+                ),
+            ],
+          ),
+        ],
       ],
     );
   }
@@ -1103,19 +1218,20 @@ class _HeaderInlineMeta extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final text = Text(
+      label,
+      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+        color: colorScheme.onSurfaceVariant,
+        fontWeight: FontWeight.w700,
+      ),
+    );
 
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         AppIcon(iconAsset, size: 14, color: colorScheme.onSurfaceVariant),
         const SizedBox(width: 4),
-        Text(
-          label,
-          style: Theme.of(context).textTheme.labelMedium?.copyWith(
-            color: colorScheme.onSurfaceVariant,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
+        if (DesktopLayout.isActive(context)) Flexible(child: text) else text,
       ],
     );
   }
@@ -1135,45 +1251,58 @@ class _DetailsError extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 360),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              AppIcon(
-                AppIconAssets.systemWarning,
-                size: 42,
-                color: colorScheme.primary,
+    final content = Padding(
+      padding: const EdgeInsets.all(24),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 360),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AppIcon(
+              AppIconAssets.systemWarning,
+              size: 42,
+              color: colorScheme.primary,
+            ),
+            const SizedBox(height: 14),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: colorScheme.onSurfaceVariant,
               ),
-              const SizedBox(height: 14),
-              Text(
-                title,
-                textAlign: TextAlign.center,
-                style: Theme.of(
-                  context,
-                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                message,
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                ),
-              ),
-              const SizedBox(height: 18),
-              FilledButton(
-                onPressed: onRetry,
-                child: Text(context.strings.retry),
-              ),
-            ],
-          ),
+            ),
+            const SizedBox(height: 18),
+            FilledButton(
+              onPressed: onRetry,
+              child: Text(context.strings.retry),
+            ),
+          ],
         ),
       ),
     );
+    if (Theme.of(context).platform == TargetPlatform.windows) {
+      // The error can exceed a short window once text accessibility scaling and
+      // the persistent player reduce the viewport. Keep Retry scroll-reachable
+      // in both the desktop layout and the narrow Windows fallback.
+      return LayoutBuilder(
+        builder: (context, constraints) => SingleChildScrollView(
+          key: const ValueKey('windows-source-details-error-scroll'),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+            child: Center(child: content),
+          ),
+        ),
+      );
+    }
+    return Center(child: content);
   }
 }
 

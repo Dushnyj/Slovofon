@@ -65,6 +65,7 @@ abstract final class AppIconAssets {
 
   static const systemBack = 'assets/icons/system/back.svg';
   static const systemForward = 'assets/icons/system/forward.svg';
+  static const systemExpand = 'assets/icons/system/expand.svg';
   static const systemClose = 'assets/icons/system/close.svg';
   static const systemMore = 'assets/icons/system/more.svg';
   static const systemFilter = 'assets/icons/system/filter.svg';

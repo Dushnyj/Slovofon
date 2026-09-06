@@ -48,7 +48,7 @@ void main() {
     );
 
     test(
-      'keeps autoplay active while the engine settles after loading',
+      'keeps pending autoplay only until the backend acknowledges playback',
       () async {
         final engine = StreamingAudioEngine();
         final service = PlaybackController(engine: engine);
@@ -97,7 +97,7 @@ void main() {
         );
         await Future<void>.delayed(Duration.zero);
 
-        expect(service.state.status, AudioPlaybackStatus.playing);
+        expect(service.state.status, AudioPlaybackStatus.paused);
 
         await service.pause();
         engine.emit(
@@ -124,6 +124,21 @@ void main() {
       expect(service.state.chapterProgress, closeTo(0.5, 0.001));
       expect(service.state.bookProgress, closeTo(0.166, 0.01));
       expect(engine.seekPositions, [const Duration(minutes: 5)]);
+    });
+
+    test('toggleMute restores the previous non-zero volume', () async {
+      final engine = RecordingAudioEngine();
+      final service = PlaybackController(engine: engine);
+
+      await service.setVolume(0.55);
+      await service.toggleMute();
+
+      expect(service.state.volume, 0);
+
+      await service.toggleMute();
+
+      expect(service.state.volume, closeTo(0.55, 0.001));
+      expect(engine.volumeValues, [0.55, 0, 0.55]);
     });
 
     test('ignores duplicate engine snapshots', () async {
@@ -263,7 +278,7 @@ void main() {
     );
 
     test('sleep timer can stop at the end of the current chapter', () async {
-      final engine = RecordingAudioEngine();
+      final engine = StreamingAudioEngine();
       final service = PlaybackController(engine: engine);
 
       await service.loadBook(
@@ -277,9 +292,20 @@ void main() {
 
       await service.tick(const Duration(minutes: 7));
 
+      // Chapter-end mode follows backend completion, not a wall-clock guess.
+      expect(service.state.status, AudioPlaybackStatus.playing);
+      engine.emit(
+        const AudioEngineSnapshot(
+          position: Duration(minutes: 10),
+          processingState: AudioEngineProcessingState.completed,
+          isPlaying: true,
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+
       expect(service.state.status, AudioPlaybackStatus.paused);
       expect(service.state.sleepTimerRemaining, isNull);
-      expect(engine.pauseCount, 1);
+      expect(service.state.chapterIndex, 0);
     });
 
     test('expired sleep timer does not re-pause playback after resume '
@@ -804,6 +830,7 @@ class RecordingAudioEngine implements AudioEngine {
   final loadedMediaSources = <AudioMediaSource?>[];
   final seekPositions = <Duration>[];
   final speedValues = <double>[];
+  final volumeValues = <double>[];
   int playCount = 0;
   int pauseCount = 0;
 
@@ -839,6 +866,11 @@ class RecordingAudioEngine implements AudioEngine {
   @override
   Future<void> setSpeed(double speed) async {
     speedValues.add(speed);
+  }
+
+  @override
+  Future<void> setVolume(double volume) async {
+    volumeValues.add(volume);
   }
 
   @override
@@ -923,6 +955,9 @@ class FailingAudioEngine implements AudioEngine {
 
   @override
   Future<void> setSpeed(double speed) async {}
+
+  @override
+  Future<void> setVolume(double volume) async {}
 }
 
 class StreamingAudioEngine implements AudioEngine {
@@ -963,6 +998,9 @@ class StreamingAudioEngine implements AudioEngine {
 
   @override
   Future<void> setSpeed(double speed) async {}
+
+  @override
+  Future<void> setVolume(double volume) async {}
 }
 
 class RecordingPlaybackPersistenceStore implements PlaybackPersistenceStore {
@@ -1039,4 +1077,7 @@ class CountingAudioEngine implements AudioEngine {
 
   @override
   Future<void> setSpeed(double speed) async {}
+
+  @override
+  Future<void> setVolume(double volume) async {}
 }

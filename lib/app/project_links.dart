@@ -1,5 +1,8 @@
 abstract final class ProjectLinks {
   static const githubRepository = 'https://github.com/Dushnyj/Slovofon';
+  static const githubReleases = '$githubRepository/releases';
+  static const githubLatestRelease =
+      'https://api.github.com/repos/Dushnyj/Slovofon/releases/latest';
 
   static const telegramSupportBot = 'https://t.me/slovofon_bot';
   static const telegramChannel = 'https://t.me/slovofon';
@@ -7,9 +10,4 @@ abstract final class ProjectLinks {
 
   static const site = 'https://slovofon.duckdns.org';
   static const api = 'https://slovofon-api.duckdns.org';
-  static const updatesBase = 'https://slovofon-updates.duckdns.org';
-  static const updatesStableManifest =
-      '$updatesBase/v1/channels/stable/latest.json';
-  static const updatesBetaManifest =
-      '$updatesBase/v1/channels/beta/latest.json';
 }

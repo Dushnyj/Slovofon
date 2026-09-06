@@ -29,6 +29,8 @@ abstract interface class JustAudioPlayerAdapter {
 
   Future<void> setSpeed(double speed);
 
+  Future<void> setVolume(double volume);
+
   Future<void> dispose();
 }
 
@@ -153,6 +155,11 @@ class PackageJustAudioPlayerAdapter implements JustAudioPlayerAdapter {
     return _player.setSpeed(speed);
   }
 
+  @override
+  Future<void> setVolume(double volume) {
+    return _player.setVolume(volume);
+  }
+
   JustAudioAdapterProcessingState _processingState(
     just_audio.ProcessingState state,
   ) {
@@ -243,6 +250,13 @@ class JustAudioEngine implements AudioEngine {
       );
     }
 
+    // Seed before loading: a decoder duration discovered during load wins over
+    // catalogue metadata (and durationStream may never emit it a second time).
+    _position = position;
+    _duration = chapter.duration > Duration.zero ? chapter.duration : null;
+    _processingState = AudioEngineProcessingState.loading;
+    _errorMessage = null;
+    _emit();
     await _player.load(
       AudioLoadRequest(source: mediaSource, initialPosition: position),
     );
@@ -250,7 +264,6 @@ class JustAudioEngine implements AudioEngine {
       await _player.seek(position);
     }
     _position = position;
-    _duration = chapter.duration > Duration.zero ? chapter.duration : null;
     _emit();
   }
 
@@ -278,6 +291,11 @@ class JustAudioEngine implements AudioEngine {
   @override
   Future<void> setSpeed(double speed) {
     return _player.setSpeed(speed);
+  }
+
+  @override
+  Future<void> setVolume(double volume) {
+    return _player.setVolume(volume);
   }
 
   void _emit() {

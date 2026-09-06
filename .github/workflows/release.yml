@@ -21,7 +21,8 @@ permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.event_name }}-${{ github.ref_name }}-${{ inputs.release_tag }}
+  # Dispatch and tag events must not race to publish the same version.
+  group: release-${{ github.repository }}
   cancel-in-progress: false
 
 env:
@@ -46,10 +47,12 @@ jobs:
       - name: Resolve release metadata
         id: metadata
         shell: bash
+        env:
+          REQUESTED_RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           set -euo pipefail
           version="$(tr -d '\r\n' < VERSION)"
-          tag="${{ inputs.release_tag }}"
+          tag="$REQUESTED_RELEASE_TAG"
           if [[ -z "$tag" ]]; then
             if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
               tag="${GITHUB_REF_NAME}"
@@ -83,6 +86,16 @@ jobs:
             echo "artifact_dir=artifacts/$tag"
             echo "prerelease=${{ inputs.prerelease || false }}"
           } >> "$GITHUB_OUTPUT"
+
+      - name: Verify existing release tag matches the build commit
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ steps.metadata.outputs.tag }}
+        run: |
+          . ./tools/release/ReleaseGuard.ps1
+          $commit = git rev-parse "$($env:GITHUB_SHA)^{commit}"
+          if ($LASTEXITCODE -ne 0) { throw 'Build commit could not be resolved.' }
+          Assert-RemoteReleaseTag -Tag $env:RELEASE_TAG -ExpectedCommit $commit | Out-Null
 
   checks:
     name: Flutter checks
@@ -245,6 +258,10 @@ jobs:
       - name: Build Windows release bundle
         run: flutter build windows --release
 
+      - name: Verify app-local Windows runtime dependencies
+        shell: pwsh
+        run: ./tools/windows/Assert-WindowsRuntime.ps1 -BundleDir build/windows/x64/runner/Release
+
       - name: Prepare signing certificate
         id: signing
         shell: pwsh
@@ -395,17 +412,23 @@ jobs:
           ls -lh "$out"
 
       - name: Ensure release tag exists
-        shell: bash
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ needs.metadata.outputs.tag }}
         run: |
-          set -euo pipefail
-          tag="${{ needs.metadata.outputs.tag }}"
-          git fetch --tags origin
-          if ! git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git tag -a "$tag" -m "Slovofon $tag" "$GITHUB_SHA"
-            git push origin "$tag"
-          fi
+          . ./tools/release/ReleaseGuard.ps1
+          $commit = git rev-parse "$($env:GITHUB_SHA)^{commit}"
+          if ($LASTEXITCODE -ne 0) { throw 'Build commit could not be resolved.' }
+          if (-not (Assert-RemoteReleaseTag -Tag $env:RELEASE_TAG -ExpectedCommit $commit)) {
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git tag -a $env:RELEASE_TAG -m "Slovofon $env:RELEASE_TAG" $commit
+            if ($LASTEXITCODE -ne 0) { throw 'Release tag creation failed.' }
+            git push origin "refs/tags/$($env:RELEASE_TAG)"
+            if ($LASTEXITCODE -ne 0) { throw 'Release tag push failed.' }
+          }
+          # Re-read origin immediately before publication to catch a raced/moved tag.
+          Assert-RemoteReleaseTag -Tag $env:RELEASE_TAG -ExpectedCommit $commit -RequireTag | Out-Null
 
       - name: Publish GitHub Release
         shell: bash
@@ -418,16 +441,17 @@ jobs:
             prerelease_flag=(--prerelease)
           fi
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$tag" "$out"/* --repo "$GITHUB_REPOSITORY" --clobber
-          else
-            notes_file="RELEASE_NOTES.md"
-            if [[ ! -f "$notes_file" ]]; then
-              notes_file="CHANGELOG.md"
-            fi
-            gh release create "$tag" "$out"/* \
-              --repo "$GITHUB_REPOSITORY" \
-              --title "Slovofon $tag" \
-              --notes-file "$notes_file" \
-              --verify-tag \
-              "${prerelease_flag[@]}"
+            echo "::error::Release $tag already exists. Published artifacts are immutable; prepare a new version."
+            exit 1
           fi
+          notes_file="RELEASE_NOTES.md"
+          if [[ ! -f "$notes_file" ]]; then
+            notes_file="CHANGELOG.md"
+          fi
+          # create also fails closed if another publisher created this release.
+          gh release create "$tag" "$out"/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Slovofon $tag" \
+            --notes-file "$notes_file" \
+            --verify-tag \
+            "${prerelease_flag[@]}"

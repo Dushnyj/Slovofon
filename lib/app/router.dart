@@ -122,7 +122,15 @@ final GoRouter appRouter = GoRouter(
     ),
     GoRoute(
       path: '/player',
-      builder: (context, state) => const FullPlayerScreen(),
+      builder: (context, state) {
+        final initialTabIndex = switch (state.uri.queryParameters['tab']) {
+          'chapters' => 1,
+          'bookmarks' => 2,
+          'information' => 3,
+          _ => 0,
+        };
+        return FullPlayerScreen(initialTabIndex: initialTabIndex);
+      },
     ),
     GoRoute(
       path: '/theme-preview',

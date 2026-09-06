@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:slovofon/domain/models/book_version.dart';
@@ -63,6 +64,119 @@ void main() {
         result.coverUri.toString(),
         'https://r7.audioknigi.xyz/2f9a5d7ff98284fc/pic/e083c6a9f86ef781.jpg',
       );
+    });
+
+    test('separates Poluraspad author and narrator in one search block', () {
+      final result = mapper
+          .searchResults(
+            File(
+              'test/sources/knigoblud/fixtures/search_combined_people.html',
+            ).readAsStringSync(),
+          )
+          .single;
+
+      expect(result.title, 'S.T.A.L.K.E.R. Полураспад');
+      expect(result.author, 'Александр Зорич');
+      expect(result.narrator, 'Чайцын Александр (Алекс)');
+      expect(result.series, 'S.T.A.L.K.E.R.: Комбат и Тополь');
+      expect(result.duration, const Duration(hours: 11, minutes: 49));
+    });
+
+    test('keeps multiple people within their own role and nested markup', () {
+      final result = mapper
+          .searchResults(
+            _peopleSearchHtml('''
+              <span><b>✍️</b> <a href="/author-a">Автор А</a>,
+                <a href="/author-b">Автор Б</a></span>
+              <span><b>🎙️</b> <span><a href="/reader-a">Чтец А</a></span>,
+                <a href="/reader-b">Чтец Б</a>,
+                <a href="/reader-a">Чтец А</a></span>
+              <span>📚</span> <a href="/series">Цикл</a>
+            '''),
+          )
+          .single;
+
+      expect(result.author, 'Автор А, Автор Б');
+      expect(result.narrator, 'Чтец А, Чтец Б');
+      expect(result.series, 'Цикл');
+    });
+
+    test('preserves an author who is explicitly also a narrator', () {
+      final result = mapper
+          .searchResults(
+            _peopleSearchHtml('''
+              <span>✍</span> <a href="/person">Один Человек</a>
+              <span>🎙</span> <a href="/person">Один Человек</a>,
+                <a href="/reader">Второй Чтец</a>
+            '''),
+          )
+          .single;
+
+      expect(result.author, 'Один Человек');
+      expect(result.narrator, 'Один Человек, Второй Чтец');
+    });
+
+    test('role boundaries do not depend on author appearing first', () {
+      final result = mapper
+          .searchResults(
+            _peopleSearchHtml('''
+              <span>🎙️</span> <a href="/reader">Чтец</a>
+              <span>✍️</span> <a href="/author">Автор</a>
+            '''),
+          )
+          .single;
+
+      expect(result.author, 'Автор');
+      expect(result.narrator, 'Чтец');
+    });
+
+    test('separates unlinked role text and preserves an explicit unknown', () {
+      final result = mapper
+          .searchResults(
+            _peopleSearchHtml('''
+              <span>✍️</span> <span>Автор</span>
+              <span>🎙️</span> <span>Неизвестен</span>
+              <span>📚</span> <span>Цикл</span>
+            '''),
+          )
+          .single;
+
+      expect(result.author, 'Автор');
+      expect(result.narrator, 'Неизвестен');
+      expect(result.series, 'Цикл');
+    });
+
+    for (final narratorMarker in ['', '<span>🎙️</span>']) {
+      test(
+        'does not infer a missing narrator from author: $narratorMarker',
+        () {
+          final result = mapper
+              .searchResults(
+                _peopleSearchHtml('''
+                <span>✍️</span> <a href="/author">Автор</a>
+                $narratorMarker
+                <span>📚</span> <a href="/series">Цикл</a>
+              '''),
+              )
+              .single;
+
+          expect(result.author, 'Автор');
+          expect(result.narrator, isEmpty);
+        },
+      );
+    }
+
+    test('shared detail metadata also respects role boundaries', () {
+      final details = mapper.bookDetails('''
+        <h1 class="BookTitle">Книга</h1>
+        <div class="BookMetaBlockLine">
+          <span>✍️</span> <span itemprop="author"><a href="/author">Автор</a></span>
+          <span>🎙️</span> <a href="/reader">Чтец</a>
+        </div>
+      ''', const SourceBookRef(sourceId: 'knigoblud', sourceBookId: 'book'));
+
+      expect(details.version.authors, ['Автор']);
+      expect(details.version.narrators, ['Чтец']);
     });
 
     test('maps details, chapters, and audio tracks from KB.playerInit', () {
@@ -131,6 +245,14 @@ void main() {
     });
   });
 }
+
+String _peopleSearchHtml(String metadata) =>
+    '''
+  <div class="bookListItem">
+    <a class="bookListItemCoverNameText" href="/book">Книга</a>
+    <div class="bookListItemMetaBlock">$metadata</div>
+  </div>
+''';
 
 const _searchHtml = '''
 <html><body>

@@ -4,22 +4,25 @@ import '../../services/audio/audio_state.dart';
 import '../source_connector.dart';
 import '../source_media_validator.dart';
 import '../source_models.dart';
+import '../source_request_cache.dart';
 import 'knigavuhe_client.dart';
 import 'knigavuhe_mapper.dart';
 
-class KnigavuheSourceConnector implements SourceConnector {
+class KnigavuheSourceConnector
+    implements SourceConnector, SourceCacheInvalidator {
   KnigavuheSourceConnector({
     KnigavuheClient? client,
     KnigavuheMapper? mapper,
     DateTime Function()? clock,
   }) : _client = client ?? KnigavuheClient(),
        _mapper = mapper ?? KnigavuheMapper(clock: clock),
-       _clock = clock ?? DateTime.now;
+       _clock = clock ?? DateTime.now,
+       _bookHtmlCache = SourceRequestCache(clock: clock);
 
   final KnigavuheClient _client;
   final KnigavuheMapper _mapper;
   final DateTime Function() _clock;
-  final _bookHtmlCache = <String, Future<String>>{};
+  final SourceRequestCache<String, String> _bookHtmlCache;
 
   @override
   String get id => 'knigavuhe';
@@ -169,17 +172,15 @@ class KnigavuheSourceConnector implements SourceConnector {
   }
 
   Future<String> _bookHtml(SourceBookRef ref) {
-    final cached = _bookHtmlCache[ref.sourceBookId];
-    if (cached != null) {
-      return cached;
-    }
-    late final Future<String> future;
-    future = _client.bookHtml(ref).catchError((Object error) {
-      _bookHtmlCache.remove(ref.sourceBookId);
-      throw error;
-    });
-    _bookHtmlCache[ref.sourceBookId] = future;
-    return future;
+    return _bookHtmlCache.getOrLoad(
+      ref.sourceBookId,
+      () => _client.bookHtml(ref),
+    );
+  }
+
+  @override
+  void invalidateBook(SourceBookRef ref) {
+    _bookHtmlCache.remove(ref.sourceBookId);
   }
 
   void _validateRef(SourceBookRef ref) {

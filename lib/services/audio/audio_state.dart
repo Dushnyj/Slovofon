@@ -1,3 +1,5 @@
+import '../../domain/models/playback_session.dart';
+
 enum AudioPlaybackStatus {
   idle,
   loading,
@@ -58,6 +60,7 @@ class AudioPlaybackChapter {
     required this.duration,
     this.isDownloaded = false,
     this.mediaSource,
+    this.originalMediaSource,
   });
 
   final String id;
@@ -67,6 +70,9 @@ class AudioPlaybackChapter {
   final bool isDownloaded;
   final AudioMediaSource? mediaSource;
 
+  /// Remote source retained when [mediaSource] is an offline file overlay.
+  final AudioMediaSource? originalMediaSource;
+
   AudioPlaybackChapter copyWith({
     String? id,
     int? index,
@@ -74,6 +80,7 @@ class AudioPlaybackChapter {
     Duration? duration,
     bool? isDownloaded,
     AudioMediaSource? mediaSource,
+    AudioMediaSource? originalMediaSource,
   }) {
     return AudioPlaybackChapter(
       id: id ?? this.id,
@@ -82,6 +89,7 @@ class AudioPlaybackChapter {
       duration: duration ?? this.duration,
       isDownloaded: isDownloaded ?? this.isDownloaded,
       mediaSource: mediaSource ?? this.mediaSource,
+      originalMediaSource: originalMediaSource ?? this.originalMediaSource,
     );
   }
 }
@@ -106,6 +114,7 @@ class AudioPlaybackBook {
     this.ratingCount,
     this.publishedYear,
     this.sourceUrl,
+    this.isFragment = false,
   });
 
   final String id;
@@ -126,6 +135,7 @@ class AudioPlaybackBook {
   final int? ratingCount;
   final int? publishedYear;
   final String? sourceUrl;
+  final bool isFragment;
 
   Duration get totalDuration {
     return chapters.fold(
@@ -154,6 +164,7 @@ class AudioPlaybackBook {
       ratingCount: ratingCount,
       publishedYear: publishedYear,
       sourceUrl: sourceUrl,
+      isFragment: isFragment,
     );
   }
 }
@@ -165,7 +176,10 @@ class AudioPlaybackState {
     this.chapterIndex = 0,
     this.position = Duration.zero,
     this.speed = 1,
+    this.volume = 1,
+    this.lastNonMutedVolume = 1,
     this.sleepTimerRemaining,
+    this.sleepTimerMode = SleepTimerMode.off,
     this.errorMessage,
   });
 
@@ -174,7 +188,10 @@ class AudioPlaybackState {
   final int chapterIndex;
   final Duration position;
   final double speed;
+  final double volume;
+  final double lastNonMutedVolume;
   final Duration? sleepTimerRemaining;
+  final SleepTimerMode sleepTimerMode;
   final String? errorMessage;
 
   static const idle = AudioPlaybackState();
@@ -233,7 +250,10 @@ class AudioPlaybackState {
     int? chapterIndex,
     Duration? position,
     double? speed,
+    double? volume,
+    double? lastNonMutedVolume,
     Duration? sleepTimerRemaining,
+    SleepTimerMode? sleepTimerMode,
     String? errorMessage,
     bool clearSleepTimer = false,
     bool clearError = false,
@@ -244,9 +264,14 @@ class AudioPlaybackState {
       chapterIndex: chapterIndex ?? this.chapterIndex,
       position: position ?? this.position,
       speed: speed ?? this.speed,
+      volume: volume ?? this.volume,
+      lastNonMutedVolume: lastNonMutedVolume ?? this.lastNonMutedVolume,
       sleepTimerRemaining: clearSleepTimer
           ? null
           : sleepTimerRemaining ?? this.sleepTimerRemaining,
+      sleepTimerMode: clearSleepTimer
+          ? SleepTimerMode.off
+          : sleepTimerMode ?? this.sleepTimerMode,
       errorMessage: clearError ? null : errorMessage ?? this.errorMessage,
     );
   }

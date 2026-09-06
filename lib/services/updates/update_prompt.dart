@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/localization/app_strings.dart';
+import '../../ui/adaptive/desktop_layout.dart';
 import '../../ui/icons/app_icons.dart';
 import 'update_error_text.dart';
 import 'update_installer.dart';
@@ -59,16 +60,17 @@ Future<void> showUpdatePrompt(
   WidgetRef ref,
   UpdateInfo info,
 ) {
-  return showDialog<void>(
+  final navigator = Navigator.of(hostContext, rootNavigator: true);
+  late final DialogRoute<void> updateRoute;
+  var isBusy = false;
+  var downloadedBytes = 0;
+  int? totalBytes;
+  var bytesPerSecond = 0;
+  final downloadTimer = Stopwatch();
+  updateRoute = DialogRoute<void>(
     context: hostContext,
     barrierDismissible: false,
     builder: (dialogContext) {
-      var isBusy = false;
-      var downloadedBytes = 0;
-      int? totalBytes;
-      var bytesPerSecond = 0;
-      final downloadTimer = Stopwatch();
-
       return StatefulBuilder(
         builder: (dialogBodyContext, setDialogState) {
           final strings = dialogBodyContext.strings;
@@ -84,6 +86,7 @@ Future<void> showUpdatePrompt(
                 )
               : strings.updateDownloading;
           Future<void> startDownload() async {
+            if (!dialogBodyContext.mounted || isBusy) return;
             downloadTimer
               ..reset()
               ..start();
@@ -99,6 +102,7 @@ Future<void> showUpdatePrompt(
                   .downloadAndInstall(
                     info,
                     onProgress: (downloaded, total) {
+                      if (!dialogBodyContext.mounted) return;
                       final elapsedMs = downloadTimer.elapsedMilliseconds;
                       setDialogState(() {
                         downloadedBytes = downloaded;
@@ -112,8 +116,8 @@ Future<void> showUpdatePrompt(
                     },
                   );
               downloadTimer.stop();
-              if (dialogContext.mounted) {
-                Navigator.of(dialogContext).pop();
+              if (updateRoute.isActive) {
+                navigator.removeRoute(updateRoute);
               }
               if (hostContext.mounted) {
                 ScaffoldMessenger.of(hostContext).showSnackBar(
@@ -122,6 +126,7 @@ Future<void> showUpdatePrompt(
               }
             } on UpdateInstallPermissionRequired {
               downloadTimer.stop();
+              if (!dialogBodyContext.mounted) return;
               if (hostContext.mounted) {
                 ScaffoldMessenger.of(hostContext).showSnackBar(
                   SnackBar(
@@ -132,6 +137,7 @@ Future<void> showUpdatePrompt(
               setDialogState(() => isBusy = false);
             } on Object catch (error) {
               downloadTimer.stop();
+              if (!dialogBodyContext.mounted) return;
               setDialogState(() => isBusy = false);
               if (!dialogContext.mounted) {
                 return;
@@ -147,8 +153,15 @@ Future<void> showUpdatePrompt(
           }
 
           return AlertDialog(
+            scrollable: DesktopLayout.isActive(dialogBodyContext),
             icon: const AppIcon(AppIconAssets.systemRefresh),
-            title: Text(strings.updateAvailableTitle),
+            title: Text(
+              !isBusy
+                  ? strings.updateAvailableTitle
+                  : progress != null && progress >= 1
+                  ? strings.updatePreparingTitle
+                  : strings.updateDownloading,
+            ),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -171,27 +184,30 @@ Future<void> showUpdatePrompt(
               ],
             ),
             actions: [
-              TextButton(
-                onPressed: isBusy
-                    ? null
-                    : () async {
-                        await ref.read(updateServiceProvider).skip(info);
-                        if (dialogContext.mounted) {
-                          Navigator.of(dialogContext).pop();
-                        }
-                      },
-                child: Text(strings.skipUpdate),
-              ),
-              FilledButton(
-                onPressed: isBusy ? null : startDownload,
-                child: Text(strings.updateNow),
-              ),
+              if (!isBusy)
+                TextButton(
+                  onPressed: isBusy
+                      ? null
+                      : () async {
+                          await ref.read(updateServiceProvider).skip(info);
+                          if (updateRoute.isActive) {
+                            navigator.removeRoute(updateRoute);
+                          }
+                        },
+                  child: Text(strings.skipUpdate),
+                ),
+              if (!isBusy)
+                FilledButton(
+                  onPressed: isBusy ? null : startDownload,
+                  child: Text(strings.updateNow),
+                ),
             ],
           );
         },
       );
     },
   );
+  return navigator.push(updateRoute);
 }
 
 String _formatBytes(int bytes, Locale locale) {
@@ -222,6 +238,7 @@ Future<void> _showUpdateErrorDialog({
     context: context,
     builder: (errorContext) {
       return AlertDialog(
+        scrollable: DesktopLayout.isActive(errorContext),
         icon: const AppIcon(AppIconAssets.systemWarning),
         title: Text(text.title),
         content: Text(text.message),
@@ -245,35 +262,42 @@ Future<void> _showUpdateErrorDialog({
 
 Future<void> checkUpdatesManually(BuildContext context, WidgetRef ref) async {
   final strings = context.strings;
-  unawaited(
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) {
-        return AlertDialog(
-          content: Row(
-            children: [
-              const SizedBox.square(
-                dimension: 24,
-                child: CircularProgressIndicator(strokeWidth: 2.5),
-              ),
-              const SizedBox(width: 16),
-              Expanded(child: Text(strings.checkingUpdates)),
-            ],
-          ),
-        );
-      },
-    ),
+  final navigator = Navigator.of(context, rootNavigator: true);
+  final progressRoute = DialogRoute<void>(
+    context: context,
+    barrierDismissible: false,
+    builder: (context) {
+      return AlertDialog(
+        scrollable: DesktopLayout.isActive(context),
+        content: Row(
+          children: [
+            const SizedBox.square(
+              dimension: 24,
+              child: CircularProgressIndicator(strokeWidth: 2.5),
+            ),
+            const SizedBox(width: 16),
+            Expanded(child: Text(strings.checkingUpdates)),
+          ],
+        ),
+      );
+    },
   );
+  unawaited(navigator.push(progressRoute));
+
+  bool closeProgressIfCurrent() {
+    if (!progressRoute.isActive) return false;
+    final wasCurrent = progressRoute.isCurrent;
+    // Remove this exact dialog, never an unrelated page or dialog that was
+    // opened while the request was in flight. Back means dismiss the result.
+    navigator.removeRoute(progressRoute);
+    return wasCurrent && context.mounted;
+  }
 
   try {
     final result = await ref
         .read(updateServiceProvider)
         .checkForUpdate(includeSkipped: true);
-    if (context.mounted) {
-      Navigator.of(context, rootNavigator: true).pop();
-    }
-    if (!context.mounted) {
+    if (!closeProgressIfCurrent() || !context.mounted) {
       return;
     }
     if (result.status == UpdateCheckStatus.available && result.info != null) {
@@ -287,8 +311,7 @@ Future<void> checkUpdatesManually(BuildContext context, WidgetRef ref) async {
       context,
     ).showSnackBar(SnackBar(content: Text(message)));
   } on Object catch (error) {
-    if (context.mounted) {
-      Navigator.of(context, rootNavigator: true).pop();
+    if (closeProgressIfCurrent() && context.mounted) {
       await _showUpdateErrorDialog(
         context: context,
         text: updateCheckErrorText(strings: strings, error: error),

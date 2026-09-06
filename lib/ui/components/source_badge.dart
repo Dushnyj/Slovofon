@@ -38,10 +38,10 @@ Color sourceColorForId(String sourceId, ColorScheme colorScheme) {
   return switch (sourceId) {
     'izib' => dark ? const Color(0xFFD0A2FF) : const Color(0xFF7B4FB1),
     'akniga' => dark ? const Color(0xFF4ADE80) : const Color(0xFF167A44),
-    'yakniga' => dark ? const Color(0xFF2DD4BF) : const Color(0xFF008278),
+    'yakniga' => dark ? const Color(0xFF2DD4BF) : const Color(0xFF007970),
     'knigavuhe' => dark ? const Color(0xFF38BDF8) : const Color(0xFF176B9A),
     'knigoblud' => dark ? const Color(0xFF93B7FF) : const Color(0xFF315F9E),
-    'baza_knig' => dark ? const Color(0xFFFBBF24) : const Color(0xFFA16207),
+    'baza_knig' => dark ? const Color(0xFFFBBF24) : const Color(0xFF9A5D07),
     _ => colorScheme.primary,
   };
 }

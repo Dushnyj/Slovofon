@@ -12,6 +12,7 @@ class AudioBook {
     required this.chapterCount,
     required this.progress,
     required this.access,
+    this.isFragment = false,
     this.sourceBookId,
     this.coverUrl,
     this.description,
@@ -32,6 +33,7 @@ class AudioBook {
   final int chapterCount;
   final double progress;
   final BookAccess access;
+  final bool isFragment;
   final String? sourceBookId;
   final String? coverUrl;
   final String? description;
@@ -52,6 +54,7 @@ class AudioBook {
     int? chapterCount,
     double? progress,
     BookAccess? access,
+    bool? isFragment,
     String? sourceBookId,
     String? coverUrl,
     String? description,
@@ -72,6 +75,7 @@ class AudioBook {
       chapterCount: chapterCount ?? this.chapterCount,
       progress: progress ?? this.progress,
       access: access ?? this.access,
+      isFragment: isFragment ?? this.isFragment,
       sourceBookId: sourceBookId ?? this.sourceBookId,
       coverUrl: coverUrl ?? this.coverUrl,
       description: description ?? this.description,

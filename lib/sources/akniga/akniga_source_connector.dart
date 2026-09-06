@@ -4,23 +4,26 @@ import '../../services/audio/audio_state.dart';
 import '../source_connector.dart';
 import '../source_media_validator.dart';
 import '../source_models.dart';
+import '../source_request_cache.dart';
 import 'akniga_client.dart';
 import 'akniga_mapper.dart';
 
-class AknigaSourceConnector implements SourceConnector {
+class AknigaSourceConnector implements SourceConnector, SourceCacheInvalidator {
   AknigaSourceConnector({
     AknigaClient? client,
     AknigaMapper? mapper,
     DateTime Function()? clock,
   }) : _client = client ?? AknigaClient(),
        _mapper = mapper ?? AknigaMapper(clock: clock),
-       _clock = clock ?? DateTime.now;
+       _clock = clock ?? DateTime.now,
+       _bookHtmlCache = SourceRequestCache(clock: clock),
+       _tracksCache = SourceRequestCache(clock: clock);
 
   final AknigaClient _client;
   final AknigaMapper _mapper;
   final DateTime Function() _clock;
-  final _bookHtmlCache = <String, Future<String>>{};
-  final _tracksCache = <String, Future<List<Map<String, Object?>>>>{};
+  final SourceRequestCache<String, String> _bookHtmlCache;
+  final SourceRequestCache<String, List<Map<String, Object?>>> _tracksCache;
 
   @override
   String get id => 'akniga';
@@ -171,49 +174,36 @@ class AknigaSourceConnector implements SourceConnector {
   }
 
   Future<String> _bookHtml(SourceBookRef ref) {
-    final cached = _bookHtmlCache[ref.sourceBookId];
-    if (cached != null) {
-      return cached;
-    }
-    late final Future<String> future;
-    future = _client.bookHtml(ref).catchError((Object error) {
-      _bookHtmlCache.remove(ref.sourceBookId);
-      throw error;
-    });
-    _bookHtmlCache[ref.sourceBookId] = future;
-    return future;
+    return _bookHtmlCache.getOrLoad(
+      ref.sourceBookId,
+      () => _client.bookHtml(ref),
+    );
+  }
+
+  @override
+  void invalidateBook(SourceBookRef ref) {
+    _bookHtmlCache.remove(ref.sourceBookId);
+    _tracksCache.remove(ref.sourceBookId);
   }
 
   Future<List<Map<String, Object?>>> _tracks(SourceBookRef ref, String html) {
-    final cached = _tracksCache[ref.sourceBookId];
-    if (cached != null) {
-      return cached;
-    }
-    late final Future<List<Map<String, Object?>>> future;
-    future =
-        (() async {
-          final bid = _mapper.bookIdFromHtml(html);
-          if (bid.isEmpty) {
-            throw const SourceException(
-              sourceId: 'akniga',
-              kind: SourceErrorKind.parser,
-              message: 'Akniga book has no ajax/bid id.',
-            );
-          }
-          final referer =
-              ref.sourceUri ??
-              AknigaMapper.sourceBaseUri.resolve(ref.sourceBookId);
-          return _client.ajaxBidTracks(
-            bookId: bid,
-            referer: referer,
-            securityKey: _securityKeyFromBookHtml(html),
-          );
-        })().catchError((Object error) {
-          _tracksCache.remove(ref.sourceBookId);
-          throw error;
-        });
-    _tracksCache[ref.sourceBookId] = future;
-    return future;
+    return _tracksCache.getOrLoad(ref.sourceBookId, () async {
+      final bid = _mapper.bookIdFromHtml(html);
+      if (bid.isEmpty) {
+        throw const SourceException(
+          sourceId: 'akniga',
+          kind: SourceErrorKind.parser,
+          message: 'Akniga book has no ajax/bid id.',
+        );
+      }
+      final referer =
+          ref.sourceUri ?? AknigaMapper.sourceBaseUri.resolve(ref.sourceBookId);
+      return _client.ajaxBidTracks(
+        bookId: bid,
+        referer: referer,
+        securityKey: _securityKeyFromBookHtml(html),
+      );
+    });
   }
 
   String? _securityKeyFromBookHtml(String html) {

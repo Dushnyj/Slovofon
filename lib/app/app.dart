@@ -9,9 +9,12 @@ import '../services/deep_links/app_deep_links.dart';
 import '../services/deep_links/slovofon_deep_link.dart';
 import '../services/settings/app_settings_store.dart';
 import '../services/updates/update_prompt.dart';
+import '../ui/adaptive/desktop_layout.dart';
 import 'localization/app_strings.dart';
 import 'router.dart';
 import 'theme/app_theme.dart';
+import 'theme/app_text_scaler.dart';
+import 'theme/windows_theme.dart';
 
 class SlovofonApp extends ConsumerStatefulWidget {
   const SlovofonApp({
@@ -114,10 +117,27 @@ class _SlovofonAppState extends ConsumerState<SlovofonApp> {
       builder: (context, child) {
         return UpdateStartupGate(
           child: MediaQuery(
-            data: MediaQuery.of(
-              context,
-            ).copyWith(textScaler: TextScaler.linear(appSettings.textScale)),
-            child: child ?? const SizedBox.shrink(),
+            data: MediaQuery.of(context).copyWith(
+              disableAnimations:
+                  MediaQuery.disableAnimationsOf(context) ||
+                  (DesktopLayout.isActive(context) &&
+                      appSettings.animationsMode != AppAnimationsMode.full),
+              textScaler: AppTextScaler(
+                MediaQuery.textScalerOf(context),
+                appSettings.textScale,
+              ),
+            ),
+            child: DesktopPreferences(
+              compactCards: appSettings.compactCards,
+              showSourceOnCards: appSettings.showSourceOnCards,
+              showPercentOnCovers: appSettings.showPercentOnCovers,
+              child: DesktopLayout.isActive(context)
+                  ? Theme(
+                      data: WindowsTheme.from(Theme.of(context)),
+                      child: child ?? const SizedBox.shrink(),
+                    )
+                  : child ?? const SizedBox.shrink(),
+            ),
           ),
         );
       },

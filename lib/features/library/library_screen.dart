@@ -14,11 +14,17 @@ import '../../services/downloads/download_manager.dart';
 import '../../services/downloads/download_manager_provider.dart';
 import '../../services/home/home_listening_visibility_store.dart';
 import '../../services/library/library_store.dart';
+import '../../services/library/library_metadata.dart';
+import '../../services/library/library_shelves.dart';
+import '../../services/bookmarks/bookmark_store.dart';
 import '../../services/sources/source_book_cache.dart';
 import '../../services/sources/source_catalog_provider.dart';
 import '../../services/sources/source_catalog_service.dart';
+import '../../ui/components/app_bar_text.dart';
+import '../../ui/adaptive/desktop_layout.dart';
 import '../../ui/components/book_card.dart';
 import '../../ui/components/filter_picker_sheet.dart';
+import '../../ui/components/responsive_tile_grid.dart';
 import '../../ui/components/section_header.dart';
 import '../../ui/components/state_placeholder.dart';
 import '../../ui/icons/app_icons.dart';
@@ -41,12 +47,15 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
+    final desktop = DesktopLayout.isActive(context);
     final libraryStore = ref.watch(libraryStoreProvider);
+    final bookmarkStore = ref.watch(bookmarkStoreProvider);
     final playbackController = ref.watch(playbackControllerProvider);
     final downloadManager = ref.watch(downloadManagerProvider);
+    final metadata = ref.watch(libraryPlaybackBooksProvider);
+    final progress = ref.watch(playbackProgressSnapshotsProvider);
     final progressSnapshots =
-        ref.watch(playbackProgressSnapshotsProvider).asData?.value ??
-        const <PlaybackProgressSnapshot>[];
+        progress.asData?.value ?? const <PlaybackProgressSnapshot>[];
     final shelves = [
       strings.all,
       strings.listening,
@@ -58,69 +67,304 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
       strings.history,
     ];
     final selected = shelves[_selectedShelf];
-    final entries = _entriesForShelf(strings, selected, libraryStore);
+    final shelf = LibraryShelf.values[_selectedShelf];
 
     return ListenableBuilder(
       listenable: playbackController,
-      builder: (context, _) => Scaffold(
-        appBar: AppBar(title: Text(strings.library)),
-        body: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-          children: [
-            Align(
-              alignment: Alignment.centerLeft,
-              child: InputChip(
-                avatar: const AppIcon(AppIconAssets.systemFilter, size: 16),
-                label: Text('${strings.filter}: $selected'),
-                onPressed: () => _pickShelf(context, shelves),
-              ),
-            ),
-            const SizedBox(height: 16),
-            SectionHeader(
-              title: selected,
-              subtitle: strings.booksCount(entries.length),
-            ),
-            if (entries.isEmpty) ...[
-              StatePlaceholder.empty(
-                title: strings.emptyLibrary,
-                message: strings.librarySourcesMessage,
-              ),
-              const SizedBox(height: 12),
-              Align(
-                alignment: Alignment.center,
-                child: FilledButton.icon(
-                  onPressed: () => context.go('/search'),
-                  icon: const AppIcon(AppIconAssets.navSearch),
-                  label: Text(strings.openSearch),
-                ),
-              ),
-            ] else
-              for (final entry in entries)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: _LibraryBookCard(
-                    entry: entry,
-                    playbackController: playbackController,
-                    downloadManager: downloadManager,
-                    progressSnapshots: progressSnapshots,
-                    isPlayLoading: _playLoadingKeys.contains(
-                      _bookKey(entry.book),
-                    ),
-                    isDownloadLoading: _downloadLoadingKeys.contains(
-                      _bookKey(entry.book),
-                    ),
-                    onPlay: () => _playEntry(entry.book),
-                    onDownload: () => _downloadEntry(entry.book),
-                    onFavoritePressed: () => ref
-                        .read(libraryStoreProvider)
-                        .toggleFavorite(entry.book),
-                    onTap: () => _openSourceBook(context, entry.book),
+      builder: (context, _) {
+        final catalog = projectLibraryShelves(
+          favorites: libraryStore.favorites,
+          later: libraryStore.later,
+          metadata: [
+            ...?metadata.asData?.value,
+            for (final task in downloadManager.tasks)
+              if (downloadManager.bookForTask(task.id) != null)
+                downloadManager.bookForTask(task.id)!,
+          ],
+          progress: progressSnapshots,
+          downloads: downloadManager.tasks,
+          bookmarks: bookmarkStore.entries,
+          current: playbackController.state,
+        );
+        final entries = catalog
+            .where((entry) => entry.shelves.contains(shelf))
+            .toList();
+        final isBookmarks = shelf == LibraryShelf.bookmarks;
+        final empty = isBookmarks
+            ? bookmarkStore.entries.isEmpty
+            : entries.isEmpty;
+        final usesMetadata =
+            shelf != LibraryShelf.favorites &&
+            shelf != LibraryShelf.later &&
+            !isBookmarks;
+        final failed =
+            (isBookmarks
+                ? bookmarkStore.error != null
+                : libraryStore.error != null ||
+                      ((shelf == LibraryShelf.later ||
+                              shelf == LibraryShelf.all) &&
+                          libraryStore.laterError != null)) ||
+            (usesMetadata && (metadata.hasError || progress.hasError));
+        final loading =
+            !libraryStore.isLoaded ||
+            (isBookmarks && !bookmarkStore.isLoaded) ||
+            (usesMetadata && (metadata.isLoading || progress.isLoading));
+        final count = isBookmarks
+            ? bookmarkStore.entries.length
+            : entries.length;
+        final emptyCopy = _emptyCopy(strings, shelf);
+        return Scaffold(
+          appBar: desktop
+              ? null
+              : AppBar(
+                  toolbarHeight: appBarToolbarHeight(context),
+                  title: preserveAppBarTextScale(
+                    context,
+                    Text(strings.library),
                   ),
                 ),
-          ],
+          body: ListView(
+            padding: desktop
+                ? DesktopLayout.pagePadding(context)
+                : const EdgeInsets.fromLTRB(16, 8, 16, 24),
+            children: [
+              if (desktop) ...[
+                DesktopPageHeader(
+                  title: strings.library,
+                  trailing: Text(
+                    isBookmarks
+                        ? '${strings.bookmarks}: $count'
+                        : strings.booksCount(count),
+                    key: const ValueKey('desktop-library-count'),
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+                Card(
+                  margin: EdgeInsets.zero,
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Wrap(
+                      key: const ValueKey('desktop-library-shelves'),
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (var index = 0; index < shelves.length; index++)
+                          ChoiceChip(
+                            label: Text(shelves[index]),
+                            selected: index == _selectedShelf,
+                            onSelected: (_) =>
+                                setState(() => _selectedShelf = index),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ] else
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: InputChip(
+                    avatar: const AppIcon(AppIconAssets.systemFilter, size: 16),
+                    label: Text('${strings.filter}: $selected'),
+                    onPressed: () => _pickShelf(context, shelves),
+                  ),
+                ),
+              const SizedBox(height: 16),
+              SectionHeader(
+                title: selected,
+                subtitle: desktop
+                    ? null
+                    : (isBookmarks ? '$count' : strings.booksCount(count)),
+              ),
+              if (failed) ...[
+                StatePlaceholder.error(title: strings.libraryLoadError),
+                Center(
+                  child: TextButton(
+                    onPressed: () {
+                      unawaited(libraryStore.load());
+                      unawaited(bookmarkStore.load());
+                      ref.invalidate(libraryPlaybackBooksProvider);
+                      ref.invalidate(playbackProgressSnapshotsProvider);
+                    },
+                    child: Text(strings.retry),
+                  ),
+                ),
+              ],
+              if (empty && loading && !failed)
+                StatePlaceholder.loading(title: strings.library)
+              else if (empty && !failed) ...[
+                StatePlaceholder.empty(
+                  title: emptyCopy.$1,
+                  message: emptyCopy.$2,
+                ),
+                const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.center,
+                  child: FilledButton.icon(
+                    onPressed: () => context.go('/search'),
+                    icon: const AppIcon(AppIconAssets.navSearch),
+                    label: Text(strings.openSearch),
+                  ),
+                ),
+              ] else if (isBookmarks)
+                _LibraryCollection(
+                  children: [
+                    for (final bookmark in bookmarkStore.entries)
+                      _LibraryBookmarkTile(
+                        bookmark: bookmark,
+                        onPlay: () => _jumpToBookmark(bookmark),
+                        onRemove: () => _removeBookmark(bookmark),
+                      ),
+                  ],
+                )
+              else
+                _LibraryCollection(
+                  children: [
+                    for (final item in entries)
+                      _LibraryBookCard(
+                        key: ValueKey('library-book-${_bookKey(item.book)}'),
+                        entry: item.cardEntry,
+                        playbackController: playbackController,
+                        downloadManager: downloadManager,
+                        isPlayLoading: _playLoadingKeys.contains(
+                          _bookKey(item.book),
+                        ),
+                        isDownloadLoading: _downloadLoadingKeys.contains(
+                          _bookKey(item.book),
+                        ),
+                        isLater: libraryStore.isLater(item.book),
+                        onLaterPressed: () => _libraryAction(
+                          () => libraryStore.toggleLater(item.book),
+                        ),
+                        onPlay: () =>
+                            _libraryAction(() => _playEntry(item.book)),
+                        onDownload: () =>
+                            _libraryAction(() => _downloadEntry(item.book)),
+                        onFavoritePressed: () => _libraryAction(
+                          () => libraryStore.toggleFavorite(item.book),
+                        ),
+                        onTap: () => _openSourceBook(context, item.book),
+                      ),
+                  ],
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  (String, String) _emptyCopy(AppStrings strings, LibraryShelf shelf) =>
+      switch (shelf) {
+        LibraryShelf.all => (
+          strings.emptyLibrary,
+          strings.librarySourcesMessage,
         ),
+        LibraryShelf.listening => (
+          strings.emptyListeningShelf,
+          strings.emptyListeningShelfMessage,
+        ),
+        LibraryShelf.favorites => (
+          strings.emptyFavoritesShelf,
+          strings.emptyFavoritesShelfMessage,
+        ),
+        LibraryShelf.later => (
+          strings.emptyLaterShelf,
+          strings.emptyLaterShelfMessage,
+        ),
+        LibraryShelf.downloaded => (
+          strings.emptyDownloadedShelf,
+          strings.emptyDownloadedShelfMessage,
+        ),
+        LibraryShelf.finished => (
+          strings.emptyFinishedShelf,
+          strings.emptyFinishedShelfMessage,
+        ),
+        LibraryShelf.bookmarks => (
+          strings.emptyBookmarksShelf,
+          strings.emptyBookmarksShelfMessage,
+        ),
+        LibraryShelf.history => (
+          strings.emptyHistoryShelf,
+          strings.emptyHistoryShelfMessage,
+        ),
+      };
+
+  Future<void> _libraryAction(Future<Object?> Function() action) async {
+    try {
+      await action();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(context.strings.libraryActionError)),
+        );
+      }
+    }
+  }
+
+  Future<void> _removeBookmark(PlaybackBookmark bookmark) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        scrollable: true,
+        title: Text(context.strings.deleteBookmark),
+        content: Text(context.strings.deleteBookmarkDescription),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(context.strings.cancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(context.strings.deleteBookmarkAction),
+          ),
+        ],
       ),
     );
+    if (confirmed == true && mounted) {
+      await _libraryAction(
+        () => ref.read(bookmarkStoreProvider).remove(bookmark.id),
+      );
+    }
+  }
+
+  Future<void> _jumpToBookmark(PlaybackBookmark bookmark) async {
+    final controller = ref.read(playbackControllerProvider);
+    try {
+      var book = controller.state.book?.versionId == bookmark.bookVersionId
+          ? controller.state.book
+          : bookmark.book;
+      if (book == null) throw StateError('Bookmark metadata unavailable');
+      if (controller.state.book?.versionId != bookmark.bookVersionId) {
+        book = await _loadPlaybackBook(libraryCardBook(book)) ?? book;
+        if (!mounted) return;
+        final index = book.chapters.indexWhere(
+          (c) => c.id == bookmark.chapterId,
+        );
+        if (index < 0) throw StateError('Bookmark chapter unavailable');
+        await controller.loadBook(
+          book,
+          chapterIndex: index,
+          position: Duration(milliseconds: bookmark.positionMs),
+          autoPlay: true,
+        );
+      } else {
+        final index = book.chapters.indexWhere(
+          (c) => c.id == bookmark.chapterId,
+        );
+        if (index < 0) throw StateError('Bookmark chapter unavailable');
+        await controller.seekChapterAt(
+          index,
+          Duration(milliseconds: bookmark.positionMs),
+        );
+      }
+      if (mounted) await context.push('/player');
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(context.strings.bookmarkUnavailable)),
+        );
+      }
+    }
   }
 
   Future<void> _pickShelf(BuildContext context, List<String> shelves) async {
@@ -166,17 +410,6 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
     if (next != null && mounted) {
       setState(() => _selectedShelf = next);
     }
-  }
-
-  List<LibraryBookEntry> _entriesForShelf(
-    AppStrings strings,
-    String selected,
-    LibraryStore libraryStore,
-  ) {
-    if (selected == strings.favorites || selected == strings.all) {
-      return libraryStore.favorites;
-    }
-    return const [];
   }
 
   Future<void> _playEntry(AudioBook book) async {
@@ -251,6 +484,14 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   Future<AudioPlaybackBook?> _loadPlaybackBook(AudioBook book) async {
     final sourceBookId = book.sourceBookId;
     if (sourceBookId == null || sourceBookId.isEmpty) {
+      final metadata = await ref.read(libraryPlaybackBooksProvider.future);
+      for (final cached in metadata) {
+        if (cached.id == book.id &&
+            cached.sourceId == book.sourceId &&
+            cached.chapters.isNotEmpty) {
+          return ref.read(downloadManagerProvider).offlinePlaybackBook(cached);
+        }
+      }
       return null;
     }
     final downloadManager = ref.read(downloadManagerProvider);
@@ -290,6 +531,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   void _openSourceBook(BuildContext context, AudioBook book) {
     final sourceBookId = book.sourceBookId;
     if (sourceBookId == null || sourceBookId.isEmpty) {
+      unawaited(context.push('/book/${Uri.encodeComponent(book.id)}'));
       return;
     }
     unawaited(
@@ -300,35 +542,61 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   }
 }
 
+class _LibraryCollection extends StatelessWidget {
+  const _LibraryCollection({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!DesktopLayout.isActive(context)) {
+      return ResponsiveTileGrid(children: children);
+    }
+    return Column(
+      key: const ValueKey('desktop-library-rows'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (var index = 0; index < children.length; index++) ...[
+          children[index],
+          if (index != children.length - 1) const SizedBox(height: 12),
+        ],
+      ],
+    );
+  }
+}
+
 class _LibraryBookCard extends StatelessWidget {
   const _LibraryBookCard({
     required this.entry,
     required this.playbackController,
     required this.downloadManager,
-    required this.progressSnapshots,
     required this.isPlayLoading,
     required this.isDownloadLoading,
     required this.onPlay,
     required this.onDownload,
     required this.onFavoritePressed,
+    required this.isLater,
+    required this.onLaterPressed,
     required this.onTap,
+    super.key,
   });
 
   final LibraryBookEntry entry;
   final PlaybackController playbackController;
   final DownloadManager downloadManager;
-  final List<PlaybackProgressSnapshot> progressSnapshots;
   final bool isPlayLoading;
   final bool isDownloadLoading;
   final VoidCallback onPlay;
   final VoidCallback onDownload;
   final VoidCallback onFavoritePressed;
+  final bool isLater;
+  final VoidCallback onLaterPressed;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final state = playbackController.state;
-    var book = _bookWithSavedProgress(entry.book, progressSnapshots);
+    var book = entry.book;
     final isCurrentBook = _playbackMatchesBook(state.book, book);
     if (isCurrentBook && state.bookProgress > book.progress) {
       book = book.copyWith(progress: state.bookProgress);
@@ -337,8 +605,13 @@ class _LibraryBookCard extends StatelessWidget {
 
     return BookCard(
       book: book,
+      desktopPresentation: DesktopLayout.isActive(context)
+          ? DesktopBookPresentation.row
+          : DesktopBookPresentation.card,
       yearLabel: book.year?.toString(),
       isFavorite: entry.isFavorite,
+      isLater: isLater,
+      onLaterPressed: onLaterPressed,
       isCurrentBook: isCurrentBook,
       isPlaying: state.isPlaying,
       isPlaybackLoading:
@@ -359,33 +632,6 @@ class _LibraryBookCard extends StatelessWidget {
       onTap: onTap,
     );
   }
-}
-
-AudioBook _bookWithSavedProgress(
-  AudioBook book,
-  List<PlaybackProgressSnapshot> snapshots,
-) {
-  PlaybackProgressSnapshot? best;
-  for (final snapshot in snapshots) {
-    if (!_progressMatchesBook(snapshot, book)) {
-      continue;
-    }
-    if (best == null || snapshot.lastPlayedAt.isAfter(best.lastPlayedAt)) {
-      best = snapshot;
-    }
-  }
-  final progress = ((best?.percent ?? 0) / 100).clamp(0, 1).toDouble();
-  return progress <= 0 ? book : book.copyWith(progress: progress);
-}
-
-bool _progressMatchesBook(PlaybackProgressSnapshot snapshot, AudioBook book) {
-  final sourceBookId = book.sourceBookId;
-  return snapshot.bookId == book.id ||
-      snapshot.bookVersionId == book.id ||
-      (sourceBookId != null &&
-          sourceBookId.isNotEmpty &&
-          (snapshot.bookVersionId == sourceBookId ||
-              snapshot.bookId == sourceBookId));
 }
 
 String _bookKey(AudioBook book) {
@@ -413,4 +659,73 @@ AudioPlaybackBook? _downloadBookForAudioBook(
     }
   }
   return null;
+}
+
+class _LibraryBookmarkTile extends StatelessWidget {
+  const _LibraryBookmarkTile({
+    required this.bookmark,
+    required this.onPlay,
+    required this.onRemove,
+  });
+  final PlaybackBookmark bookmark;
+  final VoidCallback onPlay;
+  final VoidCallback onRemove;
+  @override
+  Widget build(BuildContext context) {
+    final book = bookmark.book;
+    final position = Duration(milliseconds: bookmark.positionMs);
+    final time =
+        '${position.inMinutes}:${position.inSeconds.remainder(60).toString().padLeft(2, '0')}';
+    return Card(
+      key: ValueKey('library-bookmark-${bookmark.id}'),
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              book?.title ?? bookmark.title,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              '${bookmark.title} · $time',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            if (book != null)
+              Text(
+                '${book.author} · ${book.sourceName}',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            if (bookmark.note != null) ...[
+              const SizedBox(height: 8),
+              Text(bookmark.note!),
+            ],
+            if (book == null) ...[
+              const SizedBox(height: 8),
+              Text(context.strings.bookmarkUnavailable),
+            ],
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                FilledButton.icon(
+                  onPressed: book == null ? null : onPlay,
+                  icon: const AppIcon(AppIconAssets.playerPlay),
+                  label: Text(context.strings.play),
+                ),
+                TextButton.icon(
+                  onPressed: onRemove,
+                  icon: const AppIcon(AppIconAssets.systemTrash),
+                  label: Text(context.strings.deleteBookmarkAction),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

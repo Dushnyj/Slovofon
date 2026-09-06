@@ -1,0 +1,6 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <instrumentation
+        android:name="com.slovofon.app.SlovofonLifecycleInstrumentation"
+        android:targetPackage="com.slovofon.app"
+        android:label="Slovofon engine lifecycle regression checks" />
+</manifest>

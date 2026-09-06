@@ -6,6 +6,7 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.SimpleBasePlayer
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
@@ -32,6 +33,7 @@ class SlovofonMediaSessionPlayer : SimpleBasePlayer(Looper.getMainLooper()) {
                 Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST,
             )
             .setPlaybackState(playbackState(state))
+            .setPlaybackParameters(PlaybackParameters(state.speed))
             .setIsLoading(state.processingState == "loading" || state.processingState == "buffering")
             .setPlaylistMetadata(
                 MediaMetadata.Builder()

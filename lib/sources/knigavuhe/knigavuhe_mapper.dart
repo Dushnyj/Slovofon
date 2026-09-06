@@ -50,6 +50,13 @@ class KnigavuheMapper {
     final hasPlayableTracks = tracks.any(
       (track) => _mediaUrl(track).isNotEmpty,
     );
+    final isFragment =
+        hasPlayableTracks &&
+        tracks.any((track) {
+          final uri = Uri.tryParse(_mediaUrl(track));
+          return uri != null &&
+              (uri.host == 'litres.ru' || uri.host.endsWith('.litres.ru'));
+        });
     final series = _series(document);
     final seriesNumber = _seriesNumber(document);
     final alternatives = _alternateNarrations(
@@ -103,8 +110,8 @@ class KnigavuheMapper {
         playbackAccess: hasPlayableTracks
             ? PlaybackAccess.streamAndDownload
             : PlaybackAccess.none,
-        isFull: hasPlayableTracks,
-        isFragment: false,
+        isFull: hasPlayableTracks && !isFragment,
+        isFragment: isFragment,
         isPaid: false,
         isAccessibleForFree: hasPlayableTracks,
         canStream: hasPlayableTracks,
@@ -291,6 +298,7 @@ class KnigavuheMapper {
       narrator: narrator,
       series: seriesText,
       seriesNumber: SourceParserHelpers.parseSeriesNumber(seriesBlockText),
+      genres: _genres(item),
       coverUri: _coverUri(item),
       duration: SourceParserHelpers.parseDuration(
         _firstNonEmpty([
@@ -300,7 +308,7 @@ class KnigavuheMapper {
           _text(item, '.book_time'),
         ]),
       ),
-      isFull: true,
+      isFull: null,
       isFree: true,
       accessType: AccessType.free,
     );
@@ -403,9 +411,10 @@ class KnigavuheMapper {
     return null;
   }
 
-  static List<String> _genres(dom.Document document) {
+  static List<String> _genres(Object document) {
     final values = [
-      for (final link in document.querySelectorAll(
+      for (final link in _querySelectorAll(
+        document,
         '.book_genre_pretitle a, .book_genres a, .book_genre a',
       ))
         SourceParserHelpers.normalizeWhitespace(link.text),
@@ -586,7 +595,7 @@ class KnigavuheMapper {
             narrator: narrator,
             series: series,
             seriesNumber: seriesNumber,
-            isFull: true,
+            isFull: null,
             isFree: true,
             accessType: AccessType.free,
           ),

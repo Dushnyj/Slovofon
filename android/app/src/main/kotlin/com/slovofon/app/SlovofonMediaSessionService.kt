@@ -61,8 +61,9 @@ class SlovofonMediaSessionService : MediaSessionService() {
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        if (SlovofonMediaSessionStore.state.isPlaying) {
-            super.onTaskRemoved(rootIntent)
+        if (SlovofonMediaSessionStore.state.keepAliveAfterTaskRemoval) {
+            // Media3's default also stops a not-yet-playing/buffering session.
+            // The persistent FlutterEngine still owns the pending playback intent.
             return
         }
         clearStoppedSessionFromTaskRemoval()

@@ -3,11 +3,23 @@ enum AppThemeMode { system, light, dark, amoled }
 enum AppAnimationsMode { full, reduced, off }
 
 class AppSettings {
+  static const minTextScale = 0.75;
+  static const maxTextScale = 2.0;
+  static const defaultTextScale = 1.0;
+  static const textScaleStep = 0.05;
+
+  /// Keeps persisted preferences and UI controls within the same safe range.
+  /// Valid values are not rounded so existing preferences retain their size.
+  static double normalizeTextScale(double value) {
+    if (!value.isFinite) return defaultTextScale;
+    return value.clamp(minTextScale, maxTextScale);
+  }
+
   const AppSettings({
     this.themeMode = AppThemeMode.system,
     this.languageCode = 'system',
     this.accentColor = 'default',
-    this.textScale = 1,
+    this.textScale = defaultTextScale,
     this.compactCards = false,
     this.showSourceOnCards = true,
     this.showPercentOnCovers = true,
@@ -18,7 +30,7 @@ class AppSettings {
     : themeMode = AppThemeMode.system,
       languageCode = 'system',
       accentColor = 'default',
-      textScale = 1,
+      textScale = defaultTextScale,
       compactCards = false,
       showSourceOnCards = true,
       showPercentOnCovers = true,

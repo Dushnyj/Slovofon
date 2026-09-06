@@ -91,6 +91,7 @@ AudioPlaybackBook _copyPlaybackBook(
     sourceId: book.sourceId,
     sourceBookId: book.sourceBookId,
     title: book.title,
+    isFragment: book.isFragment,
     author: book.author,
     narrator: book.narrator,
     sourceName: book.sourceName,

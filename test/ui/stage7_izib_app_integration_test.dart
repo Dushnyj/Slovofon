@@ -154,6 +154,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          downloadStorageProvider.overrideWith((ref) => _MemoryBookStorage()),
           sourceRegistryProvider.overrideWith((ref) => sourceRegistry),
           playbackControllerProvider.overrideWith((ref) => playbackController),
           searchHistoryStoreProvider.overrideWith(
@@ -189,6 +190,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('source-details-play')));
     await _pumpFrames(tester, frames: 40);
 
+    await _waitForPlayback(tester, playbackController);
     expect(playbackController.state.book?.sourceId, 'izib');
     expect(playbackController.state.book?.sourceBookId, '2033');
     expect(playbackController.state.book?.chapters.length, 2);
@@ -247,7 +249,9 @@ void main() {
       storage: FileDownloadStorage(rootDirectory: downloadDirectory),
       persistence: persistence,
     );
-    await seededDownloadManager.loadPersistedTasks(recoverInterrupted: false);
+    await tester.runAsync(
+      () => seededDownloadManager.loadPersistedTasks(recoverInterrupted: false),
+    );
     seededDownloadManager.attachBookContext(snapshot.playbackBook);
     final sourceRegistry = SourceRegistry([
       IzibSourceConnector(
@@ -271,6 +275,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          downloadStorageProvider.overrideWith((ref) => _MemoryBookStorage()),
           sourceRegistryProvider.overrideWith((ref) => sourceRegistry),
           playbackControllerProvider.overrideWith((ref) => playbackController),
           downloadManagerProvider.overrideWith((ref) => seededDownloadManager),
@@ -328,6 +333,7 @@ void main() {
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
+            downloadStorageProvider.overrideWith((ref) => _MemoryBookStorage()),
             sourceRegistryProvider.overrideWith((ref) => sourceRegistry),
             playbackControllerProvider.overrideWith((ref) {
               return playbackController;
@@ -360,12 +366,12 @@ void main() {
       expect(find.text('Added to favorites'), findsOneWidget);
       expect(find.byTooltip('Remove from favorites'), findsOneWidget);
 
-      await tester.tap(find.text('Library'));
+      await tester.tap(find.byKey(const ValueKey('mobile-navigation-item-2')));
       await _pumpFrames(tester, frames: 20);
       expect(find.text('Метро 2033'), findsOneWidget);
-      expect(find.text('1 books'), findsOneWidget);
+      expect(find.text('1 book'), findsOneWidget);
 
-      await tester.tap(find.text('Search'));
+      await tester.tap(find.byKey(const ValueKey('mobile-navigation-item-1')));
       await _pumpFrames(tester, frames: 12);
 
       await tester.tap(
@@ -379,13 +385,14 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('book-card-play-izib-2033')));
       await _pumpFrames(tester, frames: 60);
 
+      await _waitForPlayback(tester, playbackController);
       expect(playbackController.state.book?.sourceId, 'izib');
       expect(playbackController.state.book?.sourceBookId, '2033');
       expect(playbackController.state.currentChapter?.title, 'Глава 01. Артем');
       expect(find.text('Search'), findsWidgets);
       expect(find.byTooltip('Pause'), findsWidgets);
 
-      await tester.tap(find.text('Home'));
+      await tester.tap(find.byKey(const ValueKey('mobile-navigation-item-0')));
       await _pumpFrames(tester, frames: 20);
       expect(find.text('Continue listening'), findsOneWidget);
       expect(find.byTooltip('Remove from favorites'), findsOneWidget);
@@ -410,6 +417,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          downloadStorageProvider.overrideWith((ref) => _MemoryBookStorage()),
           sourceRegistryProvider.overrideWith((ref) => sourceRegistry),
           playbackControllerProvider.overrideWith((ref) => playbackController),
           searchHistoryStoreProvider.overrideWith(
@@ -426,7 +434,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('search-submit')));
     await _pumpFrames(tester, frames: 100);
 
-    expect(find.text('1 results'), findsOneWidget);
+    expect(find.text('1 result'), findsOneWidget);
     expect(find.text('Метро 2033'), findsOneWidget);
     expect(find.byType(TextField), findsNothing);
     expect(find.text('Title'), findsNothing);
@@ -465,6 +473,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          downloadStorageProvider.overrideWith((ref) => _MemoryBookStorage()),
           sourceRegistryProvider.overrideWith((ref) => sourceRegistry),
           playbackControllerProvider.overrideWith((ref) => playbackController),
           searchHistoryStoreProvider.overrideWith(
@@ -492,6 +501,7 @@ void main() {
 
     await _pumpFrames(tester, frames: 100);
 
+    await _waitForPlayback(tester, playbackController);
     expect(playbackController.state.book?.sourceId, 'izib');
     expect(find.byKey(const ValueKey('book-card-play-loading')), findsNothing);
     expect(find.text('Search'), findsWidgets);
@@ -516,6 +526,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          downloadStorageProvider.overrideWith((ref) => _MemoryBookStorage()),
           sourceRegistryProvider.overrideWith((ref) => sourceRegistry),
           playbackControllerProvider.overrideWith((ref) => playbackController),
           searchHistoryStoreProvider.overrideWith(
@@ -538,6 +549,7 @@ void main() {
     );
     await _pumpFrames(tester, frames: 40);
 
+    await _waitForPlayback(tester, playbackController);
     expect(playbackController.state.book?.sourceBookId, 'search-id');
     expect(find.byKey(const ValueKey('book-card-play-loading')), findsNothing);
     expect(find.byTooltip('Pause'), findsNWidgets(2));
@@ -561,6 +573,7 @@ void main() {
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
+            downloadStorageProvider.overrideWith((ref) => _MemoryBookStorage()),
             sourceRegistryProvider.overrideWith((ref) => sourceRegistry),
             playbackControllerProvider.overrideWith(
               (ref) => playbackController,
@@ -585,6 +598,7 @@ void main() {
       );
       await _pumpFrames(tester, frames: 40);
 
+      await _waitForPlayback(tester, playbackController);
       expect(playbackController.state.book?.sourceBookId, 'second-id');
       expect(find.byTooltip('Pause'), findsNWidgets(2));
     },
@@ -622,6 +636,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          downloadStorageProvider.overrideWith((ref) => _MemoryBookStorage()),
           sourceRegistryProvider.overrideWith((ref) => sourceRegistry),
           playbackControllerProvider.overrideWith((ref) => playbackController),
           playbackPersistenceStoreProvider.overrideWith((ref) => progressStore),
@@ -643,6 +658,7 @@ void main() {
     );
     await _pumpFrames(tester, frames: 40);
 
+    await _waitForPlayback(tester, playbackController);
     expect(playbackController.state.chapterIndex, 1);
     expect(playbackController.state.position, const Duration(minutes: 2));
     expect(playbackController.state.bookProgress, closeTo(0.6, 0.001));
@@ -666,6 +682,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          downloadStorageProvider.overrideWith((ref) => _MemoryBookStorage()),
           sourceRegistryProvider.overrideWith((ref) => sourceRegistry),
           playbackControllerProvider.overrideWith((ref) => playbackController),
           searchHistoryStoreProvider.overrideWith(
@@ -686,6 +703,7 @@ void main() {
       find.byKey(const ValueKey('book-card-play-izib-search-id')),
     );
     await _pumpFrames(tester, frames: 40);
+    await _waitForPlayback(tester, playbackController);
     expect(playbackController.state.isPlaying, isTrue);
     expect(find.byTooltip('Pause'), findsNWidgets(2));
 
@@ -733,6 +751,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          downloadStorageProvider.overrideWith((ref) => _MemoryBookStorage()),
           sourceRegistryProvider.overrideWith((ref) => sourceRegistry),
           playbackControllerProvider.overrideWith((ref) => playbackController),
           libraryStoreProvider.overrideWith((ref) => libraryStore),
@@ -751,6 +770,7 @@ void main() {
     );
     await _pumpFrames(tester, frames: 40);
 
+    await _waitForPlayback(tester, playbackController);
     expect(playbackController.state.book?.sourceId, 'izib');
     expect(playbackController.state.book?.sourceBookId, 'search-id');
     expect(playbackController.state.isPlaying, isTrue);
@@ -805,6 +825,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          downloadStorageProvider.overrideWith((ref) => _MemoryBookStorage()),
           sourceRegistryProvider.overrideWith((ref) => sourceRegistry),
           playbackControllerProvider.overrideWith((ref) => playbackController),
           playbackPersistenceStoreProvider.overrideWith((ref) => progressStore),
@@ -883,6 +904,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          downloadStorageProvider.overrideWith((ref) => _MemoryBookStorage()),
           playbackControllerProvider.overrideWith((ref) => playbackController),
           libraryStoreProvider.overrideWith((ref) => libraryStore),
           searchHistoryStoreProvider.overrideWith(
@@ -934,6 +956,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          downloadStorageProvider.overrideWith((ref) => _MemoryBookStorage()),
           sourceRegistryProvider.overrideWith((ref) => sourceRegistry),
           playbackControllerProvider.overrideWith((ref) => playbackController),
           downloadManagerProvider.overrideWith((ref) => downloadManager),
@@ -988,6 +1011,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          downloadStorageProvider.overrideWith((ref) => _MemoryBookStorage()),
           sourceRegistryProvider.overrideWith((ref) => sourceRegistry),
           playbackControllerProvider.overrideWith((ref) => playbackController),
           playbackPersistenceStoreProvider.overrideWith((ref) => progressStore),
@@ -1044,6 +1068,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          downloadStorageProvider.overrideWith((ref) => _MemoryBookStorage()),
           sourceRegistryProvider.overrideWith((ref) => sourceRegistry),
           playbackControllerProvider.overrideWith((ref) => playbackController),
           downloadManagerProvider.overrideWith((ref) => downloadManager),
@@ -1089,6 +1114,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          downloadStorageProvider.overrideWith((ref) => _MemoryBookStorage()),
           sourceRegistryProvider.overrideWith((ref) => sourceRegistry),
           playbackControllerProvider.overrideWith((ref) => playbackController),
         ],
@@ -1121,14 +1147,21 @@ void main() {
         '${Directory.systemTemp.path}/slovofon-details-cache-${DateTime.now().microsecondsSinceEpoch}',
       );
       tempDir.createSync(recursive: true);
-      final downloadStorage = FileDownloadStorage(rootDirectory: tempDir);
+      final downloadStorage = _TrackedFileDownloadStorage(
+        rootDirectory: tempDir,
+      );
       final downloadManager = _MemoryDownloadManager(storage: downloadStorage);
       final libraryStore = LibraryStore(MemoryLibraryPersistenceStore());
       addTearDown(playbackController.dispose);
       addTearDown(downloadManager.dispose);
-      addTearDown(() {
-        if (tempDir.existsSync()) {
-          tempDir.deleteSync(recursive: true);
+      addTearDown(() async {
+        expect(
+          tempDir.absolute.path.startsWith(Directory.systemTemp.absolute.path),
+          isTrue,
+        );
+        expect(downloadStorage.pendingOperations, isEmpty);
+        if (await tempDir.exists()) {
+          await tempDir.delete(recursive: true);
         }
       });
 
@@ -1138,99 +1171,111 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
 
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [
-            sourceRegistryProvider.overrideWith((ref) => sourceRegistry),
-            playbackControllerProvider.overrideWith((ref) {
-              return playbackController;
-            }),
-            downloadManagerProvider.overrideWith((ref) => downloadManager),
-            downloadStorageProvider.overrideWith((ref) => downloadStorage),
-            libraryStoreProvider.overrideWith((ref) => libraryStore),
-          ],
-          child: const SlovofonApp(),
-        ),
-      );
-      await _pumpFrames(tester, frames: 30);
+      try {
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              sourceRegistryProvider.overrideWith((ref) => sourceRegistry),
+              playbackControllerProvider.overrideWith((ref) {
+                return playbackController;
+              }),
+              downloadManagerProvider.overrideWith((ref) => downloadManager),
+              downloadStorageProvider.overrideWith((ref) => downloadStorage),
 
-      expect(
-        find.byKey(const ValueKey('mobile-navigation-bar')),
-        findsOneWidget,
-      );
-      expect(find.text('Home'), findsOneWidget);
-      expect(find.text('Search'), findsOneWidget);
-      expect(find.text('Library'), findsOneWidget);
-      expect(find.text('Downloads'), findsOneWidget);
-      expect(find.text('Settings'), findsOneWidget);
-      expect(find.text('S.T.A.L.K.E.R. Дыхание зоны'), findsOneWidget);
-      expect(find.text('Николай Грошев'), findsOneWidget);
-      expect(find.text('Соавтор Второй'), findsOneWidget);
-      expect(find.text('Олег Шубин'), findsOneWidget);
-      expect(find.text('Тимофей Зобнин'), findsOneWidget);
-      expect(find.text('Велес #1'), findsOneWidget);
-      expect(find.text('4.3 из 5'), findsOneWidget);
-      expect(find.text('Source page'), findsOneWidget);
-      expect(find.text('https://izib.uk/art2033'), findsOneWidget);
-      expect(find.text('Genre'), findsOneWidget);
-      expect(find.text('Фантастика, S.T.A.L.K.E.R.'), findsOneWidget);
-      expect(find.text('Source stats'), findsOneWidget);
-      expect(find.text('12 843'), findsOneWidget);
-      expect(find.text('412'), findsOneWidget);
-      expect(find.text('21'), findsOneWidget);
-      expect(find.text('Availability'), findsNothing);
-      expect(find.text('Progress'), findsNothing);
+              libraryStoreProvider.overrideWith((ref) => libraryStore),
+            ],
+            child: const SlovofonApp(),
+          ),
+        );
+        await _pumpFrames(tester, frames: 30);
 
-      expect(find.textContaining('финальная часть описания'), findsNothing);
-      await tester.tap(find.text('Show full description'));
-      await _pumpFrames(tester, frames: 4);
-      expect(find.textContaining('финальная часть описания'), findsOneWidget);
-      expect(find.text('Hide description'), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('mobile-navigation-bar')),
+          findsOneWidget,
+        );
+        for (var index = 0; index < 5; index++) {
+          expect(
+            find.byKey(ValueKey('mobile-navigation-item-$index')),
+            findsOneWidget,
+          );
+        }
+        expect(find.text('S.T.A.L.K.E.R. Дыхание зоны'), findsOneWidget);
+        expect(find.text('Николай Грошев'), findsOneWidget);
+        expect(find.text('Соавтор Второй'), findsOneWidget);
+        expect(find.text('Олег Шубин'), findsOneWidget);
+        expect(find.text('Тимофей Зобнин'), findsOneWidget);
+        expect(find.text('Велес #1'), findsOneWidget);
+        expect(find.text('4.3 из 5'), findsOneWidget);
+        expect(find.text('Source page'), findsOneWidget);
+        expect(find.text('https://izib.uk/art2033'), findsOneWidget);
+        expect(find.text('Genre'), findsOneWidget);
+        expect(find.text('Фантастика, S.T.A.L.K.E.R.'), findsOneWidget);
+        expect(find.text('Source stats'), findsOneWidget);
+        expect(find.text('12 843'), findsOneWidget);
+        expect(find.text('412'), findsOneWidget);
+        expect(find.text('21'), findsOneWidget);
+        expect(find.text('Availability'), findsNothing);
+        expect(find.text('Progress'), findsNothing);
 
-      await tester.tap(find.byKey(const ValueKey('source-details-favorite')));
-      await _pumpFrames(tester, frames: 8);
-      expect(find.byTooltip('Remove from favorites'), findsOneWidget);
-      expect(libraryStore.favorites.single.book.sourceBookId, '2033');
+        expect(find.textContaining('финальная часть описания'), findsNothing);
+        await tester.tap(find.text('Show full description'));
+        await _pumpFrames(tester, frames: 4);
+        expect(find.textContaining('финальная часть описания'), findsOneWidget);
+        expect(find.text('Hide description'), findsOneWidget);
 
-      await tester.tap(find.byKey(const ValueKey('source-details-download')));
-      await _pumpFrames(tester, frames: 20);
-      expect(downloadManager.tasks, hasLength(6));
-      expect(find.byTooltip('Cancel download'), findsWidgets);
+        await tester.tap(find.byKey(const ValueKey('source-details-favorite')));
+        await _pumpFrames(tester, frames: 8);
+        expect(find.byTooltip('Remove from favorites'), findsOneWidget);
+        expect(libraryStore.favorites.single.book.sourceBookId, '2033');
 
-      await tester.tap(find.byKey(const ValueKey('source-details-share')));
-      await _pumpFrames(tester, frames: 4);
-      expect(find.text('Slovofon link'), findsOneWidget);
-      expect(find.text('Source link'), findsOneWidget);
-      expect(
-        find.text('slovofon://book?source=izib&book=2033'),
-        findsOneWidget,
-      );
-      await tester.tapAt(const Offset(12, 120));
-      await _pumpFrames(tester, frames: 8);
-      expect(find.text('Source link'), findsNothing);
+        await tester.tap(find.byKey(const ValueKey('source-details-download')));
+        await _pumpFrames(tester, frames: 20);
+        expect(downloadManager.tasks, hasLength(6));
+        expect(find.byTooltip('Cancel download'), findsWidgets);
 
-      await tester.tap(find.byKey(const ValueKey('source-details-play')));
-      await _pumpFrames(tester, frames: 20);
-      expect(playbackController.state.status, AudioPlaybackStatus.playing);
-      expect(playbackController.state.book?.sourceBookId, '2033');
-      expect(find.byTooltip('Pause'), findsWidgets);
+        await tester.tap(find.byKey(const ValueKey('source-details-share')));
+        await _pumpFrames(tester, frames: 4);
+        expect(find.text('Slovofon link'), findsOneWidget);
+        expect(find.text('Source link'), findsOneWidget);
+        expect(
+          find.text('slovofon://book?source=izib&book=2033'),
+          findsOneWidget,
+        );
+        await tester.tapAt(const Offset(12, 120));
+        await _pumpFrames(tester, frames: 8);
+        expect(find.text('Source link'), findsNothing);
 
-      await tester.tap(find.byKey(const ValueKey('source-details-play')));
-      await _pumpFrames(tester, frames: 8);
-      expect(playbackController.state.status, AudioPlaybackStatus.paused);
-      expect(find.byTooltip('Play'), findsWidgets);
+        await tester.tap(find.byKey(const ValueKey('source-details-play')));
+        await _pumpFrames(tester, frames: 20);
+        await _waitForPlayback(tester, playbackController);
+        expect(playbackController.state.status, AudioPlaybackStatus.playing);
+        expect(playbackController.state.book?.sourceBookId, '2033');
+        expect(find.byTooltip('Pause'), findsWidgets);
 
-      await tester.tap(find.text('Николай Грошев'));
-      await _pumpFrames(tester, frames: 30);
-      expect(appRouter.state.uri.path, '/scoped-search');
-      expect(appRouter.state.uri.queryParameters['q'], 'Николай Грошев');
-      expect(appRouter.state.uri.queryParameters['kind'], 'author');
-      expect(appRouter.state.uri.queryParameters['run'], '1');
+        await tester.tap(find.byKey(const ValueKey('source-details-play')));
+        await _pumpFrames(tester, frames: 8);
+        expect(playbackController.state.status, AudioPlaybackStatus.paused);
+        expect(find.byTooltip('Play'), findsWidgets);
 
-      await tester.binding.handlePopRoute();
-      await _pumpFrames(tester, frames: 12);
-      expect(find.text('Book details'), findsOneWidget);
-      expect(find.text('S.T.A.L.K.E.R. Дыхание зоны'), findsWidgets);
+        await tester.tap(find.text('Николай Грошев'));
+        await _pumpFrames(tester, frames: 30);
+        expect(appRouter.state.uri.path, '/scoped-search');
+        expect(appRouter.state.uri.queryParameters['q'], 'Николай Грошев');
+        expect(appRouter.state.uri.queryParameters['kind'], 'author');
+        expect(appRouter.state.uri.queryParameters['run'], '1');
+
+        await tester.binding.handlePopRoute();
+        await _pumpFrames(tester, frames: 12);
+        expect(find.text('Book details'), findsOneWidget);
+        expect(find.text('S.T.A.L.K.E.R. Дыхание зоны'), findsWidgets);
+      } finally {
+        // Finish the actual native file futures while their WidgetTester
+        // FakeAsync zone is still running; delaying teardown outside that
+        // zone cannot complete callbacks queued by unawaited source caching.
+        await _drainStorageOperations(tester, downloadStorage);
+        await tester.pumpWidget(const SizedBox.shrink());
+        await _drainStorageOperations(tester, downloadStorage);
+      }
     },
   );
 
@@ -1250,6 +1295,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          downloadStorageProvider.overrideWith((ref) => _MemoryBookStorage()),
           sourceRegistryProvider.overrideWith((ref) => sourceRegistry),
         ],
         child: SlovofonApp(deepLinks: deepLinks),
@@ -1291,6 +1337,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          downloadStorageProvider.overrideWith((ref) => _MemoryBookStorage()),
           sourceRegistryProvider.overrideWith((ref) => sourceRegistry),
           playbackControllerProvider.overrideWith((ref) => playbackController),
           searchHistoryStoreProvider.overrideWith(
@@ -1313,7 +1360,7 @@ void main() {
 
     await tester.binding.handlePopRoute();
     await _pumpFrames(tester, frames: 20);
-    expect(find.text('1 results'), findsOneWidget);
+    expect(find.text('1 result'), findsOneWidget);
     expect(find.byType(TextField), findsNothing);
     expect(find.text('Метро 2033'), findsOneWidget);
 
@@ -2130,13 +2177,7 @@ class _MemoryDownloadManager extends DownloadManager {
   _MemoryDownloadManager({FileDownloadStorage? storage})
     : super(
         client: _NoopDownloadClient(),
-        storage:
-            storage ??
-            FileDownloadStorage(
-              rootDirectory: Directory(
-                '${Directory.systemTemp.path}/slovofon-stage7-memory-downloads',
-              ),
-            ),
+        storage: storage ?? _MemoryBookStorage(),
         persistence: MemoryDownloadPersistenceStore(),
       );
 
@@ -2238,6 +2279,28 @@ class _MemoryDownloadManager extends DownloadManager {
   }
 }
 
+Future<void> _waitForPlayback(
+  WidgetTester tester,
+  PlaybackController controller,
+) async {
+  for (var attempt = 0; attempt < 400; attempt++) {
+    if (controller.state.isPlaying) {
+      await tester.pump();
+      return;
+    }
+    expect(controller.state.status, isNot(AudioPlaybackStatus.error));
+    await _pumpFrames(tester, frames: 1);
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 5)),
+    );
+  }
+  expect(
+    controller.state.isPlaying,
+    isTrue,
+    reason: 'Playback did not start after metadata IO',
+  );
+}
+
 Future<void> _pumpFrames(
   WidgetTester tester, {
   int frames = 20,
@@ -2249,11 +2312,134 @@ Future<void> _pumpFrames(
       fail('Unexpected widget exception: $exception');
     }
     await tester.pump(step);
+    // These integration fixtures exercise the asynchronous metadata store.
+    // Fake frame time alone does not dispatch native file callbacks.
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 2)),
+    );
   }
 }
 
 String _fixtureText(String name) {
   return File('test/sources/izib/fixtures/$name').readAsStringSync();
+}
+
+/// Tracks real file handles so the filesystem fixture can close all work before
+/// leaving the WidgetTester FakeAsync zone and deleting its temporary directory.
+class _TrackedFileDownloadStorage extends FileDownloadStorage {
+  _TrackedFileDownloadStorage({required super.rootDirectory});
+
+  final pendingOperations = <int, String>{};
+  final errors = <Object>[];
+  var _nextOperation = 0;
+
+  Future<T> _track<T>(String label, Future<T> operation) {
+    final id = _nextOperation++;
+    pendingOperations[id] = label;
+    return operation.then(
+      (value) {
+        pendingOperations.remove(id);
+        return value;
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        pendingOperations.remove(id);
+        errors.add(error);
+        Error.throwWithStackTrace(error, stackTrace);
+      },
+    );
+  }
+
+  @override
+  Future<void> writeMetadata(AudioPlaybackBook book) {
+    return _track('writeMetadata', super.writeMetadata(book));
+  }
+
+  @override
+  Future<AudioPlaybackBook?> readMetadataForIds(
+    String sourceId,
+    String versionId,
+  ) {
+    return _track(
+      'readMetadata',
+      super.readMetadataForIds(sourceId, versionId),
+    );
+  }
+
+  @override
+  Future<List<AudioPlaybackBook>> readAllMetadata() {
+    return _track('readAllMetadata', super.readAllMetadata());
+  }
+
+  @override
+  Future<AudioPlaybackBook> offlinePlaybackBook(AudioPlaybackBook book) {
+    return _track('offlinePlaybackBook', super.offlinePlaybackBook(book));
+  }
+
+  @override
+  Future<String> writeCoverBytes(AudioPlaybackBook book, List<int> bytes) {
+    return _track('writeCoverBytes', super.writeCoverBytes(book, bytes));
+  }
+}
+
+Future<void> _drainStorageOperations(
+  WidgetTester tester,
+  _TrackedFileDownloadStorage storage,
+) async {
+  final elapsed = Stopwatch()..start();
+  while (true) {
+    // Flush chained cache steps: refresh performs two sequential writes.
+    await tester.pump();
+    if (storage.pendingOperations.isEmpty) {
+      expect(storage.errors, isEmpty);
+      return;
+    }
+    if (elapsed.elapsed > const Duration(seconds: 10)) {
+      fail(
+        'Native storage operations did not settle: ${storage.pendingOperations}',
+      );
+    }
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 1)),
+    );
+  }
+}
+
+/// Source/UI tests do not share native file futures or cached books between
+/// WidgetTester FakeAsync zones. Explicit filesystem integration keeps its
+/// separately scoped FileDownloadStorage above.
+class _MemoryBookStorage extends FileDownloadStorage {
+  _MemoryBookStorage()
+    : super(
+        rootDirectory: Directory(
+          '${Directory.systemTemp.path}/slovofon-stage7-memory-only',
+        ),
+      );
+
+  final _books = <String, AudioPlaybackBook>{};
+
+  @override
+  Future<void> saveBook(AudioPlaybackBook book) => writeMetadata(book);
+
+  @override
+  Future<void> writeMetadata(AudioPlaybackBook book) async {
+    _books['${book.sourceId}:${book.versionId}'] = book;
+  }
+
+  @override
+  Future<AudioPlaybackBook?> readMetadataForIds(
+    String sourceId,
+    String versionId,
+  ) async {
+    return _books['$sourceId:$versionId'];
+  }
+
+  @override
+  Future<List<AudioPlaybackBook>> readAllMetadata() async =>
+      _books.values.toList();
+
+  @override
+  Future<AudioPlaybackBook> offlinePlaybackBook(AudioPlaybackBook book) async =>
+      book;
 }
 
 class _StaticPlaybackPersistenceStore implements PlaybackPersistenceStore {

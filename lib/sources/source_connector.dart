@@ -20,3 +20,8 @@ abstract interface class SourceConnector {
   );
   Future<SourceHealth> checkHealth();
 }
+
+/// Implemented by connectors which cache metadata or temporary media URLs.
+abstract interface class SourceCacheInvalidator {
+  void invalidateBook(SourceBookRef ref);
+}

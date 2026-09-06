@@ -6,7 +6,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/database/app_database.dart';
 import '../data/database/database_connection.dart';
 import '../services/audio/audio_persistence.dart';
-import '../services/audio/audio_engine.dart';
 import '../services/audio/playback_controller.dart';
 import '../services/audio/playback_controller_provider.dart';
 import '../services/downloads/download_manager_provider.dart';
@@ -16,6 +15,10 @@ import '../services/deep_links/app_deep_links.dart';
 import '../services/home/home_listening_visibility_store.dart';
 import '../services/library/library_drift_persistence.dart';
 import '../services/library/library_store.dart';
+import '../services/library/later_persistence.dart';
+import '../services/library/library_metadata.dart';
+import '../services/bookmarks/bookmark_store.dart';
+import '../services/bookmarks/bookmark_drift_persistence.dart';
 import '../services/settings/app_settings_store.dart';
 import '../services/sources/source_catalog_provider.dart';
 import '../services/sources/source_catalog_service.dart';
@@ -28,6 +31,12 @@ Future<void> bootstrap() async {
   final audioEngine = await createPlatformAudioEngine();
   final appDatabase = AppDatabase(openAppDatabaseConnection());
   final downloadStorage = await FileDownloadStorage.create();
+  final libraryPersistence = DriftLibraryPersistenceStore(appDatabase);
+  final laterPersistence = await FileLaterPersistence.create();
+  final metadataStore = LibraryPlaybackMetadataStore(
+    downloadStorage,
+    libraryPersistence,
+  );
   final homeVisibilityStore = HomeListeningVisibilityStore(
     await FileHomeListeningVisibilityPersistence.create(),
   );
@@ -38,18 +47,13 @@ Future<void> bootstrap() async {
   final playbackController = PlaybackController(
     engine: audioEngine,
     persistence: playbackPersistence,
-    bookMetadataStore: downloadStorage,
+    bookMetadataStore: metadataStore,
     playbackBookResolver: downloadStorage.offlinePlaybackBook,
+    playbackErrorBookResolver: (book) async {
+      final refreshed = await sourceCatalogService.refreshBookForPlayback(book);
+      return downloadStorage.offlinePlaybackBook(refreshed);
+    },
   );
-  if (audioEngine is AudioEngineChapterNavigationBinding) {
-    final bindableEngine = audioEngine as AudioEngineChapterNavigationBinding;
-    bindableEngine.bindChapterNavigation(
-      AudioEngineChapterNavigationCallbacks(
-        onPreviousChapter: playbackController.previousChapter,
-        onNextChapter: playbackController.nextChapter,
-      ),
-    );
-  }
   final sleepTimerTicker = Timer.periodic(const Duration(seconds: 1), (_) {
     if (playbackController.state.isPlaying &&
         playbackController.state.sleepTimerRemaining != null) {
@@ -63,6 +67,7 @@ Future<void> bootstrap() async {
       return;
     }
     databaseClosed = true;
+    await playbackController.flushPlayback();
     await appDatabase.close();
   }
 
@@ -88,10 +93,18 @@ Future<void> bootstrap() async {
         downloadPersistenceStoreProvider.overrideWith((ref) {
           return DriftDownloadPersistenceStore(appDatabase);
         }),
+        libraryMetadataPersistenceProvider.overrideWith(
+          (ref) => libraryPersistence,
+        ),
+        bookmarkStoreProvider.overrideWith(
+          (ref) => BookmarkStore(DriftBookmarkPersistence(appDatabase))..load(),
+        ),
         libraryStoreProvider.overrideWith((ref) {
           ref.onDispose(() => unawaited(closeDatabase()));
-          return LibraryStore(DriftLibraryPersistenceStore(appDatabase))
-            ..load();
+          return LibraryStore(
+            libraryPersistence,
+            laterPersistence: laterPersistence,
+          )..load();
         }),
         appSettingsStoreProvider.overrideWith((ref) {
           ref.onDispose(() => unawaited(closeDatabase()));
@@ -112,7 +125,7 @@ Future<void> bootstrap() async {
   unawaited(
     _restoreSavedPlaybackSession(
       persistence: playbackPersistence,
-      metadataStore: downloadStorage,
+      metadataStore: metadataStore,
       downloadStorage: downloadStorage,
       playbackController: playbackController,
       sourceRegistry: sourceRegistry,
@@ -156,7 +169,12 @@ Future<void> _restoreSavedPlaybackSession({
       hasTemporaryUrls = false;
     }
 
-    if (sourceBookId != null && sourceBookId.isNotEmpty && hasTemporaryUrls) {
+    final missingMedia =
+        savedBook.chapters.isEmpty ||
+        savedBook.chapters.any((chapter) => chapter.mediaSource == null);
+    if (sourceBookId != null &&
+        sourceBookId.isNotEmpty &&
+        (hasTemporaryUrls || missingMedia)) {
       try {
         savedBook = (await sourceCatalogService.loadBook(
           SourceBookRef(sourceId: savedSourceId, sourceBookId: sourceBookId),
@@ -173,6 +191,10 @@ Future<void> _restoreSavedPlaybackSession({
     final bookToRestore = await downloadStorage.offlinePlaybackBook(
       cachedOrFreshBook,
     );
+    if (playbackController.state.hasBook) {
+      // User selection wins over a late startup metadata/network response.
+      return;
+    }
     await playbackController.loadSavedSession(bookToRestore);
   } catch (error, stackTrace) {
     FlutterError.reportError(

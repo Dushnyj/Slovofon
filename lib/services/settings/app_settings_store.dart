@@ -21,6 +21,8 @@ class AppSettingsStore extends ChangeNotifier {
   final DateTime Function() _clock;
   AppSettings _settings = const AppSettings.defaults();
   Future<void>? _loadFuture;
+  Future<void> _updates = Future<void>.value();
+  bool _disposed = false;
 
   AppSettings get settings => _settings;
 
@@ -29,49 +31,71 @@ class AppSettingsStore extends ChangeNotifier {
   }
 
   Future<void> setThemeMode(AppThemeMode themeMode) {
-    return _update(_settings.copyWith(themeMode: themeMode));
+    return _update((current) => current.copyWith(themeMode: themeMode));
   }
 
   Future<void> setLanguageCode(String languageCode) {
-    return _update(_settings.copyWith(languageCode: languageCode));
+    return _update((current) => current.copyWith(languageCode: languageCode));
   }
 
   Future<void> setAccentColor(String accentColor) {
-    return _update(_settings.copyWith(accentColor: accentColor));
+    return _update((current) => current.copyWith(accentColor: accentColor));
   }
 
   Future<void> setTextScale(double textScale) {
-    return _update(_settings.copyWith(textScale: textScale.clamp(0.9, 1.3)));
+    return _update(
+      (current) => current.copyWith(
+        textScale: AppSettings.normalizeTextScale(textScale),
+      ),
+    );
   }
 
   Future<void> setCompactCards(bool compactCards) {
-    return _update(_settings.copyWith(compactCards: compactCards));
+    return _update((current) => current.copyWith(compactCards: compactCards));
   }
 
   Future<void> setShowSourceOnCards(bool showSourceOnCards) {
-    return _update(_settings.copyWith(showSourceOnCards: showSourceOnCards));
+    return _update(
+      (current) => current.copyWith(showSourceOnCards: showSourceOnCards),
+    );
   }
 
   Future<void> setShowPercentOnCovers(bool showPercentOnCovers) {
     return _update(
-      _settings.copyWith(showPercentOnCovers: showPercentOnCovers),
+      (current) => current.copyWith(showPercentOnCovers: showPercentOnCovers),
     );
   }
 
   Future<void> setAnimationsMode(AppAnimationsMode animationsMode) {
-    return _update(_settings.copyWith(animationsMode: animationsMode));
+    return _update(
+      (current) => current.copyWith(animationsMode: animationsMode),
+    );
   }
 
   Future<void> _load() async {
-    _settings = await _persistence.load() ?? const AppSettings.defaults();
-    notifyListeners();
+    final saved = await _persistence.load() ?? const AppSettings.defaults();
+    _settings = saved.copyWith(
+      textScale: AppSettings.normalizeTextScale(saved.textScale),
+    );
+    if (!_disposed) notifyListeners();
   }
 
-  Future<void> _update(AppSettings settings) async {
-    await load();
-    _settings = settings;
-    await _persistence.save(settings, updatedAt: _clock());
-    notifyListeners();
+  Future<void> _update(AppSettings Function(AppSettings) transform) {
+    final update = _updates.then((_) async {
+      await load();
+      final settings = transform(_settings);
+      await _persistence.save(settings, updatedAt: _clock());
+      _settings = settings;
+      if (!_disposed) notifyListeners();
+    });
+    _updates = update.then<void>((_) {}, onError: (Object _, StackTrace _) {});
+    return update;
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
   }
 }
 

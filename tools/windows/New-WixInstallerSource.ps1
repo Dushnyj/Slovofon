@@ -106,6 +106,7 @@ function Write-DirectoryElement {
 }
 
 $resolvedSource = Resolve-Path -LiteralPath $SourceDir
+& (Join-Path $PSScriptRoot 'Assert-WindowsRuntime.ps1') -BundleDir $resolvedSource.Path
 $sourceInfo = Get-Item -LiteralPath $resolvedSource.Path
 if (-not $sourceInfo.PSIsContainer) {
     throw "SourceDir is not a directory: $SourceDir"

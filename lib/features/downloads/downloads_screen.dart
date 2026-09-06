@@ -19,11 +19,15 @@ import '../../services/library/library_store.dart';
 import '../../services/sources/source_book_cache.dart';
 import '../../services/sources/source_catalog_provider.dart';
 import '../../sources/sources.dart';
+import '../../ui/adaptive/desktop_layout.dart';
 import '../../ui/components/app_buttons.dart';
 import '../../ui/components/book_cover.dart';
+import '../../ui/components/book_fragment_badge.dart';
 import '../../ui/components/download_action_button.dart';
+import '../../ui/components/responsive_tile_grid.dart';
 import '../../ui/components/section_header.dart';
 import '../../ui/components/source_badge.dart';
+import '../../ui/components/state_placeholder.dart';
 import '../../ui/icons/app_icons.dart';
 import '../shared/download_ui_state.dart';
 import '../shared/playback_resume.dart';
@@ -34,6 +38,7 @@ class DownloadsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final strings = context.strings;
+    final desktop = DesktopLayout.isActive(context);
     final manager = ref.watch(downloadManagerProvider);
     final playbackController = ref.watch(playbackControllerProvider);
     final progressSnapshots =
@@ -56,53 +61,165 @@ class DownloadsScreen extends ConsumerWidget {
         .where((group) => group.section == _DownloadBookSection.completed)
         .toList();
 
-    return Scaffold(
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 18, 16, 24),
-          children: [
-            SectionHeader(
-              title: strings.downloads,
-              subtitle: strings.downloadsQueueSubtitle,
-            ),
-            if (groups.isEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 16),
-                child: Text(
-                  strings.emptyDownloads,
-                  style: Theme.of(context).textTheme.bodyMedium,
+    return ListenableBuilder(
+      listenable: playbackController,
+      builder: (context, _) => Scaffold(
+        body: SafeArea(
+          child: ListView(
+            padding: desktop
+                ? DesktopLayout.pagePadding(context)
+                : const EdgeInsets.fromLTRB(16, 18, 16, 24),
+            children: [
+              if (desktop)
+                DesktopPageHeader(
+                  title: strings.downloads,
+                  subtitle: groups.isEmpty
+                      ? null
+                      : strings.downloadsQueueSubtitle,
+                  trailing: groups.isEmpty
+                      ? null
+                      : Text(
+                          strings.booksCount(groups.length),
+                          style: Theme.of(context).textTheme.labelLarge
+                              ?.copyWith(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
+                              ),
+                        ),
+                )
+              else
+                SectionHeader(
+                  title: strings.downloads,
+                  subtitle: strings.downloadsQueueSubtitle,
                 ),
-              )
-            else ...[
-              _DownloadSection(
-                title: strings.activeDownloads,
-                groups: active,
-                manager: manager,
-                playbackController: playbackController,
-                progressSnapshots: progressSnapshots,
-              ),
-              _DownloadSection(
-                title: strings.queuedDownloads,
-                groups: queued,
-                manager: manager,
-                playbackController: playbackController,
-                progressSnapshots: progressSnapshots,
-              ),
-              _DownloadSection(
-                title: strings.failedDownloads,
-                groups: failed,
-                manager: manager,
-                playbackController: playbackController,
-                progressSnapshots: progressSnapshots,
-              ),
-              _DownloadSection(
-                title: strings.completedDownloads,
-                groups: completed,
-                manager: manager,
-                playbackController: playbackController,
-                progressSnapshots: progressSnapshots,
-              ),
+              if (desktop && groups.isNotEmpty)
+                _DesktopDownloadSummary(
+                  active: active.length,
+                  queued: queued.length,
+                  failed: failed.length,
+                  completed: completed.length,
+                ),
+              if (groups.isEmpty && desktop)
+                Card(
+                  key: const ValueKey('desktop-downloads-empty'),
+                  margin: const EdgeInsets.only(top: 16),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+                    child: Column(
+                      children: [
+                        StatePlaceholder(
+                          iconAsset: AppIconAssets.navDownloads,
+                          title: strings.emptyDownloads,
+                          message: strings.emptyDownloadsMessage,
+                        ),
+                        FilledButton.icon(
+                          key: const ValueKey('desktop-downloads-empty-search'),
+                          onPressed: () => context.go('/search'),
+                          icon: const AppIcon(AppIconAssets.navSearch),
+                          label: Text(strings.openSearch),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              else if (groups.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 16),
+                  child: Text(
+                    strings.emptyDownloads,
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                )
+              else ...[
+                _DownloadSection(
+                  title: strings.activeDownloads,
+                  groups: active,
+                  manager: manager,
+                  playbackController: playbackController,
+                  progressSnapshots: progressSnapshots,
+                ),
+                _DownloadSection(
+                  title: strings.queuedDownloads,
+                  groups: queued,
+                  manager: manager,
+                  playbackController: playbackController,
+                  progressSnapshots: progressSnapshots,
+                ),
+                _DownloadSection(
+                  title: strings.failedDownloads,
+                  groups: failed,
+                  manager: manager,
+                  playbackController: playbackController,
+                  progressSnapshots: progressSnapshots,
+                ),
+                _DownloadSection(
+                  title: strings.completedDownloads,
+                  groups: completed,
+                  manager: manager,
+                  playbackController: playbackController,
+                  progressSnapshots: progressSnapshots,
+                ),
+              ],
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DesktopDownloadSummary extends StatelessWidget {
+  const _DesktopDownloadSummary({
+    required this.active,
+    required this.queued,
+    required this.failed,
+    required this.completed,
+  });
+
+  final int active;
+  final int queued;
+  final int failed;
+  final int completed;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    final scheme = Theme.of(context).colorScheme;
+    final sections = [
+      ('active', strings.activeDownloads, active),
+      ('queued', strings.queuedDownloads, queued),
+      ('failed', strings.failedDownloads, failed),
+      ('completed', strings.completedDownloads, completed),
+    ];
+    return Card(
+      key: const ValueKey('desktop-download-summary'),
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Wrap(
+          spacing: 28,
+          runSpacing: 12,
+          children: [
+            for (final section in sections)
+              Text.rich(
+                key: ValueKey('desktop-download-count-${section.$1}'),
+                TextSpan(
+                  children: [
+                    TextSpan(text: '${section.$2}  '),
+                    TextSpan(
+                      text: '${section.$3}',
+                      style: TextStyle(
+                        color: scheme.onSurface,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
           ],
         ),
       ),
@@ -131,21 +248,36 @@ class _DownloadSection extends StatelessWidget {
       return const SizedBox.shrink();
     }
 
+    final tiles = [
+      for (final group in groups)
+        _DownloadBookTile(
+          group: group,
+          manager: manager,
+          playbackController: playbackController,
+          progressSnapshots: progressSnapshots,
+        ),
+    ];
+    final desktop = DesktopLayout.isActive(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const SizedBox(height: 16),
-        SectionHeader(title: title),
-        for (final group in groups)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: _DownloadBookTile(
-              group: group,
-              manager: manager,
-              playbackController: playbackController,
-              progressSnapshots: progressSnapshots,
-            ),
-          ),
+        SectionHeader(
+          title: title,
+          subtitle: desktop ? context.strings.booksCount(groups.length) : null,
+        ),
+        if (desktop)
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (var index = 0; index < tiles.length; index++) ...[
+                tiles[index],
+                if (index != tiles.length - 1) const SizedBox(height: 12),
+              ],
+            ],
+          )
+        else
+          ResponsiveTileGrid(children: tiles),
       ],
     );
   }
@@ -186,6 +318,30 @@ class _DownloadBookTile extends ConsumerWidget {
     final series = _trimOrNull(playbackBook.seriesTitle);
     final rating = _ratingLabel(playbackBook.ratingValue);
 
+    if (DesktopLayout.isActive(context)) {
+      return _DesktopDownloadBookTile(
+        group: group,
+        manager: manager,
+        listeningProgress: listeningProgress,
+        isCurrentBook: isCurrentBook,
+        playbackState: playbackState,
+        onPlay: () => unawaited(_playBookFromDownloads(context, ref, group)),
+        onInfo: () => _openSourceBook(context, group.playbackBook),
+        chapters: [
+          for (final chapter in group.playbackBook.chapters)
+            _DownloadChapterRow(
+              chapter: chapter,
+              task: group.taskForChapter(chapter),
+              manager: manager,
+              playbackBook: playbackBook,
+              onPlay: () => unawaited(
+                _playBookFromDownloads(context, ref, group, chapter: chapter),
+              ),
+            ),
+        ],
+      );
+    }
+
     return Card(
       clipBehavior: Clip.antiAlias,
       child: ExpansionTile(
@@ -216,6 +372,7 @@ class _DownloadBookTile extends ConsumerWidget {
                     ),
                   ),
                   const SizedBox(height: 6),
+                  if (playbackBook.isFragment) const BookFragmentBadge(),
                   if (author != null)
                     _DownloadMetaLine(
                       iconAsset: AppIconAssets.bookAuthor,
@@ -324,6 +481,265 @@ class _DownloadBookTile extends ConsumerWidget {
             ),
         ],
       ),
+    );
+  }
+}
+
+class _DesktopDownloadBookTile extends StatelessWidget {
+  const _DesktopDownloadBookTile({
+    required this.group,
+    required this.manager,
+    required this.listeningProgress,
+    required this.isCurrentBook,
+    required this.playbackState,
+    required this.onPlay,
+    required this.onInfo,
+    required this.chapters,
+  });
+
+  final _DownloadBookGroup group;
+  final DownloadManager manager;
+  final double listeningProgress;
+  final bool isCurrentBook;
+  final AudioPlaybackState playbackState;
+  final VoidCallback onPlay;
+  final VoidCallback onInfo;
+  final List<Widget> chapters;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final book = group.playbackBook;
+    final preferences = DesktopPreferences.maybeOf(context);
+    final compact = preferences?.compactCards ?? false;
+    final showPercent = preferences?.showPercentOnCovers ?? true;
+    final coverWidth = compact ? 72.0 : 88.0;
+    final bookKey = '${book.sourceId}:${book.versionId}';
+    final title = Text(
+      book.title,
+      key: ValueKey('desktop-download-title-$bookKey'),
+      style: theme.textTheme.titleMedium?.copyWith(
+        fontWeight: FontWeight.w700,
+        height: 1.2,
+      ),
+    );
+    Widget metadata({bool condensed = false}) => Row(
+      key: ValueKey('desktop-download-metadata-$bookKey'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        BookCover(
+          title: book.title,
+          imageUrl: book.coverUrl,
+          width: condensed ? 56 : coverWidth,
+          height: (condensed ? 56 : coverWidth) * 1.43,
+          // The listening percentage belongs to the metadata at desktop text
+          // sizes; do not squeeze enlarged text into the fixed-size artwork.
+          showProgressPercent: false,
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (!condensed) title,
+              if (book.isFragment) ...[
+                const SizedBox(height: 6),
+                const BookFragmentBadge(),
+              ],
+              for (final person in [
+                if (!condensed)
+                  (AppIconAssets.bookAuthor, _shortPeopleLabel(book.author)),
+                (AppIconAssets.bookNarrator, _shortPeopleLabel(book.narrator)),
+                if (!condensed)
+                  (AppIconAssets.bookSeries, _trimOrNull(book.seriesTitle)),
+              ])
+                if (person.$2 != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: _DesktopDownloadMeta(
+                      iconAsset: person.$1,
+                      label: person.$2!,
+                    ),
+                  ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 12,
+                runSpacing: 6,
+                children: [
+                  if (preferences?.showSourceOnCards ?? true)
+                    Text(
+                      strings.sourceDisplayName(book.sourceId),
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: sourceColorForId(book.sourceId, scheme),
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  if (book.totalDuration > Duration.zero)
+                    Text(
+                      _formatDuration(book.totalDuration),
+                      style: theme.textTheme.labelMedium,
+                    ),
+                  if (!condensed &&
+                      (book.publishedYear ?? group.mockBook?.year) != null)
+                    Text(
+                      '${book.publishedYear ?? group.mockBook?.year}',
+                      style: theme.textTheme.labelMedium,
+                    ),
+                  if (!condensed && _ratingLabel(book.ratingValue) != null)
+                    Text(
+                      _ratingLabel(book.ratingValue)!,
+                      style: theme.textTheme.labelMedium,
+                    ),
+                  if (showPercent && listeningProgress > 0)
+                    Text(
+                      '${strings.bookProgress}: '
+                      '${(listeningProgress.clamp(0, 1) * 100).round()}%',
+                      key: ValueKey('desktop-download-listening-$bookKey'),
+                      style: theme.textTheme.labelMedium,
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+    final transfer = Column(
+      key: ValueKey('desktop-download-transfer-$bookKey'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _DesktopDownloadMeta(
+          iconAsset: _statusIcon(group.displayStatus),
+          label: _statusLabel(strings, group.displayStatus),
+          foreground: group.displayStatus == DownloadTaskStatus.failed
+              ? scheme.error
+              : scheme.primary,
+        ),
+        const SizedBox(height: 8),
+        LinearProgressIndicator(
+          key: ValueKey('desktop-download-progress-$bookKey'),
+          value: group.progress,
+          minHeight: 6,
+          borderRadius: BorderRadius.circular(999),
+        ),
+        const SizedBox(height: 8),
+        _DownloadBookActions(
+          group: group,
+          manager: manager,
+          isCurrentBook: isCurrentBook,
+          isPlaying: playbackState.isPlaying,
+          isPlaybackLoading:
+              isCurrentBook &&
+              (playbackState.status == AudioPlaybackStatus.loading ||
+                  playbackState.status == AudioPlaybackStatus.buffering),
+          onPlay: onPlay,
+          onInfo: onInfo,
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 12,
+          runSpacing: 4,
+          children: [
+            Text(
+              strings.downloadChaptersProgress(
+                group.completedCount,
+                group.totalChapterCount,
+              ),
+              style: theme.textTheme.bodySmall,
+            ),
+            Text(
+              _groupSizeLabel(context, group),
+              style: theme.textTheme.labelMedium?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+    return Card(
+      key: ValueKey('desktop-download-book-$bookKey'),
+      margin: EdgeInsets.zero,
+      clipBehavior: Clip.antiAlias,
+      child: ExpansionTile(
+        key: PageStorageKey('desktop-download-expansion-$bookKey'),
+        tilePadding: EdgeInsets.all(compact ? 14 : 20),
+        childrenPadding: EdgeInsets.fromLTRB(
+          compact ? 14 : 20,
+          0,
+          compact ? 14 : 20,
+          compact ? 14 : 20,
+        ),
+        title: LayoutBuilder(
+          builder: (context, constraints) {
+            final scale = MediaQuery.textScalerOf(context).scale(14) / 14;
+            final transferWidth = 260.0 * scale.clamp(1.0, 1.8);
+            final metadataMinimum = coverWidth + 16 + 280 * scale;
+            if (MediaQuery.sizeOf(context).height < 700 ||
+                constraints.maxWidth < metadataMinimum + transferWidth + 32) {
+              return Column(
+                key: ValueKey('desktop-download-compact-$bookKey'),
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  title,
+                  const SizedBox(height: 12),
+                  transfer,
+                  const SizedBox(height: 12),
+                  Divider(color: scheme.outlineVariant),
+                  const SizedBox(height: 8),
+                  metadata(condensed: true),
+                ],
+              );
+            }
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: metadata()),
+                const SizedBox(width: 32),
+                SizedBox(width: transferWidth, child: transfer),
+              ],
+            );
+          },
+        ),
+        children: chapters,
+      ),
+    );
+  }
+}
+
+class _DesktopDownloadMeta extends StatelessWidget {
+  const _DesktopDownloadMeta({
+    required this.iconAsset,
+    required this.label,
+    this.foreground,
+  });
+
+  final String iconAsset;
+  final String label;
+  final Color? foreground;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = foreground ?? Theme.of(context).colorScheme.onSurfaceVariant;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 2),
+          child: AppIcon(iconAsset, size: 16, color: color),
+        ),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            label,
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: color),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -845,6 +1261,21 @@ Future<void> _playBookFromDownloads(
   final strings = context.strings;
 
   try {
+    final currentBook = playbackController.state.book;
+    if (_playbackMatchesBook(currentBook, group.playbackBook)) {
+      if (chapter == null) {
+        await playbackController.togglePlayPause();
+      } else {
+        final chapterIndex = _chapterIndex(currentBook!, chapter);
+        if (chapterIndex == playbackController.state.chapterIndex) {
+          await playbackController.togglePlayPause();
+        } else {
+          await playbackController.playChapterAt(chapterIndex);
+        }
+      }
+      return;
+    }
+
     final freshBook = await _freshBookForDownloads(ref, group, chapter);
     final playbackBook = await manager.offlinePlaybackBook(freshBook);
     if (playbackBook.chapters.isEmpty) {
@@ -908,9 +1339,7 @@ Future<AudioPlaybackBook> _freshBookForDownloads(
   }
 
   final task = chapter == null ? null : group.taskForChapter(chapter);
-  final needsNetworkMedia =
-      task == null || task.status != DownloadTaskStatus.completed;
-  if (!needsNetworkMedia &&
+  if (task?.status == DownloadTaskStatus.completed ||
       group.displayStatus == DownloadTaskStatus.completed) {
     return book;
   }

@@ -61,7 +61,7 @@
             android:name=".SlovofonMediaSessionService"
             android:exported="true"
             android:foregroundServiceType="mediaPlayback"
-            android:stopWithTask="true">
+            android:stopWithTask="false">
             <intent-filter>
                 <action android:name="androidx.media3.session.MediaSessionService" />
             </intent-filter>

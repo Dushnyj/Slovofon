@@ -14,7 +14,9 @@ import '../../services/downloads/download_manager.dart';
 import '../../services/downloads/download_manager_provider.dart';
 import '../../services/home/home_listening_visibility_store.dart';
 import '../../services/library/library_store.dart';
+import '../../ui/adaptive/desktop_layout.dart';
 import '../../ui/components/book_card.dart';
+import '../../ui/components/responsive_tile_grid.dart';
 import '../../ui/components/section_header.dart';
 import '../../ui/icons/app_icons.dart';
 import '../shared/download_ui_state.dart';
@@ -22,15 +24,14 @@ import '../shared/playback_resume.dart';
 
 final _homeListeningHistoryProvider =
     FutureProvider<List<_StoredListeningEntry>>((ref) async {
-      final persistence = ref.watch(playbackPersistenceStoreProvider);
-      final progressSnapshots =
-          await persistence?.loadProgress() ??
-          const <PlaybackProgressSnapshot>[];
+      final storage = ref.watch(downloadStorageProvider);
+      final progressSnapshots = await ref.watch(
+        playbackProgressSnapshotsProvider.future,
+      );
       if (progressSnapshots.isEmpty) {
         return const [];
       }
 
-      final storage = ref.watch(downloadStorageProvider);
       final books = await storage.readAllMetadata();
       final booksByVersionId = {for (final book in books) book.versionId: book};
 
@@ -51,6 +52,7 @@ class HomeScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final strings = context.strings;
+    final desktop = DesktopLayout.isActive(context);
     final playbackController = ref.watch(playbackControllerProvider);
     final downloadManager = ref.watch(downloadManagerProvider);
     final libraryStore = ref.watch(libraryStoreProvider);
@@ -60,9 +62,12 @@ class HomeScreen extends ConsumerWidget {
     return CustomScrollView(
       slivers: [
         SliverPadding(
-          padding: const EdgeInsets.fromLTRB(16, 18, 16, 24),
+          padding: desktop
+              ? DesktopLayout.pagePadding(context)
+              : const EdgeInsets.fromLTRB(16, 18, 16, 24),
           sliver: SliverList(
             delegate: SliverChildListDelegate([
+              if (desktop) DesktopPageHeader(title: strings.home),
               ListenableBuilder(
                 listenable: playbackController,
                 builder: (context, _) {
@@ -76,33 +81,88 @@ class HomeScreen extends ConsumerWidget {
                   );
 
                   if (entries.isEmpty) {
-                    return _SourceSearchCard(strings: strings);
+                    final prompt = _SourceSearchCard(strings: strings);
+                    return desktop
+                        ? DesktopWorkspaceColumns(
+                            key: const ValueKey('desktop-home-workspace'),
+                            primary: KeyedSubtree(
+                              key: const ValueKey('desktop-home-search-prompt'),
+                              child: prompt,
+                            ),
+                            secondary: const _HomeCollectionLinks(),
+                          )
+                        : prompt;
+                  }
+
+                  Widget historyCard(
+                    _HomeListeningEntry entry, {
+                    DesktopBookPresentation presentation =
+                        DesktopBookPresentation.card,
+                  }) => _HistoryBookCard(
+                    entry: entry,
+                    desktopPresentation: presentation,
+                    playbackController: playbackController,
+                    downloadManager: downloadManager,
+                    libraryStore: libraryStore,
+                    visibilityStore: visibilityStore,
+                    progressSnapshots:
+                        history.asData?.value
+                            .map((entry) => entry.progress)
+                            .toList() ??
+                        const <PlaybackProgressSnapshot>[],
+                    onProgressChanged: () {
+                      ref.invalidate(playbackProgressSnapshotsProvider);
+                      ref.invalidate(_homeListeningHistoryProvider);
+                    },
+                  );
+
+                  if (desktop) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        SectionHeader(title: strings.continueListening),
+                        const SizedBox(height: 16),
+                        DesktopWorkspaceColumns(
+                          key: const ValueKey('desktop-home-workspace'),
+                          primary: KeyedSubtree(
+                            key: const ValueKey('desktop-home-feature'),
+                            child: historyCard(
+                              entries.first,
+                              presentation: DesktopBookPresentation.feature,
+                            ),
+                          ),
+                          secondary:
+                              entries.first.isCurrent &&
+                                  state.book!.chapters.isNotEmpty
+                              ? _HomeChapterRail(controller: playbackController)
+                              : const _HomeCollectionLinks(),
+                        ),
+                        if (entries.length > 1) ...[
+                          const SizedBox(height: 24),
+                          SectionHeader(title: strings.startedBooks),
+                          const SizedBox(height: 12),
+                          for (final entry in entries.skip(1)) ...[
+                            historyCard(
+                              entry,
+                              presentation: DesktopBookPresentation.row,
+                            ),
+                            const SizedBox(height: 12),
+                          ],
+                        ],
+                      ],
+                    );
                   }
 
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       SectionHeader(title: strings.continueListening),
-                      for (final entry in entries)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 10),
-                          child: _HistoryBookCard(
-                            entry: entry,
-                            playbackController: playbackController,
-                            downloadManager: downloadManager,
-                            libraryStore: libraryStore,
-                            visibilityStore: visibilityStore,
-                            progressSnapshots:
-                                history.asData?.value
-                                    .map((entry) => entry.progress)
-                                    .toList() ??
-                                const <PlaybackProgressSnapshot>[],
-                            onProgressChanged: () {
-                              ref.invalidate(playbackProgressSnapshotsProvider);
-                              ref.invalidate(_homeListeningHistoryProvider);
-                            },
-                          ),
-                        ),
+                      const SizedBox(height: 12),
+                      ResponsiveTileGrid(
+                        children: [
+                          for (final entry in entries) historyCard(entry),
+                        ],
+                      ),
                     ],
                   );
                 },
@@ -124,6 +184,7 @@ class _HistoryBookCard extends StatelessWidget {
     required this.visibilityStore,
     required this.progressSnapshots,
     required this.onProgressChanged,
+    this.desktopPresentation = DesktopBookPresentation.card,
   });
 
   final _HomeListeningEntry entry;
@@ -133,6 +194,7 @@ class _HistoryBookCard extends StatelessWidget {
   final HomeListeningVisibilityStore visibilityStore;
   final List<PlaybackProgressSnapshot> progressSnapshots;
   final VoidCallback onProgressChanged;
+  final DesktopBookPresentation desktopPresentation;
 
   @override
   Widget build(BuildContext context) {
@@ -165,8 +227,21 @@ class _HistoryBookCard extends StatelessWidget {
       },
       child: BookCard(
         book: audioBook,
+        desktopPresentation: desktopPresentation,
         yearLabel: book.publishedYear?.toString(),
         isFavorite: libraryStore.isFavorite(audioBook),
+        isLater: libraryStore.isLater(audioBook),
+        onLaterPressed: () async {
+          try {
+            await libraryStore.toggleLater(audioBook);
+          } catch (_) {
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(context.strings.libraryActionError)),
+              );
+            }
+          }
+        },
         isCurrentBook: entry.isCurrent,
         isPlaying: entry.isPlaying,
         isPlaybackLoading: entry.isPlaybackLoading,
@@ -205,6 +280,125 @@ class _HistoryBookCard extends StatelessWidget {
   }
 }
 
+class _HomeChapterRail extends StatelessWidget {
+  const _HomeChapterRail({required this.controller});
+  final PlaybackController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    final theme = Theme.of(context);
+    final state = controller.state;
+    final book = state.book!;
+    final start = state.chapterIndex.clamp(0, book.chapters.length - 1);
+    final chapters = book.chapters.skip(start).take(3).toList();
+    return Card(
+      key: const ValueKey('desktop-home-chapter-rail'),
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              strings.currentAndNextChapters,
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              strings.chapterPosition(start + 1, book.chapters.length),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 18),
+            for (var index = 0; index < chapters.length; index++) ...[
+              Material(
+                color: index == 0
+                    ? theme.colorScheme.primaryContainer
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(10),
+                child: ListTile(
+                  key: ValueKey('home-chapter-${chapters[index].id}'),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  title: Text(
+                    chapters[index].title,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: index == 0
+                          ? theme.colorScheme.onPrimaryContainer
+                          : theme.colorScheme.onSurface,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  subtitle: Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text(
+                      index == 0
+                          ? '${state.isPlaying ? strings.nowPlaying : strings.paused} · ${_formatDuration(chapters[index].duration)}'
+                          : _formatDuration(chapters[index].duration),
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: index == 0
+                            ? theme.colorScheme.onPrimaryContainer
+                            : theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                  onTap: () =>
+                      unawaited(controller.playChapterAt(start + index)),
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+            const SizedBox(height: 6),
+            OutlinedButton.icon(
+              onPressed: () => context.push('/player?tab=chapters'),
+              icon: const AppIcon(AppIconAssets.playerChapters, size: 18),
+              label: Text(strings.allChapters),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _HomeCollectionLinks extends StatelessWidget {
+  const _HomeCollectionLinks();
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    return Card(
+      key: const ValueKey('desktop-home-collection-links'),
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          children: [
+            ListTile(
+              leading: const AppIcon(AppIconAssets.navLibrary),
+              title: Text(strings.library),
+              subtitle: Text(strings.homeLibraryShortcutMessage),
+              onTap: () => context.go('/library'),
+            ),
+            const Divider(height: 24),
+            ListTile(
+              leading: const AppIcon(AppIconAssets.navDownloads),
+              title: Text(strings.downloads),
+              subtitle: Text(strings.homeDownloadsShortcutMessage),
+              onTap: () => context.go('/downloads'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _SourceSearchCard extends StatelessWidget {
   const _SourceSearchCard({required this.strings});
 
@@ -213,10 +407,11 @@ class _SourceSearchCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final desktop = DesktopLayout.isActive(context);
 
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(18),
+        padding: EdgeInsets.all(desktop ? 28 : 18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -275,6 +470,7 @@ AudioBook _audioBookForPlayback(AudioPlaybackBook book, double progress) {
     chapterCount: book.chapters.length,
     progress: progress,
     access: BookAccess.unknown,
+    isFragment: book.isFragment,
     coverUrl: book.coverUrl,
     description: book.description,
     seriesTitle: book.seriesTitle,

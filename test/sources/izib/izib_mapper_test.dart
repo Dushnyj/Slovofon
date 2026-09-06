@@ -101,6 +101,7 @@ void main() {
       final chapters = mapper.chapters(book);
 
       expect(details.version.accessType, AccessType.unknown);
+      expect(details.version.isFragment, isFalse);
       expect(details.version.playbackAccess, PlaybackAccess.none);
       expect(details.version.canStream, isFalse);
       expect(details.version.canDownload, isFalse);

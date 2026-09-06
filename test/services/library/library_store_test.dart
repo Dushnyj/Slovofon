@@ -50,6 +50,21 @@ void main() {
   });
 
   test(
+    'fragment status survives copies and a Drift favorites reload',
+    () async {
+      final fragment = _book.copyWith(isFragment: true);
+      expect(fragment.copyWith(title: 'Sample').isFragment, isTrue);
+      final store = LibraryStore(DriftLibraryPersistenceStore(db));
+      addTearDown(store.dispose);
+      await store.toggleFavorite(fragment);
+      final reloaded = LibraryStore(DriftLibraryPersistenceStore(db));
+      addTearDown(reloaded.dispose);
+      await reloaded.load();
+      expect(reloaded.favorites.single.book.isFragment, isTrue);
+    },
+  );
+
+  test(
     'refreshFavoriteMetadata updates cached favorite details only',
     () async {
       final addedAt = DateTime(2026, 5, 26, 18);

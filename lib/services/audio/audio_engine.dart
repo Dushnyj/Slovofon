@@ -36,17 +36,25 @@ abstract interface class AudioEngine {
 
   Future<void> setSpeed(double speed);
 
+  Future<void> setVolume(double volume);
+
   Future<void> dispose();
 }
 
 class AudioEngineChapterNavigationCallbacks {
   const AudioEngineChapterNavigationCallbacks({
+    this.onPlay,
+    this.onPause,
+    this.onSeek,
     this.onPreviousChapter,
     this.onNextChapter,
   });
 
   final Future<void> Function()? onPreviousChapter;
   final Future<void> Function()? onNextChapter;
+  final Future<void> Function()? onPlay;
+  final Future<void> Function()? onPause;
+  final Future<void> Function(Duration position)? onSeek;
 }
 
 abstract interface class AudioEngineChapterNavigationBinding {
@@ -84,6 +92,7 @@ class InMemoryAudioEngine implements AudioEngine {
   AudioPlaybackBook? loadedBook;
   Duration position = Duration.zero;
   double speed = 1;
+  double volume = 1;
   bool isPlaying = false;
   bool _disposed = false;
 
@@ -124,6 +133,11 @@ class InMemoryAudioEngine implements AudioEngine {
   @override
   Future<void> setSpeed(double speed) async {
     this.speed = speed;
+  }
+
+  @override
+  Future<void> setVolume(double volume) async {
+    this.volume = volume;
   }
 
   @override
@@ -193,6 +207,7 @@ class SwitchingAudioEngine
   }) async {
     final nextActive = chapter.mediaSource == null ? _fallback : _primary;
     if (!identical(_active, nextActive)) {
+      await _active.pause();
       await _activeSubscription.cancel();
       _active = nextActive;
       _activeSubscription = _active.snapshots.listen(_snapshots.add);
@@ -219,6 +234,11 @@ class SwitchingAudioEngine
   @override
   Future<void> setSpeed(double speed) {
     return _active.setSpeed(speed);
+  }
+
+  @override
+  Future<void> setVolume(double volume) {
+    return _active.setVolume(volume);
   }
 
   @override

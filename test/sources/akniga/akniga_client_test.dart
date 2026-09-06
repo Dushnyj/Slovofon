@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:slovofon/sources/akniga/akniga_client.dart';
 import 'package:slovofon/sources/akniga/akniga_security.dart';
 import 'package:slovofon/sources/sources.dart';
+import 'package:slovofon/sources/source_metadata_transport.dart';
 
 void main() {
   group('AknigaClient', () {
@@ -136,7 +137,17 @@ void main() {
       );
       final client = AknigaClient(
         baseUri: baseUri,
-        transport: DartIoAknigaTransport(timeout: const Duration(seconds: 2)),
+        policy: const SourceMetadataPolicy(
+          sourceId: 'akniga',
+          hosts: {'127.0.0.1'},
+        ),
+        transport: DartIoAknigaTransport(
+          timeout: const Duration(seconds: 2),
+          policy: const SourceMetadataPolicy(
+            sourceId: 'akniga',
+            hosts: {'127.0.0.1'},
+          ),
+        ),
       );
 
       await client.ajaxBidTracks(

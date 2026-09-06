@@ -205,71 +205,105 @@ Release workflow делает полный публичный релиз:
 11. при наличии Windows PFX secrets подписывает setup.exe и MSI;
 12. считает SHA256SUMS.txt;
 13. создаёт tag, если workflow запущен вручную и tag ещё отсутствует;
-14. создаёт или обновляет GitHub Release.
+14. создаёт новый GitHub Release; опубликованный релиз не перезаписывается.
 ```
 
 Android signing secrets обязательны для release workflow. Windows signing secrets опциональны: если их нет, Windows artifacts собираются, но остаются unsigned и Windows может показать `Unknown Publisher`.
 
+#### Неизменяемость release tag и artifacts
+
+До дорогих build jobs и повторно перед публикацией `tools/release/ReleaseGuard.ps1`
+сверяет remote tag с точным commit, из которого workflow собирает приложение.
+Для annotated tag сравнивается peeled commit, а не SHA объекта тега. Отсутствующий
+tag допустим только до создания; ошибка чтения origin или несовпадение SHA останавливает
+workflow. Ручной запуск на другой ветке с той же версией не может заменить binaries
+существующего тега. Все release-запуски репозитория сериализованы одной concurrency group.
+
+`gh release upload --clobber` не используется. Существующий GitHub Release останавливает
+публикацию, включая повторный запуск с тем же SHA: для нового содержимого нужен новый
+утверждённый version/build/tag. Workflow самовольно не переносит и не удаляет теги.
+
+#### App-local MSVC runtime для Windows
+
+Windows `Release`/`Profile` bundle включает redistributable MSVC DLL из выбранного
+Visual Studio toolset через стандартный CMake `InstallRequiredSystemLibraries`.
+DLL копируются рядом с `Slovofon.exe`, а не в системные каталоги. Системная установка
+VC++ Redistributable и права администратора для этого не нужны. Windows 10+ использует
+системный UCRT; debug CRT не распространяется как release dependency.
+
+Общий bundle является единственным входом для Inno Setup, WiX MSI и portable ZIP,
+поэтому все три формата получают одинаковые runtime DLL. Перед упаковкой workflow,
+локальный главный build script и WiX source generator запускают проверку реальных
+PE import tables EXE/DLL, включая транзитивные зависимости MSVC:
+
+```powershell
+./tools/windows/Assert-WindowsRuntime.ps1 -BundleDir build/windows/x64/runner/Release
+```
+
+Проверка завершается ошибкой при отсутствующем/пустом runtime DLL или некорректном PE.
+Inno дополнительно отклоняет source bundle без базовых x64 CRT DLL. Финальная проверка
+release всё равно включает запуск setup/MSI/portable в чистой Windows VM без Visual
+Studio и предварительно установленного VC++ Redistributable; import-validation не
+подменяет такой smoke test.
+
 ### 5.3 Канал обновлений приложения
 
-Клиентское приложение должно использовать только публичные HTTPS-домены, без IP, SSH-данных, bot token, GitHub token или других секретов.
-
-Публичные URL обновлений:
-
-```text
-Base:   https://slovofon-updates.duckdns.org
-Stable: https://slovofon-updates.duckdns.org/v1/channels/stable/latest.json
-Beta:   https://slovofon-updates.duckdns.org/v1/channels/beta/latest.json
-```
-
-Базовая логика клиента:
+По явному решению владельца от 2026-09-05 Android и Windows проверяют обновления
+напрямую через публичный GitHub Releases репозитория **Dushnyj/Slovofon**. Серверный
+signed manifest больше не используется. URL репозитория и signing identity Android
+при этом не меняются.
 
 ```text
-1. Android и Windows по умолчанию проверяют канал stable.
-2. status == no_release означает, что публичного обновления нет.
-3. status == available означает, что клиент сравнивает version/build с текущей сборкой.
-4. mandatory == true означает обязательное обновление.
-5. assets выбираются по platform/arch/kind.
-6. Перед доверием manifest обязательно проверить Ed25519 signature через встроенный public key.
-7. Перед установкой или запуском файла обязательно проверить sha256.
+Latest stable API: https://api.github.com/repos/Dushnyj/Slovofon/releases/latest
+Страница релизов: https://github.com/Dushnyj/Slovofon/releases
+Файл релиза:      https://github.com/Dushnyj/Slovofon/releases/download/<tag>/<file>
 ```
 
-Android без Google Play не может обновиться полностью бесшовно: клиент может скачать APK, проверить `sha256` и открыть системный установщик, а пользователь подтвердит установку. Windows-клиент может скачать installer/MSIX/portable artifact, проверить `sha256` и запускать установку только после явного согласия пользователя.
+Клиент делает публичные HTTPS-запросы без GitHub token, авторизации, cookies, SSH-данных
+или других секретов. Нельзя подменять владельца/репозиторий настройкой из ответа API.
 
-Серверная публикация выполняется ботом `Dushnyj/SlovofonBot`: он опрашивает GitHub Releases, зеркалирует подходящие artifacts в `updates/v1/files/`, считает `sha256`, подписывает manifest Ed25519, атомарно обновляет `latest.json` для `stable` и `beta`, а затем публикует сообщение в Telegram-канал. В клиентский manifest не попадают `GITHUB_TOKEN`, `BOT_TOKEN`, SSH/IP, Ed25519 private key или другие приватные данные.
+Контракт проверки:
 
-Текущий формат manifest:
+1. Получить latest release указанного репозитория; draft и prerelease не являются
+   stable-обновлением. Отсутствие опубликованного release не означает сетевую ошибку;
+   ошибки сети/API и rate limit не должны превращаться в «обновлений нет».
+2. Прочитать публичную версию из `tag_name` формата `vMAJOR.MINOR.PATCH` и сравнить
+   с текущей версией. GitHub `id` release/asset не является Android versionCode или
+   build number; из этих идентификаторов номер сборки не вычисляется.
+3. Выбрать совместимый artifact именно этого release по имени, версии, платформе,
+   архитектуре и типу. Переходить к другому release или произвольному внешнему файлу
+   при отсутствии подходящего artifact нельзя. Автоматическая установка поддерживает
+   только Android `Slovofon-v<version>-android-universal-release.apk` и Windows
+   `Slovofon-v<version>-windows-x64-setup.exe`. ABI APK, AAB, MSI, portable ZIP и MSIX
+   не являются fallback для auto updater: они могут публиковаться для ручной загрузки,
+   но текущий автоматический installer handler их не запускает.
+4. Для выбранного artifact обязателен SHA256: использовать валидный `digest` API
+   вида `sha256:<64 hex>`. Если digest не предоставлен, получить `SHA256SUMS.txt`
+   **из того же release** и найти точную запись имени выбранного artifact. Нельзя
+   подставлять checksum другой версии или продолжать установку без корректного hash.
+5. Скачать `browser_download_url` из этого release непосредственно с GitHub.
+   Допускаются только проверенные HTTPS redirects к разрешённым GitHub asset/CDN
+   hosts; перенаправление на произвольный host или HTTP не разрешается.
+6. Перед открытием APK/установщика вычислить SHA256 фактически скачанного файла и
+   сравнить с ожидаемым. Несовпадение запрещает установку.
 
-```json
-{
-  "schema": 2,
-  "app": "slovofon",
-  "channel": "stable",
-  "status": "available",
-  "version": "0.0.2",
-  "build": 2,
-  "published_at": "2026-06-01T12:00:00Z",
-  "mandatory": false,
-  "release_url": "https://github.com/Dushnyj/Slovofon/releases/tag/v0.0.2",
-  "release_notes": "Release notes",
-  "signature": {
-    "alg": "ed25519",
-    "key_id": "slovofon-updates-2026-06",
-    "value": "..."
-  },
-  "assets": [
-    {
-      "platform": "android",
-      "arch": "universal",
-      "kind": "apk",
-      "url": "https://slovofon-updates.duckdns.org/v1/files/Slovofon-v0.0.2-android-universal-release.apk",
-      "file_name": "Slovofon-v0.0.2-android-universal-release.apk",
-      "sha256": "...",
-      "size": 12345678
-    }
-  ]
-}
-```
+Источник доверия update metadata — фиксированный GitHub repository через HTTPS.
+SHA256 проверяет целостность файла, но не является отдельной Ed25519-подписью
+издателя. Отказ от серверной подписи согласован владельцем; переход к GitHub не
+создаёт и не переносит signing keys, не меняет подпись APK/AAB или Windows signing
+config. Подробная граница доверия описана в `docs/SECURITY.md`, раздел 12.
+
+При ошибке GitHub нет fallback к старому серверу, зеркалу или unsigned скачиванию
+без SHA256. Старые stable/beta `latest.json` и готовность `SlovofonBot` не являются
+условием работы текущего updater. Автопроверка использует только stable; новый beta
+канал не добавляется этим переходом.
+
+Android открывает системный APK installer после проверки файла, пользователь
+подтверждает установку. Windows также запускает совместимый installer только после
+согласия пользователя. `SHA256SUMS.txt` формируется workflow **после** окончательной
+подписи APK/EXE/MSI и упаковки ZIP и прикрепляется вместе с artifacts. Существующий
+release workflow уже публикует необходимые файлы и checksum list; отдельный backend
+или manifest signing job для этого контракта не нужен.
 
 ---
 
@@ -293,8 +327,10 @@ Codex не должен создавать, менять, загружать, у
 ```text
 %USERPROFILE%\Documents\Slovofon\secrets\android\slovofon-upload.jks
 %USERPROFILE%\Documents\Slovofon\secrets\windows\slovofon-code-signing.pfx
-C:\Secrets\Slovofon\updates\update-manifest-ed25519-private.pem
 ```
+
+Исторические ключи серверного update manifest не нужны текущему updater; их статус
+и правило сохранения описаны отдельно в разделе 6.5.
 
 Допустимые альтернативы:
 
@@ -439,32 +475,20 @@ Azure Trusted Signing / Azure Artifact Signing
 
 В этом варианте приватный ключ не попадает в GitHub Secrets как файл. Release workflow получает право подписи через Azure identity/credentials, а подпись выполняется управляемым сервисом.
 
-### 6.5 Когда включать release signing
+### 6.5 Историческая серверная подпись manifest — legacy
 
-### 6.5 Update manifest signing
+До перехода на прямые GitHub Releases бот `Dushnyj/SlovofonBot` зеркалировал файлы,
+подписывал Ed25519 manifest и публиковал stable/beta `latest.json` на старом update
+сервере. Key id этой схемы — `slovofon-updates-2026-06`.
 
-Manifest обновлений подписывается Ed25519:
+В текущем updater эта схема **не используется и не является fallback**. Старая
+серверная конфигурация может оставаться необходимой ранее установленным версиям
+клиента; её остановка не входит в изменение нового клиента.
 
-```text
-Private key: C:\Secrets\Slovofon\updates\update-manifest-ed25519-private.pem
-Public key:  C:\Secrets\Slovofon\updates\update-manifest-ed25519-public.pem
-Key id:      slovofon-updates-2026-06
-```
-
-На VPS private key хранится вне Git, например:
-
-```text
-/opt/slovofon-bot/data/update-manifest-ed25519-private.pem
-```
-
-Переменные бота:
-
-```env
-UPDATE_MANIFEST_PRIVATE_KEY_FILE=/app/data/update-manifest-ed25519-private.pem
-UPDATE_MANIFEST_KEY_ID=slovofon-updates-2026-06
-```
-
-Клиент хранит только public key и отвергает unsigned/tampered manifest до выбора asset и до проверки `sha256`.
+Переход не разрешает читать, удалять, ротировать, перемещать или загружать
+исторические private keys в GitHub Secrets. Ключи и их backup сохраняются на прежних
+местах вне Git до отдельного решения владельца. Не нужно создавать новый Ed25519
+ключ или включать manifest signing job для прямого GitHub updater.
 
 ### 6.6 Когда включать release signing
 
@@ -563,6 +587,35 @@ Launch after install: optional checkbox
 
 ## 9. Android package
 
+### Проверка foreground playback lifecycle
+
+`SlovofonFlutterEngine` владеет единственным FlutterEngine на уровне процесса.
+`MainActivity` подключается к нему и отсоединяет только Activity/UI-specific channels;
+закрытие окна не уничтожает Dart isolate, `PlaybackController`, audio engine и media
+bridge. Media3 service не имеет `stopWithTask=true`, а активная/buffering сессия
+сохраняется при удалении task. Неактивная сессия очищает notification/service.
+Это не обещание неубиваемого процесса: Android всё ещё может завершить приложение;
+после такого завершения используются обычные сохранение/восстановление состояния.
+
+Native regression runner использует только Android framework, без стороннего test
+runner. На отдельном тестовом emulator/device без пользовательских книг:
+
+```powershell
+# Debug/instrumentation APKs only; no release signing.
+cd android
+./gradlew.bat :app:assembleDebug :app:assembleDebugAndroidTest
+adb install -r ../build/app/outputs/apk/debug/app-debug.apk
+adb install -r ../build/app/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+adb shell am instrument -w com.slovofon.app.test/com.slovofon.app.SlovofonLifecycleInstrumentation
+```
+
+Runner проверяет реальный Activity finish/reopen: Dart продолжает выполняться и
+повторно используется тот же engine; также проверяет media keep-alive policy и скорость.
+Отдельная ручная device QA обязательна для реального звука и системных callbacks:
+play → Home/Back/swipe recent task → notification Pause/Play/Seek → повторное открытие
+UI; затем то же для buffering и paused состояния. Source-code substring test для
+`onTaskRemoved` не считается доказательством корректного foreground lifecycle.
+
 ```text
 applicationId: com.slovofon.app
 ```
@@ -613,3 +666,23 @@ Storage permissions избегать.
 19. Windows release artifacts подписаны утверждённым certificate/provider, если распространяются публично.
 20. Signing secrets не попали в Git, логи, artifacts или crash/debug reports.
 ```
+
+---
+
+## Проверка размеров Windows-окна после Debug-сборки
+
+Основной runner использует 900×600 client DIPs как минимум и стартовые
+1280×720 client DIPs; это не внешние размеры вместе с рамкой. Чистая политика
+размеров тестируется в `windows/runner/tests/window_size_policy_test.cpp`,
+привязка к сообщениям Win32 — `test/platform/window_size_contract_test.dart`.
+
+Для уже запущенного экземпляра доступен `tools/windows/Test-WindowSizing.ps1`
+с обязательным `-ProcessId`. Режим `-ReadOnly` только запрашивает геометрию и
+MINMAXINFO. Обычный режим проверяет resize/maximize/minimize/restore и в `finally`
+восстанавливает исходное placement данного окна. Перед запуском убедиться, что
+PID относится к нужной локальной Debug-сборке Slovofon. Скрипт не меняет DPI,
+экранные настройки, базу или пользовательские файлы; synthetic same-DPI message
+не считается проверкой реального переноса окна между мониторами разного DPI.
+Временный DPI-контекст вызывающего потока предотвращает виртуализацию координат
+и также восстанавливается в `finally`. Snap-like rectangles и видимые DWM bounds
+проверяют геометрию у края, но не заменяют ручную проверку shell Snap Layouts.

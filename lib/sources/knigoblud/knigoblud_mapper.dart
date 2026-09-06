@@ -38,6 +38,13 @@ class KnigobludMapper {
     final blocked = playerData['blocked'] == true;
     final hasPlayableTracks =
         !blocked && playlist.any((track) => _mediaUrl(track).isNotEmpty);
+    final isFragment =
+        hasPlayableTracks &&
+        playlist.any((track) {
+          final uri = Uri.tryParse(_mediaUrl(track));
+          return uri != null &&
+              (uri.host == 'litres.ru' || uri.host.endsWith('.litres.ru'));
+        });
     final title = _firstNonEmpty([
       _text(document, '.BookTitle'),
       _text(document, 'h1'),
@@ -89,8 +96,8 @@ class KnigobludMapper {
         playbackAccess: hasPlayableTracks
             ? PlaybackAccess.streamAndDownload
             : PlaybackAccess.none,
-        isFull: hasPlayableTracks,
-        isFragment: false,
+        isFull: hasPlayableTracks && !isFragment,
+        isFragment: isFragment,
         isPaid: false,
         isAccessibleForFree: hasPlayableTracks,
         canStream: hasPlayableTracks,
@@ -209,10 +216,11 @@ class KnigobludMapper {
       seriesNumber: SourceParserHelpers.parseSeriesNumber(
         _labelValue(item, ['Серия']),
       ),
+      genres: _genres(item),
       coverUri: _coverUri(item),
       duration: SourceParserHelpers.parseDuration(item.text),
       year: SourceParserHelpers.parseYear(_labelValue(item, ['Год'])),
-      isFull: true,
+      isFull: null,
       isFree: true,
       accessType: AccessType.free,
     );
@@ -343,17 +351,7 @@ class KnigobludMapper {
       if (!line.text.contains(icon)) {
         continue;
       }
-      final links = line.querySelectorAll('a[href]');
-      if (links.isEmpty) {
-        final value = _stripIconValue(line.text, icon);
-        final key = SourceParserHelpers.normalizeTitle(value);
-        if (value.isNotEmpty && seen.add(key)) {
-          result.add(value);
-        }
-        continue;
-      }
-      for (final link in links) {
-        final value = SourceParserHelpers.normalizeWhitespace(link.text);
+      for (final value in _iconSectionValues(line, icon)) {
         final key = SourceParserHelpers.normalizeTitle(value);
         if (value.isNotEmpty && seen.add(key)) {
           result.add(value);
@@ -361,6 +359,68 @@ class KnigobludMapper {
       }
     }
     return result;
+  }
+
+  static final _metadataIconPattern = RegExp(
+    r'(✍|🎙|📚|📕|🕒)\uFE0F?',
+    unicode: true,
+  );
+
+  /// Search cards can place author and narrator in the same metadata block.
+  /// Follow DOM order and collect only the links/text after the requested icon,
+  /// stopping at the next role. Names are never subtracted from another role:
+  /// the author may legitimately also narrate the book.
+  static List<String> _iconSectionValues(dom.Element line, String icon) {
+    final values = <String>[];
+    var activeIcon = '';
+    var sectionText = StringBuffer();
+    final sectionLinks = <String>[];
+
+    void finishSection() {
+      if (activeIcon == icon) {
+        if (sectionLinks.isNotEmpty) {
+          values.addAll(sectionLinks);
+        } else {
+          final value = SourceParserHelpers.normalizeWhitespace(
+            sectionText.toString(),
+          );
+          if (value.isNotEmpty) values.add(value);
+        }
+      }
+      sectionText = StringBuffer();
+      sectionLinks.clear();
+    }
+
+    void visit(dom.Node node) {
+      if (node is dom.Text) {
+        var offset = 0;
+        for (final marker in _metadataIconPattern.allMatches(node.data)) {
+          sectionText.write(node.data.substring(offset, marker.start));
+          finishSection();
+          activeIcon = marker.group(1)!;
+          offset = marker.end;
+        }
+        sectionText.write(node.data.substring(offset));
+        return;
+      }
+      if (node is dom.Element &&
+          node.localName == 'a' &&
+          !_metadataIconPattern.hasMatch(node.text)) {
+        final value = SourceParserHelpers.normalizeWhitespace(node.text);
+        if (value.isNotEmpty) {
+          sectionLinks.add(value);
+          sectionText.write(value);
+        }
+        return;
+      }
+      for (final child in node.nodes) {
+        visit(child);
+      }
+    }
+
+    visit(line);
+    finishSection();
+    return values;
   }
 
   static String? _iconForLabels(List<String> labels) {
@@ -380,12 +440,6 @@ class KnigobludMapper {
       return '📕';
     }
     return null;
-  }
-
-  static String _stripIconValue(String text, String icon) {
-    return SourceParserHelpers.normalizeWhitespace(
-      text.replaceFirst(icon, '').replaceFirst(RegExp(r'^\uFE0F'), ''),
-    );
   }
 
   static String _labelValue(Object root, List<String> labels) {
@@ -470,7 +524,7 @@ class KnigobludMapper {
     return leftPath.isNotEmpty && leftPath == rightPath;
   }
 
-  static List<String> _genres(dom.Document document) {
+  static List<String> _genres(Object document) {
     final links = _labelPeople(document, ['Жанр', 'Жанры']);
     if (links.isNotEmpty) {
       return _splitLabels(links.join(', '));

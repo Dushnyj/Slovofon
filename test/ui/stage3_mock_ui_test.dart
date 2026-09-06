@@ -8,6 +8,7 @@ import 'package:slovofon/app/app.dart';
 import 'package:slovofon/app/router.dart';
 import 'package:slovofon/data/mock/mock_audio_playback.dart';
 import 'package:slovofon/data/mock/stage3_mock_data.dart';
+import 'package:slovofon/domain/models/audio_book.dart';
 import 'package:slovofon/domain/models/download_task.dart';
 import 'package:slovofon/services/audio/audio_engine.dart';
 import 'package:slovofon/services/audio/audio_persistence.dart';
@@ -20,10 +21,12 @@ import 'package:slovofon/services/downloads/download_manager.dart';
 import 'package:slovofon/services/downloads/download_manager_provider.dart';
 import 'package:slovofon/services/downloads/download_persistence.dart';
 import 'package:slovofon/services/downloads/download_storage.dart';
+import 'package:slovofon/services/library/library_metadata.dart';
 import 'package:slovofon/services/search/search_history_store.dart';
 import 'package:slovofon/services/settings/app_settings_store.dart';
 import 'package:slovofon/services/sources/source_catalog_provider.dart';
 import 'package:slovofon/sources/sources.dart';
+import 'package:slovofon/ui/components/book_card.dart';
 import 'package:slovofon/ui/components/mini_player_bar.dart';
 
 import 'test_search_history_store.dart';
@@ -138,6 +141,14 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
       await _pumpFrames(tester);
 
+      // Metadata is read asynchronously; fake frame time alone does not let
+      // filesystem callbacks finish after startup.
+      await _pumpUntilFound(
+        tester,
+        find.text('Continue listening'),
+        allowIo: true,
+      );
+
       expect(find.text('Continue listening'), findsOneWidget);
       expect(find.text('Новая книга'), findsOneWidget);
       expect(find.text('Старая книга'), findsOneWidget);
@@ -173,6 +184,102 @@ void main() {
 
     expect(find.text('Chapters'), findsOneWidget);
     expect(find.byTooltip('Download'), findsWidgets);
+  });
+
+  testWidgets('desktop shell uses sidebar and bottom now playing bar', (
+    tester,
+  ) async {
+    final playbackController = await _testPlaybackController();
+    appRouter.go('/');
+    tester.view.physicalSize = const Size(1280, 820);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          playbackControllerProvider.overrideWith((ref) {
+            ref.onDispose(playbackController.dispose);
+            return playbackController;
+          }),
+          searchHistoryStoreProvider.overrideWith(
+            (ref) => MemorySearchHistoryStore(),
+          ),
+        ],
+        child: const SlovofonApp(),
+      ),
+    );
+    await _pumpFrames(tester);
+
+    expect(
+      find.byKey(const ValueKey('desktop-navigation-sidebar')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('desktop-content-frame')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('desktop-mini-player-bar')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('mobile-navigation-bar')), findsNothing);
+
+    await tester.tap(find.byTooltip('Chapters'));
+    await _pumpFrames(tester);
+
+    expect(find.text('Chapters'), findsOneWidget);
+    expect(find.byTooltip('Download'), findsWidgets);
+  });
+
+  testWidgets('desktop mini player volume button opens volume controls', (
+    tester,
+  ) async {
+    final playbackController = await _testPlaybackController();
+    appRouter.go('/');
+    tester.view.physicalSize = const Size(1280, 820);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          playbackControllerProvider.overrideWith((ref) {
+            ref.onDispose(playbackController.dispose);
+            return playbackController;
+          }),
+          searchHistoryStoreProvider.overrideWith(
+            (ref) => MemorySearchHistoryStore(),
+          ),
+        ],
+        child: const SlovofonApp(),
+      ),
+    );
+    await _pumpFrames(tester);
+    await playbackController.setVolume(0.55);
+    await _pumpFrames(tester);
+
+    expect(find.byKey(const ValueKey('desktop-volume-popover')), findsNothing);
+
+    await tester.tap(find.byTooltip('Volume'));
+    await _pumpFrames(tester);
+
+    expect(
+      find.byKey(const ValueKey('desktop-volume-popover')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('desktop-volume-slider')), findsOneWidget);
+    expect(find.text('55%'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('desktop-volume-mute-button')));
+    await _pumpFrames(tester);
+
+    expect(playbackController.state.volume, 0);
+
+    await tester.tap(find.byKey(const ValueKey('desktop-volume-mute-button')));
+    await _pumpFrames(tester);
+
+    expect(playbackController.state.volume, closeTo(0.55, 0.001));
+    expect(find.text('55%'), findsOneWidget);
   });
 
   testWidgets('full player chapter tap starts selected chapter', (
@@ -377,7 +484,7 @@ void main() {
   ) async {
     await _pumpApp(tester);
 
-    await tester.tap(find.text('Search'));
+    await tester.tap(find.byKey(const ValueKey('mobile-navigation-item-1')));
     await _pumpFrames(tester);
 
     expect(find.text('Search in: Title'), findsOneWidget);
@@ -385,6 +492,45 @@ void main() {
     expect(find.text('Sort: relevance'), findsOneWidget);
     expect(find.text('Enter a search query'), findsOneWidget);
     expect(find.textContaining('mock results'), findsNothing);
+  });
+
+  testWidgets('desktop search results render as a tiled grid', (tester) async {
+    await _pumpApp(
+      tester,
+      viewportSize: const Size(1280, 820),
+      sourceRegistry: SourceRegistry([
+        MockSourceConnector(
+          id: 'yakniga',
+          name: 'Yakniga',
+          host: 'mock.yakniga.local',
+          color: '#2E7D63',
+          books: [
+            _gridTestBook(
+              id: 'tile-book-1',
+              title: 'Плитка первая',
+              progress: 0.2,
+            ),
+            _gridTestBook(
+              id: 'tile-book-2',
+              title: 'Плитка вторая',
+              progress: 0.4,
+            ),
+          ],
+        ),
+      ]),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('wide-navigation-item-1')));
+    await _pumpFrames(tester);
+    await tester.enterText(find.byType(TextField).first, 'плитка');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await _pumpFrames(tester, frames: 40);
+
+    expect(find.byType(BookCard), findsAtLeastNWidgets(2));
+
+    final first = tester.getTopLeft(find.byType(BookCard).at(0));
+    final second = tester.getTopLeft(find.byType(BookCard).at(1));
+    expect((second.dy - first.dy).abs(), lessThan(120));
   });
 
   testWidgets('search history entries can be deleted one by one', (
@@ -399,7 +545,7 @@ void main() {
       searchHistoryStore: historyStore,
     );
 
-    await tester.tap(find.text('Search'));
+    await tester.tap(find.byKey(const ValueKey('mobile-navigation-item-1')));
     await _pumpFrames(tester);
 
     expect(find.text('полураспад'), findsOneWidget);
@@ -421,7 +567,7 @@ void main() {
   ) async {
     await _pumpApp(tester);
 
-    await tester.tap(find.text('Search'));
+    await tester.tap(find.byKey(const ValueKey('mobile-navigation-item-1')));
     await _pumpFrames(tester);
     await tester.tap(find.text('Sort: relevance'));
     await _pumpFrames(tester);
@@ -444,7 +590,7 @@ void main() {
   ) async {
     await _pumpApp(tester, seedPlayback: false);
 
-    await tester.tap(find.text('Library'));
+    await tester.tap(find.byKey(const ValueKey('mobile-navigation-item-2')));
     await _pumpFrames(tester);
 
     expect(find.text('Filter: All'), findsOneWidget);
@@ -464,7 +610,7 @@ void main() {
     final manager = await _seededDownloadManager(tester);
     await _pumpAppWithDownloadManager(tester, manager);
 
-    await tester.tap(find.text('Downloads'));
+    await tester.tap(find.byKey(const ValueKey('mobile-navigation-item-3')));
     await _pumpFrames(tester);
 
     expect(find.text('Метро 2033'), findsOneWidget);
@@ -495,13 +641,16 @@ void main() {
     );
     expect(find.byTooltip('Cancel download'), findsWidgets);
 
-    await tester.tap(find.text('Settings'));
+    await tester.tap(find.byKey(const ValueKey('mobile-navigation-item-4')));
     await _pumpFrames(tester);
 
     expect(find.text('Appearance'), findsOneWidget);
     expect(find.text('Language'), findsOneWidget);
     expect(find.text('Player'), findsNothing);
-    expect(find.text('Downloads'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('mobile-navigation-item-3')),
+      findsOneWidget,
+    );
     expect(find.text('Compact cards'), findsNothing);
     expect(find.text('Theme preview'), findsNothing);
     expect(find.text('Izib'), findsNothing);
@@ -520,14 +669,17 @@ void main() {
   ) async {
     await _pumpApp(tester, seedPlayback: false);
 
-    await tester.tap(find.text('Settings'));
+    await tester.tap(find.byKey(const ValueKey('mobile-navigation-item-4')));
     await _pumpFrames(tester);
 
     expect(find.text('Appearance'), findsOneWidget);
     expect(find.text('Language'), findsOneWidget);
     expect(find.text('Sources'), findsOneWidget);
     expect(find.text('Player'), findsNothing);
-    expect(find.text('Downloads'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('mobile-navigation-item-3')),
+      findsOneWidget,
+    );
     expect(find.text('Compact cards'), findsNothing);
     expect(find.text('Source name on cards'), findsNothing);
     expect(find.text('Progress percent on covers'), findsNothing);
@@ -547,8 +699,9 @@ void main() {
     expect(find.text('Version'), findsOneWidget);
     expect(find.text('Build number'), findsOneWidget);
     expect(find.text('Application GitHub'), findsOneWidget);
-    expect(find.text('Telegram support bot'), findsOneWidget);
-    expect(find.text('Telegram channel'), findsOneWidget);
+    expect(find.text('Project website'), findsNothing);
+    expect(find.text('Telegram support bot'), findsNothing);
+    expect(find.text('Telegram channel'), findsNothing);
     expect(find.text('Telegram chat'), findsNothing);
     expect(find.text('Update channel'), findsNothing);
     Navigator.of(tester.element(find.text('About').last)).pop();
@@ -571,12 +724,15 @@ void main() {
     await _pumpFrames(tester, frames: 8);
     expect(find.text('Text size: 100%'), findsOneWidget);
     expect(find.text('Animations'), findsOneWidget);
+    await tester.ensureVisible(find.byType(Slider).first);
     await tester.drag(find.byType(Slider).first, const Offset(420, 0));
     await _pumpFrames(tester);
+    await tester.ensureVisible(find.text('Done'));
     await tester.tap(find.text('Done'));
     await _pumpFrames(tester);
-    expect(find.textContaining('Text size: 130%'), findsOneWidget);
+    expect(find.textContaining('Text size: 200%'), findsOneWidget);
 
+    await tester.ensureVisible(find.text('Language'));
     await tester.tap(find.text('Language'));
     await _pumpFrames(tester);
     expect(find.text('System language'), findsWidgets);
@@ -586,13 +742,70 @@ void main() {
     expect(find.text('Настройки'), findsWidgets);
 
     expect(find.text('Источники'), findsWidgets);
+    await tester.ensureVisible(find.text('Источники').last);
     await tester.tap(find.text('Источники').last);
     await _pumpFrames(tester);
     expect(find.text('Изибук'), findsWidgets);
     expect(find.text('База книг'), findsWidgets);
+    await tester.ensureVisible(find.text('Готово'));
     await tester.tap(find.text('Готово'));
     await _pumpFrames(tester);
   });
+
+  for (final languageCode in ['ru', 'en']) {
+    testWidgets(
+      'about keeps GitHub and metadata without removed links in $languageCode',
+      (tester) async {
+        final settings = AppSettingsStore(MemoryAppSettingsPersistenceStore());
+        await settings.setLanguageCode(languageCode);
+        await _pumpApp(tester, seedPlayback: false, appSettingsStore: settings);
+
+        final russian = languageCode == 'ru';
+        await tester.tap(
+          find.byKey(const ValueKey('mobile-navigation-item-4')),
+        );
+        await _pumpFrames(tester);
+        await tester.tap(find.text(russian ? 'О приложении' : 'About'));
+        await _pumpFrames(tester);
+
+        expect(find.text(russian ? 'Версия' : 'Version'), findsOneWidget);
+        expect(
+          find.text(russian ? 'Номер сборки' : 'Build number'),
+          findsOneWidget,
+        );
+        final github = find.text(
+          russian ? 'GitHub приложения' : 'Application GitHub',
+        );
+        expect(github, findsOneWidget);
+        expect(
+          find.text('https://github.com/Dushnyj/Slovofon'),
+          findsOneWidget,
+        );
+        expect(
+          tester
+              .widget<ListTile>(
+                find.ancestor(of: github, matching: find.byType(ListTile)),
+              )
+              .onTap,
+          isNotNull,
+        );
+
+        for (final removed in [
+          'Сайт проекта',
+          'Project website',
+          'Telegram-бот поддержки',
+          'Telegram support bot',
+          'Telegram-канал',
+          'Telegram channel',
+          'https://slovofon.duckdns.org',
+          'https://t.me/slovofon_bot',
+          'https://t.me/slovofon',
+        ]) {
+          expect(find.text(removed), findsNothing);
+        }
+      },
+    );
+  }
 
   testWidgets('max text scale keeps shell mini player and full player stable', (
     tester,
@@ -600,7 +813,7 @@ void main() {
     final appSettingsStore = AppSettingsStore(
       MemoryAppSettingsPersistenceStore(),
     );
-    await appSettingsStore.setTextScale(1.3);
+    await appSettingsStore.setTextScale(2);
 
     await _pumpApp(tester, appSettingsStore: appSettingsStore);
 
@@ -614,7 +827,7 @@ void main() {
       tester
           .getSize(find.byKey(const ValueKey('mobile-navigation-bar-content')))
           .height,
-      64,
+      greaterThanOrEqualTo(64),
     );
     await _pumpUntilFound(tester, find.byTooltip('Open full player'));
     await tester.tap(find.byTooltip('Open full player'));
@@ -627,6 +840,7 @@ void main() {
 
 Future<void> _pumpApp(
   WidgetTester tester, {
+  Size viewportSize = const Size(430, 932),
   bool seedPlayback = true,
   PlaybackController? playbackController,
   SourceRegistry? sourceRegistry,
@@ -639,13 +853,15 @@ Future<void> _pumpApp(
           ? await _testPlaybackController()
           : PlaybackController(engine: InMemoryAudioEngine()));
   appRouter.go('/');
-  tester.view.physicalSize = const Size(430, 932);
+  tester.view.physicalSize = viewportSize;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
+        // This mock fixture has no disk-backed library; never wait on dev cache I/O.
+        libraryPlaybackBooksProvider.overrideWith((ref) async => const []),
         playbackControllerProvider.overrideWith((ref) {
           ref.onDispose(controller.dispose);
           return controller;
@@ -711,6 +927,7 @@ Future<void> _pumpUntilFound(
   WidgetTester tester,
   Finder finder, {
   int attempts = 100,
+  bool allowIo = false,
 }) async {
   for (var attempt = 0; attempt < attempts; attempt++) {
     final exception = tester.takeException();
@@ -719,6 +936,11 @@ Future<void> _pumpUntilFound(
     }
     if (finder.evaluate().isNotEmpty) {
       return;
+    }
+    if (allowIo) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
     }
     await tester.pump(const Duration(milliseconds: 50));
   }
@@ -766,6 +988,57 @@ Future<PlaybackController> _metadataPlaybackController() async {
     ),
   );
   return controller;
+}
+
+MockBook _gridTestBook({
+  required String id,
+  required String title,
+  required double progress,
+}) {
+  return MockBook(
+    id: id,
+    title: title,
+    author: 'Автор плитки',
+    narrator: 'Чтец плитки',
+    sourceId: 'yakniga',
+    sourceName: 'Yakniga',
+    durationLabel: '11 ч 49 мин',
+    chapterCount: 3,
+    progress: progress,
+    access: BookAccess.free,
+    description: 'Книга для проверки desktop-сетки.',
+    year: 2020,
+    audioYear: 2020,
+    genre: 'Фантастика',
+    series: 'Тестовый цикл',
+    ratingLabel: '4.5',
+    activeChapterTitle: 'Глава 1',
+    positionLabel: '00:00',
+    remainingLabel: '10 мин',
+    downloadStatus: MockDownloadStatus.downloaded,
+    isFavorite: false,
+    isLater: false,
+    isFinished: false,
+    versions: const [
+      MockBookVersion(
+        sourceName: 'Yakniga',
+        narrator: 'Чтец плитки',
+        durationLabel: '11 ч 49 мин',
+        accessLabel: 'Бесплатно',
+      ),
+    ],
+    chapters: const [
+      MockChapter(
+        index: 1,
+        title: 'Глава 1',
+        durationLabel: '10 мин',
+        progress: 0,
+        isDownloaded: false,
+        isCurrent: true,
+      ),
+    ],
+    bookmarks: const [],
+  );
 }
 
 Future<PlaybackController> _longPlaybackController({
@@ -846,7 +1119,7 @@ Future<DownloadManager> _seededDownloadManager(WidgetTester tester) async {
     storage: FileDownloadStorage(rootDirectory: directory),
     persistence: persistence,
   );
-  await manager.loadPersistedTasks();
+  await tester.runAsync(manager.loadPersistedTasks);
   return manager;
 }
 

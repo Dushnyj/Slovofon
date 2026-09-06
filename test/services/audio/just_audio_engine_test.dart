@@ -152,6 +152,7 @@ class RecordingJustAudioPlayerAdapter implements JustAudioPlayerAdapter {
   final _snapshots = StreamController<JustAudioAdapterSnapshot>.broadcast();
   final requests = <AudioLoadRequest>[];
   final speedValues = <double>[];
+  final volumeValues = <double>[];
   final seekPositions = <Duration>[];
   int playCount = 0;
   int pauseCount = 0;
@@ -207,5 +208,10 @@ class RecordingJustAudioPlayerAdapter implements JustAudioPlayerAdapter {
   @override
   Future<void> setSpeed(double speed) async {
     speedValues.add(speed);
+  }
+
+  @override
+  Future<void> setVolume(double volume) async {
+    volumeValues.add(volume);
   }
 }

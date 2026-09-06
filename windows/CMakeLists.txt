@@ -72,6 +72,22 @@ endif()
 set(INSTALL_BUNDLE_DATA_DIR "${CMAKE_INSTALL_PREFIX}/data")
 set(INSTALL_BUNDLE_LIB_DIR "${CMAKE_INSTALL_PREFIX}")
 
+# The /MD runner, Flutter engine and plugins need the selected toolset's
+# redistributable CRT on machines that do not have Visual Studio installed.
+# Use the compiler redistributables, never DLLs copied out of System32.
+if(MSVC)
+  set(CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS_SKIP TRUE)
+  set(CMAKE_INSTALL_DEBUG_LIBRARIES FALSE)
+  include(InstallRequiredSystemLibraries)
+  if(NOT CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS)
+    message(FATAL_ERROR "MSVC redistributable runtime was not found in the selected Visual Studio toolset.")
+  endif()
+  install(PROGRAMS ${CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS}
+    DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+    CONFIGURATIONS Profile Release
+    COMPONENT Runtime)
+endif()
+
 install(TARGETS ${BINARY_NAME} RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}"
   COMPONENT Runtime)
 

@@ -4,22 +4,25 @@ import '../../services/audio/audio_state.dart';
 import '../source_connector.dart';
 import '../source_media_validator.dart';
 import '../source_models.dart';
+import '../source_request_cache.dart';
 import 'yakniga_graphql_client.dart';
 import 'yakniga_mapper.dart';
 
-class YaknigaSourceConnector implements SourceConnector {
+class YaknigaSourceConnector
+    implements SourceConnector, SourceCacheInvalidator {
   YaknigaSourceConnector({
     YaknigaGraphQlClient? client,
     YaknigaMapper? mapper,
     DateTime Function()? clock,
   }) : _client = client ?? YaknigaGraphQlClient(),
        _mapper = mapper ?? YaknigaMapper(clock: clock),
-       _clock = clock ?? DateTime.now;
+       _clock = clock ?? DateTime.now,
+       _bookCache = SourceRequestCache(clock: clock);
 
   final YaknigaGraphQlClient _client;
   final YaknigaMapper _mapper;
   final DateTime Function() _clock;
-  final _bookCache = <String, Future<Map<String, Object?>>>{};
+  final SourceRequestCache<String, Map<String, Object?>> _bookCache;
 
   @override
   String get id => 'yakniga';
@@ -173,38 +176,31 @@ class YaknigaSourceConnector implements SourceConnector {
       ref.sourceBookId,
       ref.sourceUri?.toString() ?? '',
     ].join('|');
-    final cached = _bookCache[cacheKey];
-    if (cached != null) {
-      return cached;
-    }
-    late final Future<Map<String, Object?>> future;
-    future =
-        (() async {
-          final aliases = _aliasesFromUri(ref.sourceUri);
-          final id = RegExp(r'^\d+$').hasMatch(ref.sourceBookId)
-              ? ref.sourceBookId
-              : null;
-          final data = await _client.book(
-            id: id,
-            aliasName:
-                aliases.aliasName ?? (id == null ? ref.sourceBookId : null),
-            authorAliasName: aliases.authorAliasName,
-          );
-          final book = data['book'];
-          if (book is! Map<String, Object?>) {
-            throw SourceException(
-              sourceId: this.id,
-              kind: SourceErrorKind.notFound,
-              message: 'Yakniga book was not found.',
-            );
-          }
-          return book;
-        })().catchError((Object error) {
-          _bookCache.remove(cacheKey);
-          throw error;
-        });
-    _bookCache[cacheKey] = future;
-    return future;
+    return _bookCache.getOrLoad(cacheKey, () async {
+      final aliases = _aliasesFromUri(ref.sourceUri);
+      final id = RegExp(r'^\d+$').hasMatch(ref.sourceBookId)
+          ? ref.sourceBookId
+          : null;
+      final data = await _client.book(
+        id: id,
+        aliasName: aliases.aliasName ?? (id == null ? ref.sourceBookId : null),
+        authorAliasName: aliases.authorAliasName,
+      );
+      final book = data['book'];
+      if (book is! Map<String, Object?>) {
+        throw SourceException(
+          sourceId: this.id,
+          kind: SourceErrorKind.notFound,
+          message: 'Yakniga book was not found.',
+        );
+      }
+      return book;
+    });
+  }
+
+  @override
+  void invalidateBook(SourceBookRef ref) {
+    _bookCache.removeWhere((key) => key.startsWith('${ref.sourceBookId}|'));
   }
 
   void _validateRef(SourceBookRef ref) {

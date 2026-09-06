@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../app/localization/app_strings.dart';
 import '../../app/theme/app_color_tokens.dart';
 import '../../data/mock/mock_books.dart';
+import '../../ui/components/app_bar_text.dart';
 import '../../ui/components/app_buttons.dart';
 import '../../ui/components/app_chips.dart';
 import '../../ui/components/book_card.dart';
@@ -19,7 +20,10 @@ class ThemePreviewScreen extends StatelessWidget {
     final tokens = Theme.of(context).extension<AppColorTokens>()!;
 
     return Scaffold(
-      appBar: AppBar(title: Text(strings.themePreview)),
+      appBar: AppBar(
+        toolbarHeight: appBarToolbarHeight(context),
+        title: preserveAppBarTextScale(context, Text(strings.themePreview)),
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [

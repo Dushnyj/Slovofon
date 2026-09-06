@@ -33,6 +33,7 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        testInstrumentationRunner = "com.slovofon.app.SlovofonLifecycleInstrumentation"
     }
 
     signingConfigs {

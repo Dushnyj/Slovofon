@@ -28,7 +28,47 @@ class AppStrings {
 
   bool get _isRu => locale.languageCode == 'ru';
 
+  // Cardinal rules are shared, but callers supply case-appropriate noun forms
+  // (for example, "1 глава", "ещё 1 главу", and "из 1 главы").
+  static String _russianForm(int count, String one, String few, String many) {
+    final absolute = count.abs();
+    final lastTwo = absolute % 100;
+    if (lastTwo >= 11 && lastTwo <= 14) return many;
+    return switch (absolute % 10) {
+      1 => one,
+      2 || 3 || 4 => few,
+      _ => many,
+    };
+  }
+
+  String _counted(
+    int count,
+    String ruOne,
+    String ruFew,
+    String ruMany,
+    String enOne,
+    String enOther,
+  ) {
+    final form = _isRu
+        ? _russianForm(count, ruOne, ruFew, ruMany)
+        : count.abs() == 1
+        ? enOne
+        : enOther;
+    return '$count $form';
+  }
+
   String get appTitle => _isRu ? 'Словофон' : 'Slovofon';
+  String get desktopLibraryLabel => _isRu ? 'Аудиокниги' : 'Audiobooks';
+  String get bookProgress => _isRu ? 'Прогресс книги' : 'Book progress';
+  String get playbackSource => _isRu ? 'Источник' : 'Source';
+  String get settingsPersonalization =>
+      _isRu ? 'Персонализация' : 'Personalization';
+  String get settingsContent =>
+      _isRu ? 'Контент и хранение' : 'Content and storage';
+  String get settingsApplication => _isRu ? 'Приложение' : 'Application';
+  String get settingsSections =>
+      _isRu ? 'Разделы настроек' : 'Settings sections';
+  String get bookFragment => _isRu ? 'Ознакомительный фрагмент' : 'Sample';
   String get home => _isRu ? 'Главная' : 'Home';
   String get search => _isRu ? 'Поиск' : 'Search';
   String get library => _isRu ? 'Библиотека' : 'Library';
@@ -47,13 +87,14 @@ class AppStrings {
   String get unknownSize => _isRu ? 'Размер неизвестен' : 'Unknown size';
   String downloadChaptersProgress(int completed, int total) {
     return _isRu
-        ? '$completed из $total глав'
-        : '$completed of $total chapters';
+        ? '$completed из $total ${_russianForm(total, 'главы', 'глав', 'глав')}'
+        : '$completed of $total ${total.abs() == 1 ? 'chapter' : 'chapters'}';
   }
 
   String get calculatingTotalSize =>
       _isRu ? 'размер уточняется' : 'size is being calculated';
-  String booksCount(int count) => _isRu ? '$count книг' : '$count books';
+  String booksCount(int count) =>
+      _counted(count, 'книга', 'книги', 'книг', 'book', 'books');
   String get settings => _isRu ? 'Настройки' : 'Settings';
   String navigationTabLabel(String label, int index, int total) {
     return _isRu
@@ -62,8 +103,19 @@ class AppStrings {
   }
 
   String get themePreview => _isRu ? 'Предпросмотр темы' : 'Theme preview';
+  String get previousTabs => _isRu ? 'Предыдущие вкладки' : 'Previous tabs';
+  String get nextTabs => _isRu ? 'Следующие вкладки' : 'Next tabs';
   String get continueListening =>
       _isRu ? 'Продолжить прослушивание' : 'Continue listening';
+  String get searchHistoryEmptyMessage => _isRu
+      ? 'Здесь появятся ваши недавние запросы — их можно повторить или удалить.'
+      : 'Your recent searches will appear here so you can repeat or delete them.';
+  String get homeLibraryShortcutMessage => _isRu
+      ? 'Избранные книги и сохранённые озвучки.'
+      : 'Favorite books and saved narrations.';
+  String get homeDownloadsShortcutMessage => _isRu
+      ? 'Книги, которые можно слушать без интернета.'
+      : 'Books you can listen to offline.';
   String get startedBooks => _isRu ? 'Начатые книги' : 'Started books';
   String get offlineDownloads =>
       _isRu ? 'Скачанные для оффлайна' : 'Offline downloads';
@@ -151,29 +203,107 @@ class AppStrings {
       ? 'Источник вернул данные, но после фильтра по полному запросу подходящих результатов нет.'
       : 'The source returned data, but none matched every query word.';
   String sourceResultsCount(int count) {
-    return _isRu ? '$count результатов' : '$count results';
+    return _counted(
+      count,
+      'результат',
+      'результата',
+      'результатов',
+      'result',
+      'results',
+    );
   }
+
+  String get searchResults => _isRu ? 'Результаты' : 'Results';
+  String partialSearchSources(String names) =>
+      _isRu ? 'Не ответили: $names' : 'Unavailable: $names';
+  String get partialSearchRetry => _isRu ? 'Повторить поиск' : 'Retry search';
 
   String get izibSearchSubtitle => _isRu
       ? 'Реальная выдача источников, карточка и главы загружаются через SourceConnector.'
       : 'Real source results; details and chapters are loaded through SourceConnector.';
   String partialSourceFailures(int count) {
-    return _isRu
-        ? '$count источников вернули ошибку'
-        : '$count source failures';
+    return _counted(
+      count,
+      'источник вернул ошибку',
+      'источника вернули ошибку',
+      'источников вернули ошибку',
+      'source failure',
+      'source failures',
+    );
   }
 
   String get emptyLibrary =>
       _isRu ? 'Библиотека пока пуста' : 'Your library is empty';
   String get librarySourcesMessage => _isRu
-      ? 'Добавляйте книги в избранное через поиск источников. Сохранённые книги появятся здесь.'
-      : 'Add books to favorites through source search. Saved books will appear here.';
+      ? 'Сохраняйте книги или начните слушать — они появятся здесь.'
+      : 'Save books or start listening to see them here.';
+  String get emptyListeningShelf =>
+      _isRu ? 'Пока ничего не слушаете' : 'No books in progress';
+  String get emptyListeningShelfMessage => _isRu
+      ? 'Начните слушать книгу — здесь появится ваш прогресс.'
+      : 'Start listening to a book to see your progress here.';
+  String get emptyFavoritesShelf =>
+      _isRu ? 'В избранном пока пусто' : 'No favorites yet';
+  String get emptyFavoritesShelfMessage => _isRu
+      ? 'Добавляйте понравившиеся книги с помощью сердца.'
+      : 'Use the heart button to add books you like.';
+  String get emptyLaterShelf =>
+      _isRu ? 'Нет отложенных книг' : 'No books saved for later';
+  String get emptyLaterShelfMessage => _isRu
+      ? 'Выберите «Отложить» в меню книги, чтобы сохранить её на потом.'
+      : 'Choose Listen later in a book’s menu to save it for later.';
+  String get emptyDownloadedShelf =>
+      _isRu ? 'Нет скачанных книг' : 'No downloaded books';
+  String get emptyDownloadedShelfMessage => _isRu
+      ? 'Скачайте книгу, чтобы слушать без интернета.'
+      : 'Download a book to listen offline.';
+  String get emptyFinishedShelf =>
+      _isRu ? 'Нет прослушанных книг' : 'No finished books';
+  String get emptyFinishedShelfMessage => _isRu
+      ? 'Здесь появятся книги, которые вы дослушали.'
+      : 'Books you finish listening to will appear here.';
+  String get emptyBookmarksShelf => _isRu ? 'Нет закладок' : 'No bookmarks';
+  String get emptyBookmarksShelfMessage => _isRu
+      ? 'Добавьте закладку в плеере, чтобы вернуться к нужному моменту.'
+      : 'Add a bookmark in the player to return to a specific moment.';
+  String get emptyHistoryShelf =>
+      _isRu ? 'История прослушивания пуста' : 'Listening history is empty';
+  String get emptyHistoryShelfMessage => _isRu
+      ? 'Книги, которые вы запускали, будут показаны здесь.'
+      : 'Books you have played will appear here.';
+  String get libraryLoadError =>
+      _isRu ? 'Не удалось загрузить библиотеку' : 'Could not load the library';
+  String get libraryActionError =>
+      _isRu ? 'Не удалось сохранить изменение' : 'Could not save the change';
+  String get bookmarkUnavailable => _isRu
+      ? 'Не удалось открыть книгу для этой закладки'
+      : 'Could not open the book for this bookmark';
   String get emptyDownloads => _isRu ? 'Загрузок пока нет' : 'No downloads yet';
+  String get emptyDownloadsMessage => _isRu
+      ? 'Найдите книгу и скачайте её главы, чтобы слушать без интернета.'
+      : 'Find a book and download its chapters to listen offline.';
   String get appearance => _isRu ? 'Внешний вид' : 'Appearance';
   String get sources => _isRu ? 'Источники' : 'Sources';
   String selectedSourcesCount(int count) {
-    return _isRu ? '$count источников включено' : '$count sources enabled';
+    return _counted(
+      count,
+      'источник включён',
+      'источника включены',
+      'источников включено',
+      'source enabled',
+      'sources enabled',
+    );
   }
+
+  String get selectAtLeastOneSource =>
+      _isRu ? 'Выберите хотя бы один источник' : 'Select at least one source';
+  String get selectAtLeastOneSearchKind => _isRu
+      ? 'Выберите хотя бы одно поле поиска.'
+      : 'Select at least one search field.';
+  String get sourceSearchEnabled =>
+      _isRu ? 'Включён в поиск' : 'Included in search';
+  String get sourceSearchDisabled =>
+      _isRu ? 'Исключён из поиска' : 'Excluded from search';
 
   String get player => _isRu ? 'Плеер' : 'Player';
   String get proxy => _isRu ? 'Прокси' : 'Proxy';
@@ -198,6 +328,7 @@ class AppStrings {
   String get pause => _isRu ? 'Пауза' : 'Pause';
   String get resume => _isRu ? 'Продолжить' : 'Resume';
   String get cancel => _isRu ? 'Отменить' : 'Cancel';
+  String get mute => _isRu ? 'Без звука' : 'Mute';
   String get continuePlayback => _isRu ? 'Продолжить' : 'Continue';
   String get previousChapter => _isRu ? 'Предыдущая глава' : 'Previous chapter';
   String get rewind15 => _isRu ? 'Назад на 15 секунд' : 'Rewind 15 seconds';
@@ -226,20 +357,45 @@ class AppStrings {
   String get genre => _isRu ? 'Жанр' : 'Genre';
   String get sourceStats => _isRu ? 'Статистика источника' : 'Source stats';
   String get chapters => _isRu ? 'Главы' : 'Chapters';
-  String chaptersCount(int count) => _isRu ? '$count глав' : '$count chapters';
+  String chaptersCount(int count) =>
+      _counted(count, 'глава', 'главы', 'глав', 'chapter', 'chapters');
   String showMoreChapters(int count) {
-    return _isRu ? 'Показать ещё $count глав' : 'Show $count more chapters';
+    return _isRu
+        ? 'Показать ещё $count ${_russianForm(count, 'главу', 'главы', 'глав')}'
+        : 'Show $count more ${count.abs() == 1 ? 'chapter' : 'chapters'}';
   }
+
+  String get currentAndNextChapters =>
+      _isRu ? 'Текущая и следующие' : 'Current and next';
+  String chapterPosition(int current, int total) =>
+      _isRu ? 'Глава $current из $total' : 'Chapter $current of $total';
+  String get allChapters => _isRu ? 'Все главы' : 'All chapters';
 
   String get collapseChapters => _isRu ? 'Свернуть главы' : 'Collapse chapters';
   String get otherVersions => _isRu ? 'Другие версии' : 'Other versions';
   String get otherNarrations => _isRu ? 'Другие озвучки' : 'Other narrations';
+  String get narratorUnknown =>
+      _isRu ? 'Чтец не указан' : 'Narrator not specified';
   String get series => _isRu ? 'Цикл' : 'Series';
   String get fullPlayer => _isRu ? 'Полный плеер' : 'Full player';
   String get nowPlaying => _isRu ? 'Сейчас играет' : 'Now playing';
   String get bookmarks => _isRu ? 'Закладки' : 'Bookmarks';
+  String get addBookmark => _isRu ? 'Добавить закладку' : 'Add bookmark';
+  String get saveBookmark => _isRu ? 'Сохранить закладку' : 'Save bookmark';
+  String get bookmarkAdded => _isRu ? 'Закладка добавлена' : 'Bookmark added';
+  String get noBookmarks => _isRu ? 'Нет закладок' : 'No bookmarks';
+  String get bookmarkNote => _isRu ? 'Заметка' : 'Note';
+  String get deleteBookmark => _isRu ? 'Удалить закладку?' : 'Delete bookmark?';
+  String get deleteBookmarkAction => _isRu ? 'Удалить' : 'Delete';
+  String get deleteBookmarkDescription => _isRu
+      ? 'Закладка будет удалена. Книга и прогресс прослушивания сохранятся.'
+      : 'The bookmark will be removed. The book and listening progress will be kept.';
+  String get bookmarkRemoved => _isRu ? 'Закладка удалена' : 'Bookmark removed';
   String get information => _isRu ? 'Информация' : 'Information';
   String get sleepTimer => _isRu ? 'Таймер сна' : 'Sleep timer';
+  String get playbackSpeed =>
+      _isRu ? 'Скорость воспроизведения' : 'Playback speed';
+  String get volume => _isRu ? 'Громкость' : 'Volume';
   String get openFullPlayer =>
       _isRu ? 'Открыть полный плеер' : 'Open full player';
   String get groupedDuplicates =>
@@ -277,10 +433,18 @@ class AppStrings {
   String get themeAmoled => _isRu ? 'AMOLED' : 'AMOLED';
   String get accentColor => _isRu ? 'Акцентный цвет' : 'Accent color';
   String get customColor => _isRu ? 'Свой цвет' : 'Custom color';
+  String get colorPreview => _isRu ? 'Предпросмотр' : 'Preview';
   String get colorHue => _isRu ? 'Тон' : 'Hue';
   String get colorSaturation => _isRu ? 'Насыщенность' : 'Saturation';
   String get colorBrightness => _isRu ? 'Яркость' : 'Brightness';
   String get textSize => _isRu ? 'Размер текста' : 'Text size';
+  String get textSizePreview => _isRu
+      ? 'Так будет выглядеть текст в приложении.'
+      : 'This is how text will look in the app.';
+  String get textSizeHint => _isRu
+      ? '100% — системный размер текста. Изменения применяются после отпускания ползунка.'
+      : '100% follows the system text size. Changes apply when you release the slider.';
+  String get textSizeReset => _isRu ? 'Вернуть 100%' : 'Reset to 100%';
   String get compactCards => _isRu ? 'Компактные карточки' : 'Compact cards';
   String get showSourceOnCards =>
       _isRu ? 'Название источника на карточках' : 'Source name on cards';
@@ -303,24 +467,24 @@ class AppStrings {
       : 'Queue, pause, retry, and offline file removal live on the downloads tab.';
   String get cacheAndMetadata => _isRu ? 'Кэш карточек' : 'Card cache';
   String get cacheAndMetadataHint => _isRu
-      ? 'Названия, обложки и данные карточек сохраняются для оффлайна и обновляются при открытии карточки книги.'
-      : 'Titles, covers, and card facts are cached for offline use and refresh when book details open.';
+      ? 'Обложки и сведения о книгах доступны без интернета и обновляются при открытии карточки.'
+      : 'Covers and book details are available offline and refresh when you open a book.';
   String cacheSize(String value) => _isRu ? 'Размер: $value' : 'Size: $value';
-  String cacheBooks(int count) => _isRu ? '$count книг' : '$count books';
+  String cacheBooks(int count) => booksCount(count);
   String get clearCardCache =>
       _isRu ? 'Очистить кэш карточек' : 'Clear card cache';
   String get clearCardCacheConfirm => _isRu
-      ? 'Будут удалены только временные обложки и metadata для карточек без скачанных файлов. Скачанные книги, главы, избранное, история и прогресс останутся.'
-      : 'Only temporary covers and metadata for cards without downloaded files will be removed. Downloaded books, chapters, favorites, history, and progress stay intact.';
+      ? 'Удалить обложки и сведения о книгах без скачанных файлов? Скачанные книги и главы, избранное, история и прогресс сохранятся.'
+      : 'Remove covers and details for books without downloaded files? Downloaded books and chapters, favorites, history, and progress will be kept.';
   String get downloadedBooksPreserved =>
       _isRu ? 'Скачанные книги не удаляются' : 'Downloaded books are preserved';
   String get clearCacheSafetyHint => _isRu
-      ? 'Очистка не трогает папки, где есть главы или части загрузок.'
-      : 'Cleanup skips folders with chapters or partial downloads.';
+      ? 'Незавершённые загрузки также сохранятся.'
+      : 'Partial downloads will also be kept.';
   String cacheCleared(int count, String size) {
     return _isRu
-        ? 'Очищено: $count книг, $size'
-        : 'Cleared: $count books, $size';
+        ? 'Кэш очищен: ${cacheBooks(count)}, $size'
+        : 'Cache cleared: ${cacheBooks(count)}, $size';
   }
 
   String get aboutApp => _isRu ? 'О приложении' : 'About';
@@ -359,6 +523,8 @@ class AppStrings {
       : 'Check your connection and tap Retry.';
   String get updateDownloading =>
       _isRu ? 'Скачиваю обновление...' : 'Downloading update...';
+  String get updatePreparingTitle =>
+      _isRu ? 'Проверка и запуск обновления' : 'Verifying and starting update';
   String updateDownloadProgress(String downloaded, String total, String speed) {
     return _isRu
         ? '$downloaded из $total · $speed/с'
@@ -403,6 +569,10 @@ class AppStrings {
       _isRu ? 'Добавлено в избранное' : 'Added to favorites';
   String get favoriteRemoved =>
       _isRu ? 'Удалено из избранного' : 'Removed from favorites';
+  String get addToLater => _isRu ? 'Отложить' : 'Listen later';
+  String get removeFromLater =>
+      _isRu ? 'Убрать из «Позже»' : 'Remove from listen later';
+  String get bookActions => _isRu ? 'Действия с книгой' : 'Book actions';
   String get deleteDownloaded =>
       _isRu ? 'Удалить скачанное' : 'Delete downloaded';
   String get downloadQueuedMessage =>

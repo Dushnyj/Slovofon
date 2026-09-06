@@ -2,6 +2,8 @@ enum UpdateAssetPlatform { android, androidTv, windows, unknown }
 
 enum UpdateAssetKind { apk, aab, installer, portable, msix, unknown }
 
+/// Normalized in-memory release metadata used by the UI and update service.
+/// The production client reads GitHub Releases, not a server JSON manifest.
 class UpdateManifest {
   const UpdateManifest({
     required this.schema,
@@ -48,8 +50,9 @@ class UpdateManifest {
   final String? releaseNotes;
   final List<UpdateAsset> assets;
 
-  bool get isAvailable =>
-      status == 'available' && version != null && assets.isNotEmpty;
+  // A release may exist without an installer for this runtime. The service
+  // distinguishes that unsupported case from an up-to-date application.
+  bool get isAvailable => status == 'available' && version != null;
 }
 
 class UpdateAsset {

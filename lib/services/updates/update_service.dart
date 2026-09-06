@@ -21,13 +21,19 @@ class UpdateService {
     required UpdateClient client,
     required PlatformUpdateInstaller installer,
     UpdateRuntimePlatform? runtimePlatform,
+    String currentVersion = AppVersion.version,
+    String currentBuild = AppVersion.buildNumber,
   }) : _client = client,
        _installer = installer,
-       _runtimePlatform = runtimePlatform;
+       _runtimePlatform = runtimePlatform,
+       _currentVersion = currentVersion,
+       _currentBuild = currentBuild;
 
   final UpdateClient _client;
   final PlatformUpdateInstaller _installer;
   final UpdateRuntimePlatform? _runtimePlatform;
+  final String _currentVersion;
+  final String _currentBuild;
   final Set<String> _skippedInSession = <String>{};
 
   Future<UpdateCheckResult> checkForUpdate({
@@ -39,19 +45,19 @@ class UpdateService {
     }
 
     final manifest = await _client.fetchManifest(
-      Uri.parse(ProjectLinks.updatesStableManifest),
+      Uri.parse(ProjectLinks.githubLatestRelease),
     );
     if (!manifest.isAvailable ||
         !isRemoteVersionNewer(
-          currentVersion: AppVersion.version,
-          currentBuild: AppVersion.buildNumber,
+          currentVersion: _currentVersion,
+          currentBuild: _currentBuild,
           remoteVersion: manifest.version,
           remoteBuild: manifest.build,
         )) {
       return const UpdateCheckResult.noUpdate();
     }
 
-    final asset = _selectAsset(manifest.assets, platform);
+    final asset = _selectAsset(manifest.assets, platform, manifest.version!);
     if (asset == null) {
       return const UpdateCheckResult.unsupported();
     }
@@ -126,6 +132,7 @@ UpdateRuntimePlatform _currentPlatform() {
 UpdateAsset? _selectAsset(
   List<UpdateAsset> assets,
   UpdateRuntimePlatform platform,
+  String version,
 ) {
   final platformAssets = switch (platform) {
     UpdateRuntimePlatform.android =>
@@ -141,27 +148,20 @@ UpdateAsset? _selectAsset(
 
   if (platform == UpdateRuntimePlatform.android) {
     return _firstAsset(platformAssets, (asset) {
-          return asset.kind == UpdateAssetKind.apk && asset.arch == 'universal';
-        }) ??
-        _firstAsset(
-          platformAssets,
-          (asset) => asset.kind == UpdateAssetKind.apk,
-        );
+      return asset.kind == UpdateAssetKind.apk &&
+          asset.arch == 'universal' &&
+          asset.fileName == 'Slovofon-v$version-android-universal-release.apk';
+    });
   }
 
   if (platform == UpdateRuntimePlatform.windows) {
-    return _firstAsset(
-          platformAssets,
-          (asset) => asset.kind == UpdateAssetKind.installer,
-        ) ??
-        _firstAsset(
-          platformAssets,
-          (asset) => asset.kind == UpdateAssetKind.msix,
-        ) ??
-        _firstAsset(
-          platformAssets,
-          (asset) => asset.kind == UpdateAssetKind.portable,
-        );
+    // The Windows installer bridge launches an EXE. A ZIP/MSIX (or an
+    // arbitrary Android ABI on mobile) is not an interchangeable fallback.
+    return _firstAsset(platformAssets, (asset) {
+      return asset.kind == UpdateAssetKind.installer &&
+          asset.arch == 'x64' &&
+          asset.fileName == 'Slovofon-v$version-windows-x64-setup.exe';
+    });
   }
   return null;
 }

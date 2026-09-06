@@ -120,6 +120,7 @@ void main() {
       expect(details.version.canStream, isFalse);
       expect(details.version.canDownload, isFalse);
       expect(details.version.accessType, AccessType.unknown);
+      expect(details.version.isFragment, isFalse);
     });
   });
 }

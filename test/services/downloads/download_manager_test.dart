@@ -323,7 +323,12 @@ void main() {
         expect(persisted.coverUrl, localCover);
         expect(chapter.duration, const Duration(minutes: 10));
         expect(chapter.isDownloaded, isTrue);
-        expect(chapter.mediaSource?.type, AudioMediaSourceType.file);
+        expect(chapter.mediaSource?.type, AudioMediaSourceType.url);
+        final offline = await storage.offlinePlaybackBook(persisted);
+        expect(
+          offline.chapters.single.mediaSource?.type,
+          AudioMediaSourceType.file,
+        );
       },
     );
 

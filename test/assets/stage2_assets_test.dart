@@ -151,6 +151,7 @@ const _expectedLucideIcons = {
   'assets/icons/downloads/resume_download.svg': 'play',
   'assets/icons/system/back.svg': 'chevron-left',
   'assets/icons/system/forward.svg': 'chevron-right',
+  'assets/icons/system/expand.svg': 'maximize-2',
   'assets/icons/system/close.svg': 'x',
   'assets/icons/system/more.svg': 'ellipsis',
   'assets/icons/system/filter.svg': 'list-filter',

@@ -13,9 +13,9 @@
 class Win32Window {
  public:
   struct Point {
-    unsigned int x;
-    unsigned int y;
-    Point(unsigned int x, unsigned int y) : x(x), y(y) {}
+    int x;
+    int y;
+    Point(int x, int y) : x(x), y(y) {}
   };
 
   struct Size {
@@ -29,10 +29,10 @@ class Win32Window {
   virtual ~Win32Window();
 
   // Creates a win32 window with |title| that is positioned and sized using
-  // |origin| and |size|. New windows are created on the default monitor. Window
-  // sizes are specified to the OS in physical pixels, hence to ensure a
-  // consistent size this function will scale the inputted width and height as
-  // as appropriate for the default monitor. The window is invisible until
+  // |origin| and |size|. Origin uses physical desktop coordinates (including
+  // negative coordinates on secondary monitors); size is the CLIENT in DIPs.
+  // DPI and the non-client frame are added for the target monitor, and the
+  // initial rectangle is kept inside that monitor's work area. Invisible until
   // |Show| is called. Returns true if the window was created successfully.
   bool Create(const std::wstring& title, const Point& origin, const Size& size);
 
@@ -51,6 +51,10 @@ class Win32Window {
 
   // If true, closing this window will quit the application.
   void SetQuitOnClose(bool quit_on_close);
+
+  // Opt-in per window, in client DIPs. Call before Create for the main window.
+  // The default (0, 0) leaves future independent mini-player windows unrestricted.
+  void SetMinimumClientSize(const Size& size);
 
   // Return a RECT representing the bounds of the current client area.
   RECT GetClientArea();
@@ -90,7 +94,14 @@ class Win32Window {
   // Update the window frame's theme to match the system theme.
   static void UpdateTheme(HWND const window);
 
+  bool HasMinimumClientSize() const;
+  RECT ConstrainNormalBounds(const RECT& requested, UINT dpi) const;
+  void EnforceNormalBounds();
+
   bool quit_on_close_ = false;
+  Size minimum_client_size_{0, 0};
+  UINT current_dpi_ = 96;
+  bool adjusting_bounds_ = false;
 
   // window handle for top level window.
   HWND window_handle_ = nullptr;

@@ -8,12 +8,18 @@ import '../../app/app_version.dart';
 import '../../app/localization/app_strings.dart';
 import '../../app/project_links.dart';
 import '../../app/theme/app_color_tokens.dart';
+import '../../app/theme/app_text_scaler.dart';
+import '../../app/theme/app_theme.dart';
+import '../../app/theme/windows_theme.dart';
 import '../../domain/models/app_settings.dart';
 import '../../services/downloads/download_manager_provider.dart';
 import '../../services/downloads/download_storage.dart';
 import '../../services/settings/app_settings_store.dart';
 import '../../services/sources/source_settings_store.dart';
 import '../../services/updates/update_prompt.dart';
+import '../../ui/components/app_bar_text.dart';
+import '../../ui/adaptive/adaptive_sheet.dart';
+import '../../ui/adaptive/desktop_layout.dart';
 import '../../ui/components/filter_picker_sheet.dart';
 import '../../ui/icons/app_icons.dart';
 
@@ -25,11 +31,44 @@ class SettingsScreen extends ConsumerStatefulWidget {
 }
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
+  // Keep Slider's active gesture and focus when text scaling reflows columns.
+  final _inlineAppearanceKey = GlobalKey(
+    debugLabel: 'inline-appearance-editor',
+  );
   Future<CardCacheStats>? _cacheStatsFuture;
+  // Owned above the responsive columns: changing text scale can reparent the
+  // editor from a Row to a Column while an earlier save is still completing.
+  double? _inlinePreviewScale;
+  int _inlinePreviewRevision = 0;
+  final _sectionKeys = List.generate(5, (_) => GlobalKey());
+  final _sectionMenuController = MenuController();
+
+  void _jumpToSection(int index) {
+    // The menu route must detach its semantics before moving the page beneath it.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final target = _sectionKeys[index].currentContext;
+      if (target == null) return;
+      Scrollable.ensureVisible(
+        target,
+        alignment: 0,
+        duration: DesktopLayout.motionDuration(context),
+      );
+    });
+  }
+
+  Future<void> _commitInlineScale(double value) async {
+    final revision = _inlinePreviewRevision;
+    await ref.read(appSettingsStoreProvider).setTextScale(value);
+    if (mounted && revision == _inlinePreviewRevision) {
+      setState(() => _inlinePreviewScale = null);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
+    final desktop = DesktopLayout.isActive(context);
     final appSettingsStore = ref.watch(appSettingsStoreProvider);
     final sourceSettings = ref.watch(sourceSettingsStoreProvider);
     final downloadStorage = ref.watch(downloadStorageProvider);
@@ -39,63 +78,293 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         : appSettings.themeMode;
     _cacheStatsFuture ??= downloadStorage.cardCacheStats();
 
+    final personalizationTiles = <Widget>[
+      _SettingsActionTile(
+        iconAsset: AppIconAssets.systemTheme,
+        title: strings.appearance,
+        subtitle:
+            '${_themeModeName(strings, themeMode)} · ${strings.textSizeLabel((appSettings.textScale * 100).round())}',
+        onTap: () => _openAppearanceSheet(context, ref, appSettings),
+      ),
+      _SettingsActionTile(
+        iconAsset: AppIconAssets.systemLanguage,
+        title: strings.language,
+        subtitle: _languageName(strings, appSettings.languageCode),
+        onTap: () => _pickLanguage(context, ref, appSettings.languageCode),
+      ),
+    ];
+    final contentTiles = <Widget>[
+      _SettingsActionTile(
+        iconAsset: AppIconAssets.bookSource,
+        title: strings.sources,
+        subtitle:
+            '${_sourcesSubtitle(context, sourceSettings)} · ${strings.enabledInSearch}',
+        onTap: () => _pickSources(context, ref, sourceSettings),
+      ),
+      _SettingsActionTile(
+        iconAsset: AppIconAssets.systemCache,
+        title: strings.cacheAndMetadata,
+        subtitle: '',
+        subtitleBuilder: (context) => FutureBuilder<CardCacheStats>(
+          future: _cacheStatsFuture,
+          builder: (context, snapshot) {
+            final stats = snapshot.data;
+            if (stats == null) {
+              return Text(strings.calculatingTotalSize);
+            }
+            return Text(
+              '${strings.cacheSize(_formatBytes(stats.bytes))} · ${strings.cacheBooks(stats.bookCount)}',
+            );
+          },
+        ),
+        onTap: () => _openCacheSheet(context, downloadStorage),
+      ),
+    ];
+    final applicationTiles = <Widget>[
+      _SettingsActionTile(
+        iconAsset: AppIconAssets.systemRefresh,
+        title: strings.appUpdates,
+        subtitle: strings.appUpdatesHint,
+        onTap: () => checkUpdatesManually(context, ref),
+      ),
+      _SettingsActionTile(
+        iconAsset: AppIconAssets.systemInfo,
+        title: strings.aboutApp,
+        subtitle: strings.aboutAppHint,
+        onTap: () => _openAboutSheet(context),
+      ),
+    ];
+
     return Scaffold(
-      appBar: AppBar(title: Text(strings.settings)),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(0, 8, 0, 24),
-        children: [
-          _SettingsActionTile(
-            iconAsset: AppIconAssets.systemTheme,
-            title: strings.appearance,
-            subtitle:
-                '${_themeModeName(strings, themeMode)} · ${strings.textSizeLabel((appSettings.textScale * 100).round())}',
-            onTap: () => _openAppearanceSheet(context, ref, appSettings),
-          ),
-          _SettingsActionTile(
-            iconAsset: AppIconAssets.systemLanguage,
-            title: strings.language,
-            subtitle: _languageName(strings, appSettings.languageCode),
-            onTap: () => _pickLanguage(context, ref, appSettings.languageCode),
-          ),
-          _SettingsActionTile(
-            iconAsset: AppIconAssets.bookSource,
-            title: strings.sources,
-            subtitle:
-                '${_sourcesSubtitle(context, sourceSettings)} · ${strings.enabledInSearch}',
-            onTap: () => _pickSources(context, ref, sourceSettings),
-          ),
-          _SettingsActionTile(
-            iconAsset: AppIconAssets.systemCache,
-            title: strings.cacheAndMetadata,
-            subtitle: '',
-            subtitleBuilder: (context) => FutureBuilder<CardCacheStats>(
-              future: _cacheStatsFuture,
-              builder: (context, snapshot) {
-                final stats = snapshot.data;
-                if (stats == null) {
-                  return Text(strings.calculatingTotalSize);
-                }
-                return Text(
-                  '${strings.cacheSize(_formatBytes(stats.bytes))} · ${strings.cacheBooks(stats.bookCount)}',
+      appBar: desktop
+          ? null
+          : AppBar(
+              toolbarHeight: appBarToolbarHeight(context),
+              title: preserveAppBarTextScale(context, Text(strings.settings)),
+            ),
+      body: desktop
+          ? LayoutBuilder(
+              builder: (context, constraints) {
+                final factor = DesktopLayout.workspaceScaleFactor(context);
+                final sideWidth = math.max(
+                  360.0,
+                  (constraints.maxWidth - 64 - 24) / 2 / factor,
+                );
+                return Column(
+                  children: [
+                    Padding(
+                      padding: DesktopLayout.pagePadding(
+                        context,
+                      ).copyWith(bottom: 0),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: DesktopPageHeader(title: strings.settings),
+                          ),
+                          MenuAnchor(
+                            controller: _sectionMenuController,
+                            builder: (context, controller, child) => IconButton(
+                              key: const ValueKey('settings-section-menu'),
+                              tooltip: strings.settingsSections,
+                              icon: const AppIcon(AppIconAssets.playerChapters),
+                              onPressed: () => controller.isOpen
+                                  ? controller.close()
+                                  : controller.open(),
+                            ),
+                            menuChildren: [
+                              for (final entry in [
+                                strings.appearance,
+                                strings.cards,
+                                strings.settingsPersonalization,
+                                strings.settingsContent,
+                                strings.settingsApplication,
+                              ].indexed)
+                                MenuItemButton(
+                                  onPressed: () {
+                                    _sectionMenuController.close();
+                                    _jumpToSection(entry.$1);
+                                  },
+                                  child: Text(entry.$2),
+                                ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    Expanded(
+                      child: ListView(
+                        padding: DesktopLayout.pagePadding(
+                          context,
+                        ).copyWith(top: 0),
+                        children: [
+                          Column(
+                            key: const ValueKey('settings-desktop-content'),
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              DesktopWorkspaceColumns(
+                                key: const ValueKey(
+                                  'settings-desktop-workspace',
+                                ),
+                                minimumPrimaryWidth: 420,
+                                secondaryWidth: sideWidth,
+                                primary: Column(
+                                  key: const ValueKey(
+                                    'settings-desktop-primary',
+                                  ),
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    KeyedSubtree(
+                                      key: _sectionKeys[0],
+                                      child: _DesktopSettingsGroup(
+                                        key: const ValueKey(
+                                          'settings-group-appearance',
+                                        ),
+                                        title: strings.appearance,
+                                        children: [
+                                          _DesktopAppearanceEditor(
+                                            key: _inlineAppearanceKey,
+                                            previewScale: _inlinePreviewScale,
+                                            onScaleChanged: (value) =>
+                                                setState(() {
+                                                  _inlinePreviewRevision++;
+                                                  _inlinePreviewScale = value;
+                                                }),
+                                            onScaleCommitted:
+                                                _commitInlineScale,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                secondary: Column(
+                                  key: const ValueKey(
+                                    'settings-desktop-secondary',
+                                  ),
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    KeyedSubtree(
+                                      key: _sectionKeys[1],
+                                      child: _DesktopSettingsGroup(
+                                        key: const ValueKey(
+                                          'settings-group-cards',
+                                        ),
+                                        title: strings.cards,
+                                        children: [
+                                          SwitchListTile.adaptive(
+                                            key: const ValueKey(
+                                              'settings-compact-cards',
+                                            ),
+                                            title: Text(strings.compactCards),
+                                            value: appSettings.compactCards,
+                                            onChanged: appSettingsStore
+                                                .setCompactCards,
+                                          ),
+                                          SwitchListTile.adaptive(
+                                            key: const ValueKey(
+                                              'settings-show-source',
+                                            ),
+                                            title: Text(
+                                              strings.showSourceOnCards,
+                                            ),
+                                            value:
+                                                appSettings.showSourceOnCards,
+                                            onChanged: appSettingsStore
+                                                .setShowSourceOnCards,
+                                          ),
+                                          SwitchListTile.adaptive(
+                                            key: const ValueKey(
+                                              'settings-show-percent',
+                                            ),
+                                            title: Text(
+                                              strings.showPercentOnCovers,
+                                            ),
+                                            value:
+                                                appSettings.showPercentOnCovers,
+                                            onChanged: appSettingsStore
+                                                .setShowPercentOnCovers,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(height: 16),
+                                    KeyedSubtree(
+                                      key: _sectionKeys[2],
+                                      child: _DesktopSettingsGroup(
+                                        key: const ValueKey(
+                                          'settings-group-personalization',
+                                        ),
+                                        title: strings.settingsPersonalization,
+                                        children: [
+                                          personalizationTiles.last,
+                                          _SettingsActionTile(
+                                            iconAsset:
+                                                AppIconAssets.systemTheme,
+                                            title: strings.animations,
+                                            subtitle: _animationsModeName(
+                                              strings,
+                                              appSettings.animationsMode,
+                                            ),
+                                            onTap: () async {
+                                              final next =
+                                                  await _pickAnimationsMode(
+                                                    context,
+                                                    appSettings.animationsMode,
+                                                  );
+                                              if (next != null && mounted) {
+                                                await appSettingsStore
+                                                    .setAnimationsMode(next);
+                                              }
+                                            },
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(height: 16),
+                                    KeyedSubtree(
+                                      key: _sectionKeys[3],
+                                      child: _DesktopSettingsGroup(
+                                        key: const ValueKey(
+                                          'settings-group-content',
+                                        ),
+                                        title: strings.settingsContent,
+                                        children: contentTiles,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 16),
+                                    KeyedSubtree(
+                                      key: _sectionKeys[4],
+                                      child: _DesktopSettingsGroup(
+                                        key: const ValueKey(
+                                          'settings-group-application',
+                                        ),
+                                        title: strings.settingsApplication,
+                                        children: applicationTiles,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 );
               },
+            )
+          : ListView(
+              padding: const EdgeInsets.fromLTRB(0, 8, 0, 24),
+              children: [
+                ...personalizationTiles,
+                ...contentTiles,
+                ...applicationTiles,
+              ],
             ),
-            onTap: () => _openCacheSheet(context, downloadStorage),
-          ),
-          _SettingsActionTile(
-            iconAsset: AppIconAssets.systemRefresh,
-            title: strings.appUpdates,
-            subtitle: strings.appUpdatesHint,
-            onTap: () => checkUpdatesManually(context, ref),
-          ),
-          _SettingsActionTile(
-            iconAsset: AppIconAssets.systemInfo,
-            title: strings.aboutApp,
-            subtitle: strings.aboutAppHint,
-            onTap: () => _openAboutSheet(context),
-          ),
-        ],
-      ),
     );
   }
 
@@ -119,7 +388,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     AppSettings appSettings,
   ) async {
     var draft = appSettings;
-    await showModalBottomSheet<void>(
+    await showAdaptiveSheet<void>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
@@ -132,6 +401,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
             Future<void> setAccent(String id) async {
               await ref.read(appSettingsStoreProvider).setAccentColor(id);
+              if (!context.mounted) return;
               setModalState(() {
                 draft = draft.copyWith(accentColor: id);
               });
@@ -153,6 +423,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       await ref
                           .read(appSettingsStoreProvider)
                           .setThemeMode(value);
+                      if (!context.mounted) return;
                       setModalState(() {
                         draft = draft.copyWith(themeMode: value);
                       });
@@ -184,13 +455,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     });
                   },
                   onChangeEnd: (value) async {
-                    final clamped = value.clamp(0.9, 1.3).toDouble();
+                    final clamped = AppSettings.normalizeTextScale(value);
                     await ref
                         .read(appSettingsStoreProvider)
                         .setTextScale(clamped);
-                    setModalState(() {
-                      draft = draft.copyWith(textScale: clamped);
-                    });
+                    // onChanged already owns the preview. A delayed save must
+                    // not replace the draft of a newer drag after it completes.
                   },
                 ),
                 _SettingsActionTile(
@@ -209,6 +479,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       await ref
                           .read(appSettingsStoreProvider)
                           .setAnimationsMode(next);
+                      if (!context.mounted) return;
                       setModalState(() {
                         draft = draft.copyWith(animationsMode: next);
                       });
@@ -234,8 +505,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   ) async {
     final strings = context.strings;
     final languages = ['system', 'ru', 'en', 'kk', 'be', 'uk'];
-    final next = await showModalBottomSheet<String>(
+    final next = await showAdaptiveSheet<String>(
       context: context,
+      title: strings.language,
+      maxWidth: 440,
       showDragHandle: true,
       builder: (context) {
         return FilterPickerSheet(
@@ -248,10 +521,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 onSelected: (value) => Navigator.of(context).pop(value),
               ),
           ],
-          action: FilledButton(
-            onPressed: () => Navigator.of(context).pop(selected),
-            child: Text(strings.apply),
-          ),
+          action: DesktopLayout.isActive(context)
+              ? null
+              : FilledButton(
+                  onPressed: () => Navigator.of(context).pop(selected),
+                  child: Text(strings.apply),
+                ),
         );
       },
     );
@@ -265,8 +540,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     AppAnimationsMode selected,
   ) async {
     final strings = context.strings;
-    return showModalBottomSheet<AppAnimationsMode>(
+    return showAdaptiveSheet<AppAnimationsMode>(
       context: context,
+      title: strings.animations,
+      maxWidth: 440,
       showDragHandle: true,
       builder: (context) {
         return FilterPickerSheet(
@@ -279,10 +556,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 onSelected: (value) => Navigator.of(context).pop(value),
               ),
           ],
-          action: FilledButton(
-            onPressed: () => Navigator.of(context).pop(selected),
-            child: Text(strings.apply),
-          ),
+          action: DesktopLayout.isActive(context)
+              ? null
+              : FilledButton(
+                  onPressed: () => Navigator.of(context).pop(selected),
+                  child: Text(strings.apply),
+                ),
         );
       },
     );
@@ -294,38 +573,57 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     SourceSettingsStore store,
   ) async {
     final settings = store.settings;
-    final next = await showModalBottomSheet<Set<String>>(
+    // A route builder may run again on resize; the user's draft belongs to the
+    // whole dialog session, not to one invocation of that builder.
+    var draft = {
+      for (final setting in settings)
+        if (setting.isEnabled) setting.sourceId,
+    };
+    final next = await showAdaptiveSheet<Set<String>>(
       context: context,
+      title: context.strings.sources,
       isScrollControlled: true,
       showDragHandle: true,
       builder: (context) {
-        var draft = {
-          for (final setting in settings)
-            if (setting.isEnabled) setting.sourceId,
-        };
         return StatefulBuilder(
           builder: (context, setModalState) {
             return FilterPickerSheet(
               options: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
+                  child: Text(
+                    context.strings.selectAtLeastOneSource,
+                    key: const ValueKey('sources-selection-hint'),
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                ),
                 for (final setting in settings)
                   CheckboxListTile(
+                    key: ValueKey('source-choice-${setting.sourceId}'),
                     value: draft.contains(setting.sourceId),
                     visualDensity: VisualDensity.compact,
                     title: Text(
                       context.strings.sourceDisplayName(setting.sourceId),
                     ),
-                    subtitle: Text(context.strings.enabledInSearch),
-                    onChanged: (value) {
-                      setModalState(() {
-                        final nextDraft = draft.toSet();
-                        if (value == true) {
-                          nextDraft.add(setting.sourceId);
-                        } else if (nextDraft.length > 1) {
-                          nextDraft.remove(setting.sourceId);
-                        }
-                        draft = nextDraft;
-                      });
-                    },
+                    subtitle: Text(
+                      draft.contains(setting.sourceId)
+                          ? context.strings.sourceSearchEnabled
+                          : context.strings.sourceSearchDisabled,
+                    ),
+                    onChanged:
+                        draft.length == 1 && draft.contains(setting.sourceId)
+                        ? null
+                        : (value) {
+                            setModalState(() {
+                              final nextDraft = draft.toSet();
+                              if (value == true) {
+                                nextDraft.add(setting.sourceId);
+                              } else if (nextDraft.length > 1) {
+                                nextDraft.remove(setting.sourceId);
+                              }
+                              draft = nextDraft;
+                            });
+                          },
                   ),
               ],
               action: FilledButton(
@@ -347,101 +645,98 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     FileDownloadStorage storage,
   ) async {
     var statsFuture = storage.cardCacheStats();
-    await showModalBottomSheet<void>(
+    await showAdaptiveSheet<void>(
       context: context,
+      title: context.strings.cacheAndMetadata,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setModalState) {
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) => FutureBuilder<CardCacheStats>(
+          future: statsFuture,
+          builder: (context, snapshot) {
+            final strings = context.strings;
+            final stats = snapshot.data;
+            final content = <Widget>[
+              if (!DesktopLayout.isActive(context))
+                Text(
+                  strings.cacheAndMetadata,
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+              const SizedBox(height: 8),
+              Text(
+                strings.cacheAndMetadataHint,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Wrap(
+                spacing: 16,
+                runSpacing: 4,
+                children: [
+                  Text(
+                    strings.cacheSize(
+                      stats == null ? '...' : _formatBytes(stats.bytes),
+                    ),
+                  ),
+                  Text(
+                    stats == null
+                        ? strings.calculatingTotalSize
+                        : strings.cacheBooks(stats.bookCount),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Text(
+                strings.downloadedBooksPreserved,
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              const SizedBox(height: 4),
+              Text(strings.clearCacheSafetyHint),
+            ];
+            final action = FilledButton.icon(
+              key: const ValueKey('cache-clear-action'),
+              onPressed: stats == null || stats.bytes == 0
+                  ? null
+                  : () async {
+                      final confirmed = await _confirmClearCache(context);
+                      if (confirmed != true) return;
+                      final cleared = await storage.clearCardCache();
+                      if (!context.mounted) return;
+                      setModalState(
+                        () => statsFuture = storage.cardCacheStats(),
+                      );
+                      _refreshCacheStats(storage);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            context.strings.cacheCleared(
+                              cleared.bookCount,
+                              _formatBytes(cleared.bytes),
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+              icon: const AppIcon(AppIconAssets.systemTrash),
+              label: Text(strings.clearCardCache),
+            );
+            if (DesktopLayout.isActive(context)) {
+              return FilterPickerSheet(options: content, action: action);
+            }
             return SafeArea(
-              child: Padding(
+              child: SingleChildScrollView(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                child: FutureBuilder<CardCacheStats>(
-                  future: statsFuture,
-                  builder: (context, snapshot) {
-                    final strings = context.strings;
-                    final stats = snapshot.data;
-                    return Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          strings.cacheAndMetadata,
-                          style: Theme.of(context).textTheme.titleLarge,
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          strings.cacheAndMetadataHint,
-                          style: Theme.of(context).textTheme.bodyMedium
-                              ?.copyWith(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurfaceVariant,
-                              ),
-                        ),
-                        const SizedBox(height: 14),
-                        _InfoRow(
-                          iconAsset: AppIconAssets.systemCache,
-                          title: strings.cacheSize(
-                            stats == null ? '...' : _formatBytes(stats.bytes),
-                          ),
-                          subtitle: stats == null
-                              ? strings.calculatingTotalSize
-                              : strings.cacheBooks(stats.bookCount),
-                        ),
-                        const SizedBox(height: 8),
-                        _InfoRow(
-                          iconAsset: AppIconAssets.downloaded,
-                          title: strings.downloadedBooksPreserved,
-                          subtitle: strings.clearCacheSafetyHint,
-                        ),
-                        const SizedBox(height: 16),
-                        SizedBox(
-                          width: double.infinity,
-                          child: FilledButton.icon(
-                            onPressed: stats == null || stats.bytes == 0
-                                ? null
-                                : () async {
-                                    final confirmed = await _confirmClearCache(
-                                      context,
-                                    );
-                                    if (confirmed != true) {
-                                      return;
-                                    }
-                                    final cleared = await storage
-                                        .clearCardCache();
-                                    if (!context.mounted) {
-                                      return;
-                                    }
-                                    setModalState(() {
-                                      statsFuture = storage.cardCacheStats();
-                                    });
-                                    _refreshCacheStats(storage);
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text(
-                                          context.strings.cacheCleared(
-                                            cleared.bookCount,
-                                            _formatBytes(cleared.bytes),
-                                          ),
-                                        ),
-                                      ),
-                                    );
-                                  },
-                            icon: const AppIcon(AppIconAssets.systemTrash),
-                            label: Text(strings.clearCardCache),
-                          ),
-                        ),
-                      ],
-                    );
-                  },
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [...content, const SizedBox(height: 16), action],
                 ),
               ),
             );
           },
-        );
-      },
+        ),
+      ),
     );
     _refreshCacheStats(storage);
   }
@@ -452,6 +747,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       context: context,
       builder: (context) {
         return AlertDialog(
+          constraints: DesktopLayout.isActive(context)
+              ? const BoxConstraints(maxWidth: 560)
+              : null,
+          scrollable: DesktopLayout.isActive(context),
           title: Text(strings.clearCardCache),
           content: Text(strings.clearCardCacheConfirm),
           actions: [
@@ -470,8 +769,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _openAboutSheet(BuildContext context) async {
-    await showModalBottomSheet<void>(
+    await showAdaptiveSheet<void>(
       context: context,
+      title: context.strings.aboutApp,
       isScrollControlled: true,
       showDragHandle: true,
       builder: (context) {
@@ -488,10 +788,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    context.strings.aboutApp,
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
+                  if (!DesktopLayout.isActive(context))
+                    Text(
+                      context.strings.aboutApp,
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
                   const SizedBox(height: 8),
                   _InfoRow(
                     iconAsset: AppIconAssets.systemInfo,
@@ -505,35 +806,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ),
                   const SizedBox(height: 8),
                   _LinkRow(
-                    iconAsset: AppIconAssets.bookSource,
-                    iconColor: colorScheme.primary,
-                    title: context.strings.projectWebsite,
-                    subtitle: ProjectLinks.site,
-                    onTap: () => _openUrl(context, ProjectLinks.site),
-                  ),
-                  _LinkRow(
                     iconAsset: AppIconAssets.systemGithub,
                     iconColor: githubColor,
                     title: context.strings.githubRepository,
                     subtitle: ProjectLinks.githubRepository,
                     onTap: () =>
                         _openUrl(context, ProjectLinks.githubRepository),
-                  ),
-                  _LinkRow(
-                    iconAsset: AppIconAssets.systemTelegram,
-                    title: context.strings.telegramSupportBot,
-                    subtitle: ProjectLinks.telegramSupportBot,
-                    preserveIconColors: true,
-                    onTap: () =>
-                        _openUrl(context, ProjectLinks.telegramSupportBot),
-                  ),
-                  _LinkRow(
-                    iconAsset: AppIconAssets.systemTelegram,
-                    title: context.strings.telegramChannel,
-                    subtitle: ProjectLinks.telegramChannel,
-                    preserveIconColors: true,
-                    onTap: () =>
-                        _openUrl(context, ProjectLinks.telegramChannel),
                   ),
                 ],
               ),
@@ -552,6 +830,332 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         SnackBar(content: Text(context.strings.sourcePageOpenError)),
       );
     }
+  }
+}
+
+/// The desktop page edits appearance in place; the mobile sheet stays unchanged.
+class _DesktopAppearanceEditor extends ConsumerWidget {
+  const _DesktopAppearanceEditor({
+    super.key,
+    required this.previewScale,
+    required this.onScaleChanged,
+    required this.onScaleCommitted,
+  });
+  final double? previewScale;
+  final ValueChanged<double> onScaleChanged;
+  final ValueChanged<double> onScaleCommitted;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final store = ref.watch(appSettingsStoreProvider);
+    final settings = store.settings;
+    return Padding(
+      key: const ValueKey('settings-appearance-editor'),
+      padding: const EdgeInsets.fromLTRB(8, 20, 8, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  context.strings.theme,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 12),
+                _DesktopThemeChoices(
+                  selected: settings.themeMode,
+                  accent: _accentColorForId(settings.accentColor),
+                  onSelected: store.setThemeMode,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+          _AccentColorPicker(
+            selectedId: settings.accentColor,
+            onChanged: store.setAccentColor,
+            onCustom: () async {
+              final next = await _pickCustomAccentColor(
+                context,
+                _accentColorForId(settings.accentColor),
+              );
+              if (next != null && context.mounted) {
+                await store.setAccentColor(next);
+              }
+            },
+          ),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Divider(height: 1),
+          ),
+          _TextScaleSlider(
+            value: previewScale ?? settings.textScale,
+            onChanged: onScaleChanged,
+            onChangeEnd: onScaleCommitted,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Actual theme palettes, not three identical navigation tiles. The thumbnail
+/// is illustrative; its enclosing control is keyboard operable and labelled.
+class _DesktopThemeChoices extends StatelessWidget {
+  const _DesktopThemeChoices({
+    required this.selected,
+    required this.accent,
+    required this.onSelected,
+  });
+  final AppThemeMode selected;
+  final Color accent;
+  final ValueChanged<AppThemeMode> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final highContrast = MediaQuery.highContrastOf(context);
+    final light = WindowsTheme.from(
+      AppTheme.light(accent: accent, highContrast: highContrast),
+    ).colorScheme;
+    final dark = WindowsTheme.from(
+      AppTheme.dark(accent: accent, highContrast: highContrast),
+    ).colorScheme;
+    final effective = selected == AppThemeMode.amoled
+        ? AppThemeMode.dark
+        : selected;
+    const modes = [AppThemeMode.system, AppThemeMode.light, AppThemeMode.dark];
+    if (MediaQuery.sizeOf(context).height < 800) {
+      // On short windows the setting matters more than its illustrative preview.
+      return Wrap(
+        key: const ValueKey('settings-compact-theme-choices'),
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          for (final mode in modes)
+            ChoiceChip(
+              key: ValueKey('settings-theme-${mode.name}'),
+              label: Text(_themeModeName(context.strings, mode)),
+              selected: effective == mode,
+              onSelected: (_) => onSelected(mode),
+            ),
+        ],
+      );
+    }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const gap = 12.0;
+        final minimum = 140 * DesktopLayout.workspaceScaleFactor(context);
+        final columns = ((constraints.maxWidth + gap) / (minimum + gap))
+            .floor()
+            .clamp(1, 3);
+        final width = (constraints.maxWidth - gap * (columns - 1)) / columns;
+        return Wrap(
+          spacing: gap,
+          runSpacing: gap,
+          children: [
+            for (final mode in modes)
+              SizedBox(
+                width: width,
+                child: Semantics(
+                  selected: effective == mode,
+                  button: true,
+                  child: Material(
+                    color: effective == mode
+                        ? theme.colorScheme.primaryContainer
+                        : theme.colorScheme.surfaceContainerLowest,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      side: BorderSide(
+                        color: effective == mode
+                            ? theme.colorScheme.primary
+                            : theme.colorScheme.outlineVariant,
+                        width: 2,
+                      ),
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: InkWell(
+                      key: ValueKey('settings-theme-${mode.name}'),
+                      onTap: () => onSelected(mode),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          ExcludeSemantics(
+                            child: SizedBox(
+                              height: 72,
+                              child: mode == AppThemeMode.system
+                                  ? Row(
+                                      children: [
+                                        Expanded(
+                                          child: _ThemeThumbnail(scheme: light),
+                                        ),
+                                        Expanded(
+                                          child: _ThemeThumbnail(scheme: dark),
+                                        ),
+                                      ],
+                                    )
+                                  : _ThemeThumbnail(
+                                      scheme: mode == AppThemeMode.light
+                                          ? light
+                                          : dark,
+                                    ),
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    _themeModeName(context.strings, mode),
+                                    style: theme.textTheme.titleSmall?.copyWith(
+                                      color: effective == mode
+                                          ? theme.colorScheme.onPrimaryContainer
+                                          : theme.colorScheme.onSurface,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                if (effective == mode)
+                                  AppIcon(
+                                    AppIconAssets.systemCheck,
+                                    size: 18,
+                                    color: theme.colorScheme.onPrimaryContainer,
+                                  )
+                                else
+                                  const SizedBox.square(dimension: 18),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _ThemeThumbnail extends StatelessWidget {
+  const _ThemeThumbnail({required this.scheme});
+  final ColorScheme scheme;
+
+  @override
+  Widget build(BuildContext context) => ColoredBox(
+    color: scheme.surface,
+    child: Padding(
+      padding: const EdgeInsets.all(10),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 18,
+            child: ColoredBox(
+              color: scheme.surfaceContainerHigh,
+              child: const SizedBox.expand(),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SizedBox(
+                  height: 4,
+                  child: ColoredBox(color: scheme.onSurfaceVariant),
+                ),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: scheme.surfaceContainerLowest,
+                      border: Border.all(color: scheme.outlineVariant),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(height: 4, child: ColoredBox(color: scheme.primary)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _DesktopSettingsGroup extends StatelessWidget {
+  const _DesktopSettingsGroup({
+    super.key,
+    required this.title,
+    required this.children,
+  });
+
+  final String title;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Semantics(
+            header: true,
+            child: Text(
+              title,
+              style: theme.textTheme.titleMedium?.copyWith(
+                color: colorScheme.onSurface,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ),
+        Material(
+          color: colorScheme.surfaceContainerLow,
+          clipBehavior: Clip.antiAlias,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(color: colorScheme.outlineVariant),
+          ),
+          child: ListTileTheme(
+            data: ListTileTheme.of(context).copyWith(
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 2,
+              ),
+              textColor: colorScheme.onSurface,
+              iconColor: colorScheme.onSurfaceVariant,
+            ),
+            child: Column(
+              children: [
+                for (var index = 0; index < children.length; index++) ...[
+                  if (index > 0)
+                    Divider(
+                      height: 1,
+                      indent: 20,
+                      endIndent: 20,
+                      color: colorScheme.outlineVariant,
+                    ),
+                  children[index],
+                ],
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
   }
 }
 
@@ -667,7 +1271,6 @@ class _LinkRow extends StatelessWidget {
     required this.subtitle,
     required this.onTap,
     this.iconColor,
-    this.preserveIconColors = false,
   });
 
   final String iconAsset;
@@ -675,7 +1278,6 @@ class _LinkRow extends StatelessWidget {
   final String title;
   final String subtitle;
   final VoidCallback onTap;
-  final bool preserveIconColors;
 
   @override
   Widget build(BuildContext context) {
@@ -683,11 +1285,7 @@ class _LinkRow extends StatelessWidget {
     return ListTile(
       contentPadding: EdgeInsets.zero,
       visualDensity: VisualDensity.compact,
-      leading: AppIcon(
-        iconAsset,
-        color: iconColor ?? colorScheme.primary,
-        preserveColors: preserveIconColors,
-      ),
+      leading: AppIcon(iconAsset, color: iconColor ?? colorScheme.primary),
       title: Text(title),
       subtitle: Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
       trailing: const AppIcon(AppIconAssets.systemForward),
@@ -725,7 +1323,7 @@ class _AccentColorPicker extends StatelessWidget {
                 color: colorScheme.primary,
               ),
               const SizedBox(width: 16),
-              Text(strings.accentColor),
+              Expanded(child: Text(strings.accentColor)),
             ],
           ),
           const SizedBox(height: 10),
@@ -768,8 +1366,11 @@ class _AccentColorPicker extends StatelessWidget {
                   borderRadius: BorderRadius.circular(24),
                   onTap: onCustom,
                   child: Container(
-                    height: 40,
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    constraints: const BoxConstraints(minHeight: 40),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
                     decoration: BoxDecoration(
                       color: customSelected
                           ? _accentColorForId(selectedId)
@@ -797,16 +1398,18 @@ class _AccentColorPicker extends StatelessWidget {
                               : colorScheme.onSurfaceVariant,
                         ),
                         const SizedBox(width: 8),
-                        Text(
-                          strings.customColor,
-                          style: Theme.of(context).textTheme.labelLarge
-                              ?.copyWith(
-                                color: customSelected
-                                    ? AppColorTokens.readableOn(
-                                        _accentColorForId(selectedId),
-                                      )
-                                    : colorScheme.onSurface,
-                              ),
+                        Flexible(
+                          child: Text(
+                            strings.customColor,
+                            style: Theme.of(context).textTheme.labelLarge
+                                ?.copyWith(
+                                  color: customSelected
+                                      ? AppColorTokens.readableOn(
+                                          _accentColorForId(selectedId),
+                                        )
+                                      : colorScheme.onSurface,
+                                ),
+                          ),
                         ),
                       ],
                     ),
@@ -835,22 +1438,80 @@ class _TextScaleSlider extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
-    final percent = (value * 100).round();
+    final normalized = AppSettings.normalizeTextScale(value);
+    final percent = (normalized * 100).round();
+    final colors = Theme.of(context).colorScheme;
+    final inheritedScaler = MediaQuery.textScalerOf(context);
+    final systemScaler = inheritedScaler is AppTextScaler
+        ? inheritedScaler.systemScaler
+        : inheritedScaler;
 
     return ListTile(
+      titleAlignment: DesktopLayout.isActive(context)
+          ? ListTileTitleAlignment.top
+          : null,
       leading: AppIcon(
         AppIconAssets.systemEdit,
         color: Theme.of(context).colorScheme.primary,
       ),
       title: Text(strings.textSizeLabel(percent)),
-      subtitle: Slider(
-        value: value.clamp(0.9, 1.3),
-        min: 0.9,
-        max: 1.3,
-        divisions: 8,
-        label: '$percent%',
-        onChanged: onChanged,
-        onChangeEnd: onChangeEnd,
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Slider(
+            key: const ValueKey('appearance-text-scale-slider'),
+            value: normalized,
+            min: AppSettings.minTextScale,
+            max: AppSettings.maxTextScale,
+            divisions:
+                ((AppSettings.maxTextScale - AppSettings.minTextScale) /
+                        AppSettings.textScaleStep)
+                    .round(),
+            label: '$percent%',
+            semanticFormatterCallback: (value) => '${(value * 100).round()}%',
+            onChanged: onChanged,
+            onChangeEnd: onChangeEnd,
+          ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('${(AppSettings.minTextScale * 100).round()}%'),
+              Text('${(AppSettings.maxTextScale * 100).round()}%'),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: colors.surfaceContainerLowest,
+              border: Border.all(color: colors.outlineVariant),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            // Preview while dragging without moving the slider under the
+            // pointer or writing every intermediate value to the database.
+            child: Text(
+              strings.textSizePreview,
+              key: const ValueKey('appearance-text-scale-preview'),
+              textScaler: AppTextScaler(systemScaler, normalized),
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: colors.onSurface),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(strings.textSizeHint),
+          Align(
+            alignment: AlignmentDirectional.centerEnd,
+            child: TextButton(
+              key: const ValueKey('appearance-text-scale-reset'),
+              onPressed: () {
+                onChanged(AppSettings.defaultTextScale);
+                onChangeEnd(AppSettings.defaultTextScale);
+              },
+              child: Text(strings.textSizeReset),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -890,141 +1551,165 @@ Future<String?> _pickCustomAccentColor(
   Color initialColor,
 ) {
   var draft = HSVColor.fromColor(initialColor);
-  return showModalBottomSheet<String>(
+  return showAdaptiveSheet<String>(
     context: context,
+    title: context.strings.customColor,
     isScrollControlled: true,
     useSafeArea: true,
     showDragHandle: true,
-    builder: (context) {
-      return StatefulBuilder(
-        builder: (context, setModalState) {
-          final color = draft.toColor();
-          final colorScheme = Theme.of(context).colorScheme;
-          final size = MediaQuery.sizeOf(context);
-          final maxHeight = size.height * 0.88;
-          final wheelSize = math.min(size.width - 72, 292.0);
-          final readableOnAccent = AppColorTokens.readableOn(color);
-
-          return SafeArea(
-            top: false,
-            child: Padding(
-              padding: EdgeInsets.only(
-                left: 16,
-                right: 16,
-                bottom: 16 + MediaQuery.viewInsetsOf(context).bottom,
-              ),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(maxHeight: maxHeight),
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        context.strings.customColor,
-                        style: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(fontWeight: FontWeight.w700),
-                      ),
-                      const SizedBox(height: 14),
-                      Center(
-                        child: _ColorWheelPicker(
-                          hsv: draft,
-                          size: wheelSize,
-                          onChanged: (value) {
-                            setModalState(() => draft = value);
-                          },
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      Center(
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 10,
-                          ),
-                          decoration: BoxDecoration(
-                            color: color,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: colorScheme.outlineVariant,
-                            ),
-                          ),
-                          child: Text(
-                            context.strings.customColor,
-                            style: Theme.of(context).textTheme.labelLarge
-                                ?.copyWith(
-                                  color: readableOnAccent,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          for (final preset in _customAccentPalette)
-                            InkWell(
-                              borderRadius: BorderRadius.circular(18),
-                              onTap: () => setModalState(() {
-                                draft = HSVColor.fromColor(preset);
-                              }),
-                              child: DecoratedBox(
-                                decoration: BoxDecoration(
-                                  color: preset,
-                                  shape: BoxShape.circle,
-                                  border: Border.all(
-                                    color: color == preset
-                                        ? colorScheme.onSurface
-                                        : colorScheme.outlineVariant,
-                                    width: color == preset ? 2.5 : 1,
-                                  ),
-                                ),
-                                child: SizedBox.square(
-                                  dimension: 32,
-                                  child: color == preset
-                                      ? AppIcon(
-                                          AppIconAssets.systemCheck,
-                                          color: AppColorTokens.readableOn(
-                                            preset,
-                                          ),
-                                          size: 17,
-                                        )
-                                      : null,
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      _ColorSlider(
-                        label: context.strings.colorBrightness,
-                        value: draft.value,
-                        min: 0.35,
-                        max: 1,
-                        onChanged: (value) => setModalState(() {
-                          draft = draft.withValue(value);
-                        }),
-                      ),
-                      const SizedBox(height: 8),
-                      SizedBox(
-                        width: double.infinity,
-                        child: FilledButton(
-                          onPressed: () =>
-                              Navigator.of(context).pop(_customAccentId(color)),
-                          child: Text(context.strings.apply),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+    builder: (context) => StatefulBuilder(
+      builder: (context, setModalState) {
+        final color = draft.toColor();
+        final colors = Theme.of(context).colorScheme;
+        final desktop = DesktopLayout.isActive(context);
+        final preview = Row(
+          key: const ValueKey('custom-accent-preview'),
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: colors.outlineVariant),
               ),
             ),
+            const SizedBox(width: 12),
+            Expanded(child: Text(context.strings.colorPreview)),
+          ],
+        );
+        final controls = Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            preview,
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final preset in _customAccentPalette)
+                  InkWell(
+                    borderRadius: BorderRadius.circular(18),
+                    onTap: () => setModalState(() {
+                      draft = HSVColor.fromColor(preset);
+                    }),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: preset,
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: color == preset
+                              ? colors.onSurface
+                              : colors.outlineVariant,
+                          width: color == preset ? 2.5 : 1,
+                        ),
+                      ),
+                      child: SizedBox.square(
+                        dimension: 32,
+                        child: color == preset
+                            ? AppIcon(
+                                AppIconAssets.systemCheck,
+                                color: AppColorTokens.readableOn(preset),
+                                size: 17,
+                              )
+                            : null,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            _ColorSlider(
+              label: context.strings.colorBrightness,
+              value: draft.value,
+              min: 0.35,
+              max: 1,
+              onChanged: (value) => setModalState(() {
+                draft = draft.withValue(value);
+              }),
+            ),
+          ],
+        );
+        final apply = FilledButton(
+          key: const ValueKey('custom-accent-apply'),
+          onPressed: () => Navigator.of(context).pop(_customAccentId(color)),
+          child: Text(context.strings.apply),
+        );
+        Widget wheel(double size) => _ColorWheelPicker(
+          hsv: draft,
+          size: size,
+          onChanged: (value) => setModalState(() => draft = value),
+        );
+        if (desktop) {
+          return FilterPickerSheet(
+            options: [
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  // The graphic, unlike the text, may shrink to leave room for
+                  // brightness and the pinned apply action in a short window.
+                  if (constraints.maxWidth >= 520) {
+                    return Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        wheel(200),
+                        const SizedBox(width: 24),
+                        Expanded(child: controls),
+                      ],
+                    );
+                  }
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      wheel(160),
+                      const SizedBox(height: 16),
+                      controls,
+                    ],
+                  );
+                },
+              ),
+            ],
+            action: apply,
           );
-        },
-      );
-    },
+        }
+        return SafeArea(
+          top: false,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.sizeOf(context).height * .88,
+            ),
+            child: SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(
+                16,
+                0,
+                16,
+                16 + MediaQuery.viewInsetsOf(context).bottom,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    context.strings.customColor,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 14),
+                  Center(
+                    child: wheel(
+                      math.min(MediaQuery.sizeOf(context).width - 72, 292),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  controls,
+                  const SizedBox(height: 8),
+                  apply,
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    ),
   );
 }
 

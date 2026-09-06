@@ -12,7 +12,6 @@ dependencies:
   app_links: ^7.1.1
   audio_session: ^0.2.3
   crypto: ^3.0.7
-  cryptography: ^2.9.0
   drift: 2.31.0
   flutter:
     sdk: flutter

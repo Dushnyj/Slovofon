@@ -5,8 +5,11 @@ import 'package:drift/drift.dart';
 import '../../data/database/app_database.dart';
 import '../../domain/models/audio_book.dart';
 import 'library_store.dart';
+import '../audio/audio_state.dart';
+import 'library_metadata.dart';
 
-class DriftLibraryPersistenceStore implements LibraryPersistenceStore {
+class DriftLibraryPersistenceStore
+    implements LibraryPersistenceStore, LibraryMetadataPersistence {
   DriftLibraryPersistenceStore(this._db);
 
   final AppDatabase _db;
@@ -42,19 +45,44 @@ class DriftLibraryPersistenceStore implements LibraryPersistenceStore {
   }
 
   @override
-  Future<void> saveFavorite(LibraryBookEntry entry) async {
+  Future<void> saveFavorite(LibraryBookEntry entry) => _saveBook(entry);
+
+  Future<void> _saveBook(
+    LibraryBookEntry entry, {
+    AudioPlaybackBook? playback,
+    bool favorite = true,
+  }) async {
     final now = entry.updatedAt;
     final book = entry.book;
-    final bookId = _bookId(book);
-    final versionId = _versionId(book);
+    final bookId = playback?.id ?? _bookId(book);
+    final versionId = playback?.versionId ?? _versionId(book);
     final authors = _peopleList(book.author);
     final narrators = _peopleList(book.narrator);
-    final metadataJson = jsonEncode({
-      'sourceName': book.sourceName,
-      'chapterCount': book.chapterCount,
-    });
-
     await _db.transaction(() async {
+      final previous = await (_db.select(
+        _db.bookVersions,
+      )..where((r) => r.id.equals(versionId))).getSingleOrNull();
+      final previousBook = await (_db.select(
+        _db.books,
+      )..where((r) => r.id.equals(bookId))).getSingleOrNull();
+      final metadataJson = jsonEncode({
+        ..._decodeMap(previous?.rawSourceDataJson),
+        'sourceName': book.sourceName,
+        'chapterCount': book.chapterCount,
+        'isFragment': book.isFragment,
+        if (playback != null) 'librarySourceBookId': playback.sourceBookId,
+        if (playback != null)
+          'libraryChapters': [
+            for (final c in playback.chapters)
+              {
+                'id': c.id,
+                'index': c.index,
+                'title': c.title,
+                'durationMs': c.duration.inMilliseconds,
+              },
+          ],
+      });
+
       await _db
           .into(_db.books)
           .insertOnConflictUpdate(
@@ -68,7 +96,7 @@ class DriftLibraryPersistenceStore implements LibraryPersistenceStore {
               year: Value(book.year),
               bestCoverUrl: Value(book.coverUrl),
               bestDescription: Value(book.description),
-              createdAt: Value(now),
+              createdAt: Value(previousBook?.createdAt ?? now),
               updatedAt: Value(now),
             ),
           );
@@ -84,31 +112,121 @@ class DriftLibraryPersistenceStore implements LibraryPersistenceStore {
               normalizedTitle: Value(_normalizeTitle(book.title)),
               authorsJson: Value(jsonEncode(authors)),
               narratorsJson: Value(jsonEncode(narrators)),
-              seriesTitle: Value(book.seriesTitle),
-              seriesNumber: Value(book.seriesNumber),
-              description: Value(book.description),
-              coverUrl: Value(book.coverUrl),
+              seriesTitle: Value(book.seriesTitle ?? previous?.seriesTitle),
+              seriesNumber: Value(book.seriesNumber ?? previous?.seriesNumber),
+              description: Value(book.description ?? previous?.description),
+              coverUrl: Value(book.coverUrl ?? previous?.coverUrl),
               durationText: Value(book.durationLabel),
-              publishedYear: Value(book.year),
-              ratingValue: Value(book.ratingValue),
-              ratingCount: Value(book.ratingCount),
-              accessType: Value(_accessTypeName(book.access)),
-              playbackAccess: const Value('unknown'),
+              publishedYear: Value(book.year ?? previous?.publishedYear),
+              ratingValue: Value(book.ratingValue ?? previous?.ratingValue),
+              ratingCount: Value(book.ratingCount ?? previous?.ratingCount),
+              accessType: Value(
+                book.access == BookAccess.unknown
+                    ? previous?.accessType ?? 'unknown'
+                    : _accessTypeName(book.access),
+              ),
+              isFragment: Value(book.isFragment),
+              playbackAccess: Value(previous?.playbackAccess ?? 'unknown'),
+              durationMs: playback == null
+                  ? const Value.absent()
+                  : Value(playback.totalDuration.inMilliseconds),
+              sourceUrl: playback?.sourceUrl == null
+                  ? const Value.absent()
+                  : Value(playback!.sourceUrl),
               rawSourceDataJson: Value(metadataJson),
-              createdAt: Value(now),
+              createdAt: Value(previous?.createdAt ?? now),
               updatedAt: Value(now),
             ),
           );
-      await _db
-          .into(_db.favorites)
-          .insertOnConflictUpdate(
-            FavoritesCompanion(
-              bookId: Value(bookId),
-              bookVersionId: Value(versionId),
-              createdAt: Value(now),
+      if (favorite) {
+        await _db
+            .into(_db.favorites)
+            .insertOnConflictUpdate(
+              FavoritesCompanion(
+                bookId: Value(bookId),
+                bookVersionId: Value(versionId),
+                createdAt: Value(now),
+              ),
+            );
+      }
+    });
+  }
+
+  @override
+  Future<void> savePlaybackBook(AudioPlaybackBook book) => _saveBook(
+    LibraryBookEntry(
+      book: libraryCardBook(book),
+      isFavorite: false,
+      updatedAt: DateTime.now(),
+    ),
+    playback: book,
+    favorite: false,
+  );
+
+  @override
+  Future<List<AudioPlaybackBook>> loadPlaybackBooks() async {
+    final versions = await _db.select(_db.bookVersions).get();
+    return [for (final version in versions) await _playbackBook(version)];
+  }
+
+  Future<AudioPlaybackBook> _playbackBook(BookVersionRow version) async {
+    final card = _audioBookFromVersion(version);
+    final metadata = _decodeMap(version.rawSourceDataJson);
+    final embedded = metadata['libraryChapters'];
+    final chapters = <AudioPlaybackChapter>[];
+    if (embedded is List) {
+      for (final row in embedded) {
+        if (row is Map && row['id'] is String && row['title'] is String) {
+          chapters.add(
+            AudioPlaybackChapter(
+              id: row['id'] as String,
+              index: _intValue(row['index']),
+              title: row['title'] as String,
+              duration: Duration(milliseconds: _intValue(row['durationMs'])),
             ),
           );
-    });
+        }
+      }
+    } else {
+      // Keep bookmarks created by earlier schema-1 consumers resolvable too.
+      final rows =
+          await (_db.select(_db.chapters)
+                ..where((r) => r.bookVersionId.equals(version.id))
+                ..orderBy([(r) => OrderingTerm.asc(r.index)]))
+              .get();
+      chapters.addAll(
+        rows.map(
+          (r) => AudioPlaybackChapter(
+            id: r.id,
+            index: r.index,
+            title: r.title,
+            duration: Duration(milliseconds: r.durationMs ?? 0),
+          ),
+        ),
+      );
+    }
+    return AudioPlaybackBook(
+      id: version.bookId,
+      versionId: version.id,
+      sourceId: version.sourceId,
+      sourceBookId: metadata.containsKey('librarySourceBookId')
+          ? metadata['librarySourceBookId'] as String?
+          : version.sourceBookId,
+      title: card.title,
+      author: card.author,
+      narrator: card.narrator,
+      sourceName: card.sourceName,
+      chapters: List.unmodifiable(chapters),
+      coverUrl: card.coverUrl,
+      description: card.description,
+      seriesTitle: card.seriesTitle,
+      seriesNumber: card.seriesNumber,
+      publishedYear: card.year,
+      ratingValue: card.ratingValue,
+      ratingCount: card.ratingCount,
+      sourceUrl: version.sourceUrl,
+      isFragment: card.isFragment,
+    );
   }
 
   @override
@@ -133,6 +251,7 @@ class DriftLibraryPersistenceStore implements LibraryPersistenceStore {
       chapterCount: _intValue(metadata['chapterCount']),
       progress: 0,
       access: _bookAccess(version.accessType),
+      isFragment: version.isFragment || metadata['isFragment'] == true,
       coverUrl: version.coverUrl,
       description: version.description,
       seriesTitle: version.seriesTitle,

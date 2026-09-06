@@ -121,6 +121,7 @@ class BookSearchResult {
     this.audioYear,
     this.chapterCount,
     this.isFull,
+    this.isFragment = false,
     this.isFree,
     this.accessType = AccessType.unknown,
     this.ratingValue,
@@ -142,6 +143,7 @@ class BookSearchResult {
   final int? audioYear;
   final int? chapterCount;
   final bool? isFull;
+  final bool isFragment;
   final bool? isFree;
   final AccessType accessType;
   final double? ratingValue;

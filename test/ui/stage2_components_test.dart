@@ -214,6 +214,68 @@ void main() {
     expect(find.byType(LinearProgressIndicator), findsNothing);
   });
 
+  testWidgets('book card switches to desktop tile layout on wide cards', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1280, 820);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    const book = AudioBook(
+      id: 'akniga-book-1',
+      sourceBookId: '1',
+      title:
+          'Очень длинное название аудиокниги, которое должно аккуратно обрезаться внутри карточки',
+      author: 'Первый Автор, Второй Автор, Третий Автор',
+      narrator: 'Первый Чтец, Второй Чтец, Третий Чтец',
+      sourceId: 'akniga',
+      sourceName: 'Akniga',
+      durationLabel: '11 ч 49 мин',
+      chapterCount: 64,
+      progress: 0.42,
+      access: BookAccess.free,
+      seriesTitle: 'S.T.A.L.K.E.R.',
+      ratingValue: 4.6,
+      ratingCount: 81,
+      year: 2019,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(),
+        home: Scaffold(
+          body: Align(
+            alignment: Alignment.topLeft,
+            child: SizedBox(
+              width: 960,
+              child: BookCard(
+                book: book,
+                isFavorite: true,
+                onTap: () {},
+                onPlay: () {},
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(
+      find.byKey(const ValueKey('book-card-desktop-tile')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('book-card-desktop-layout')),
+      findsNothing,
+    );
+    expect(find.text('Первый Автор, Второй Автор и др.'), findsOneWidget);
+    expect(find.text('Первый Чтец, Второй Чтец и др.'), findsOneWidget);
+    expect(find.text('S.T.A.L.K.E.R.'), findsOneWidget);
+    expect(find.text('11 ч 49 мин'), findsOneWidget);
+    expect(find.text('2019'), findsOneWidget);
+    expect(find.text('4.6 из 5'), findsOneWidget);
+  });
+
   testWidgets('book card pins colored source label under the cover', (
     tester,
   ) async {

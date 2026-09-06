@@ -6,6 +6,12 @@
 #define OutputBaseFilename GetEnv("SLOVOFON_OUTPUT_BASE")
 #define IconPath GetEnv("SLOVOFON_ICON_PATH")
 
+; The shared release bundle must already include the compiler redistributables.
+; Full import validation runs before packaging in the release workflow.
+#if !FileExists(SourceDir + "\msvcp140.dll") || !FileExists(SourceDir + "\vcruntime140.dll") || !FileExists(SourceDir + "\vcruntime140_1.dll")
+  #error "Missing app-local MSVC runtime. Build the complete Windows release bundle first."
+#endif
+
 [Setup]
 AppId={{C8CE9579-9F96-40B5-A58C-9726E9F76F89}
 AppName={#AppName}
@@ -14,7 +20,7 @@ AppVerName={#AppName} {#AppVersion}
 AppPublisher={#AppPublisher}
 AppPublisherURL=https://slovofon.duckdns.org
 AppSupportURL=https://t.me/slovofon_bot
-AppUpdatesURL=https://slovofon-updates.duckdns.org
+AppUpdatesURL=https://github.com/Dushnyj/Slovofon/releases
 DefaultDirName={autopf}\Slovofon
 DefaultGroupName=Slovofon
 DisableProgramGroupPage=auto
