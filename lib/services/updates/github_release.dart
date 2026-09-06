@@ -157,17 +157,24 @@ class GitHubRelease {
 
   static GitHubInstallerIdentity? installerIdentity(String name) {
     final match = RegExp(
-      r'^Slovofon-v([0-9.]+)-(android-universal-release\.apk|windows-x64-setup\.exe)$',
+      r'^Slovofon-v([0-9.]+)-(android-universal-release\.apk|windows-x64-(?:setup\.exe|msi\.msi|portable\.zip))$',
     ).firstMatch(name);
     if (match == null || !_versionPattern.hasMatch(match.group(1)!)) {
       return null;
     }
-    final android = match.group(2) == 'android-universal-release.apk';
+    final kind = switch (match.group(2)!) {
+      'android-universal-release.apk' => UpdateAssetKind.apk,
+      'windows-x64-setup.exe' => UpdateAssetKind.installer,
+      'windows-x64-msi.msi' => UpdateAssetKind.msi,
+      'windows-x64-portable.zip' => UpdateAssetKind.portable,
+      _ => throw StateError('Unsupported release asset identity'),
+    };
+    final android = kind == UpdateAssetKind.apk;
     return GitHubInstallerIdentity(
       match.group(1)!,
       android ? UpdateAssetPlatform.android : UpdateAssetPlatform.windows,
       android ? 'universal' : 'x64',
-      android ? UpdateAssetKind.apk : UpdateAssetKind.installer,
+      kind,
     );
   }
 

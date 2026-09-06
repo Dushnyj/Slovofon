@@ -9,25 +9,38 @@ import 'package:slovofon/services/updates/update_client.dart';
 import 'package:slovofon/services/updates/update_manifest.dart';
 
 const _name = 'Slovofon-v0.0.6-windows-x64-setup.exe';
+const _windowsPackages = {
+  _name: UpdateAssetKind.installer,
+  'Slovofon-v0.0.6-windows-x64-msi.msi': UpdateAssetKind.msi,
+  'Slovofon-v0.0.6-windows-x64-portable.zip': UpdateAssetKind.portable,
+};
 final _api = Uri.parse(GitHubRelease.latestApiUrl);
 final _url = Uri.parse(
   'https://github.com/Dushnyj/Slovofon/releases/download/v0.0.6/',
 ).resolve(_name);
 final _payload = utf8.encode('synthetic installer bytes; never executed');
 
-UpdateAsset _asset({String? name, Uri? url, String? hash, int? size}) =>
-    UpdateAsset(
-      platform: UpdateAssetPlatform.windows,
-      arch: 'x64',
-      kind: UpdateAssetKind.installer,
-      url: url ?? _url,
-      fileName: name ?? _name,
-      sha256: hash ?? sha256.convert(_payload).toString(),
-      size: size ?? _payload.length,
-    );
+UpdateAsset _asset({
+  String? name,
+  Uri? url,
+  String? hash,
+  int? size,
+  UpdateAssetKind kind = UpdateAssetKind.installer,
+  UpdateAssetPlatform platform = UpdateAssetPlatform.windows,
+  String arch = 'x64',
+}) => UpdateAsset(
+  platform: platform,
+  arch: arch,
+  kind: kind,
+  url: url ?? _url.resolve(name ?? _name),
+  fileName: name ?? _name,
+  sha256: hash ?? sha256.convert(_payload).toString(),
+  size: size ?? _payload.length,
+);
 
 Map<String, Object?> _release({
   bool digest = true,
+  String name = _name,
   List<Object?> extra = const [],
 }) => {
   'tag_name': 'v0.0.6',
@@ -38,8 +51,8 @@ Map<String, Object?> _release({
   'body': 'Fixture release',
   'assets': [
     {
-      'name': _name,
-      'browser_download_url': _url.toString(),
+      'name': name,
+      'browser_download_url': _url.resolve(name).toString(),
       'state': 'uploaded',
       'size': _payload.length,
       if (digest) 'digest': 'sha256:${sha256.convert(_payload)}',
@@ -63,6 +76,277 @@ Future<void> _respond(
 }
 
 void main() {
+  group('Windows release distribution contracts', () {
+    for (final package in _windowsPackages.entries) {
+      final name = package.key;
+      final kind = package.value;
+      final url = _url.resolve(name);
+
+      test(
+        '$kind fetches and verifies only the exact package through CDN',
+        () async {
+          final cdn = Uri.parse(
+            'https://release-assets.githubusercontent.com/assets/$name?signature=fixture',
+          );
+          final fixture = await _Fixture.start((request) async {
+            if (request.uri.path.endsWith('/latest')) {
+              return _respond(
+                request,
+                utf8.encode(jsonEncode(_release(name: name))),
+              );
+            }
+            if (request.headers.host == 'github.com') {
+              request.response.statusCode = 302;
+              request.response.headers.set(HttpHeaders.locationHeader, cdn);
+              return request.response.close();
+            }
+            await _respond(request, _payload, length: _payload.length);
+          });
+          final client = fixture.client();
+          final manifest = await client.fetchManifest(_api);
+          final asset = manifest.assets.single;
+          expect(asset.kind, kind);
+          expect(asset.platform, UpdateAssetPlatform.windows);
+          expect(asset.arch, 'x64');
+          expect(asset.url, url);
+          expect(asset.fileName, name);
+          expect(asset.sha256, sha256.convert(_payload).toString());
+          final result = await client.downloadAsset(asset);
+          expect(await result.file.readAsBytes(), _payload);
+          expect(result.file.uri.pathSegments.last, name);
+          expect(fixture.uris, [_api, url, cdn]);
+        },
+      );
+
+      test('$kind fallback checksums are exact-name and mandatory', () async {
+        var matching = true;
+        final sumsUrl = _url.resolve('SHA256SUMS.txt');
+        final fixture = await _Fixture.start((request) async {
+          final checksumName = matching ? name : 'unrelated-installer.exe';
+          final sums = utf8.encode(
+            '${sha256.convert(_payload)}  $checksumName\n',
+          );
+          if (request.uri.path.endsWith('SHA256SUMS.txt')) {
+            return _respond(request, sums);
+          }
+          await _respond(
+            request,
+            utf8.encode(
+              jsonEncode(
+                _release(
+                  name: name,
+                  digest: false,
+                  extra: [
+                    {
+                      'name': 'SHA256SUMS.txt',
+                      'state': 'uploaded',
+                      'size': sums.length,
+                      'digest': 'sha256:${sha256.convert(sums)}',
+                      'browser_download_url': sumsUrl.toString(),
+                    },
+                  ],
+                ),
+              ),
+            ),
+          );
+        });
+        final asset = (await fixture.client().fetchManifest(
+          _api,
+        )).assets.single;
+        expect(asset.kind, kind);
+        expect(asset.sha256, sha256.convert(_payload).toString());
+        expect(fixture.uris, [_api, sumsUrl]);
+        matching = false;
+        await expectLater(
+          fixture.client().fetchManifest(_api),
+          throwsA(isA<UpdateClientException>()),
+        );
+        expect(fixture.uris, [_api, sumsUrl, _api, sumsUrl]);
+      });
+
+      test(
+        '$kind rejects mismatched identity before filesystem or HTTP',
+        () async {
+          var calls = 0;
+          final client = UpdateClient(
+            httpClientFactory: () {
+              calls++;
+              throw StateError('HTTP must not start');
+            },
+            temporaryDirectoryProvider: () async {
+              calls++;
+              throw StateError('disk must not be accessed');
+            },
+          );
+          for (final asset in [
+            for (final wrongKind in UpdateAssetKind.values.where(
+              (value) => value != kind,
+            ))
+              _asset(name: name, kind: wrongKind),
+            _asset(name: name, kind: kind, arch: 'arm64'),
+            _asset(
+              name: name,
+              kind: kind,
+              platform: UpdateAssetPlatform.android,
+            ),
+            _asset(name: name, kind: kind, hash: ''),
+            _asset(name: name, kind: kind, hash: 'z' * 64),
+            _asset(name: name, kind: kind, size: 0),
+            _asset(name: name, kind: kind, size: 3 * 1024 * 1024 * 1024),
+            _asset(
+              name: name,
+              kind: kind,
+              url: url.replace(query: 'asset=other'),
+            ),
+            _asset(
+              name: name,
+              kind: kind,
+              url: url.replace(fragment: 'other'),
+            ),
+            _asset(
+              name: name,
+              kind: kind,
+              url: url.replace(host: 'other.test'),
+            ),
+            _asset(
+              name: name,
+              kind: kind,
+              url: url.replace(path: url.path.replaceFirst('v0.0.6', 'v0.0.7')),
+            ),
+            _asset(name: name, kind: kind, url: _url.resolve('other.exe')),
+          ]) {
+            await expectLater(
+              client.downloadAsset(asset),
+              throwsA(isA<UpdateClientException>()),
+            );
+          }
+          expect(calls, 0);
+        },
+      );
+
+      test(
+        '$kind rejects every disallowed redirect before following it',
+        () async {
+          var location = '';
+          final fixture = await _Fixture.start((request) async {
+            request.response.statusCode = 302;
+            request.response.headers.set(HttpHeaders.locationHeader, location);
+            await request.response.close();
+          });
+          for (final target in [
+            'https://outside.test/$name',
+            'https://release-assets.githubusercontent.com.evil.test/$name',
+            'https://u:p@objects.githubusercontent.com/$name',
+            'http://objects.githubusercontent.com/$name',
+            'https://objects.githubusercontent.com:8443/$name',
+            'https://objects.githubusercontent.com/$name#fragment',
+            _url.resolve('other.exe').toString(),
+          ]) {
+            location = target;
+            final before = fixture.uris.length;
+            await expectLater(
+              fixture.client().downloadAsset(_asset(name: name, kind: kind)),
+              throwsA(isA<UpdateClientException>()),
+            );
+            expect(fixture.uris.length, before + 1);
+            expect(fixture.uris.last, url);
+            expect(await fixture.stagingEntries(), isEmpty);
+          }
+        },
+      );
+
+      test(
+        '$kind rejects short, oversized and altered bytes without ready file',
+        () async {
+          List<int> payload = _payload;
+          final fixture = await _Fixture.start(
+            (request) => _respond(request, payload),
+          );
+          for (final bytes in [
+            _payload.sublist(1),
+            [..._payload, 1],
+            List<int>.filled(_payload.length, 0),
+          ]) {
+            payload = bytes;
+            await expectLater(
+              fixture.client().downloadAsset(_asset(name: name, kind: kind)),
+              throwsA(isA<UpdateClientException>()),
+            );
+            expect(await fixture.stagingEntries(), isEmpty);
+          }
+        },
+      );
+    }
+
+    test(
+      'an unrelated supported package without a checksum fails the release closed',
+      () async {
+        const android = 'Slovofon-v0.0.6-android-universal-release.apk';
+        var missingName = android;
+        final fixture = await _Fixture.start(
+          (request) => _respond(
+            request,
+            utf8.encode(
+              jsonEncode(
+                _release(
+                  extra: [
+                    {
+                      'name': missingName,
+                      'state': 'uploaded',
+                      'size': _payload.length,
+                      'browser_download_url': _url
+                          .resolve(missingName)
+                          .toString(),
+                    },
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+        for (final name in [
+          android,
+          ..._windowsPackages.keys.where((name) => name != _name),
+        ]) {
+          missingName = name;
+          await expectLater(
+            fixture.client().fetchManifest(_api),
+            throwsA(isA<UpdateClientException>()),
+          );
+        }
+        expect(fixture.uris, everyElement(_api));
+      },
+    );
+
+    test('MSIX and arbitrary package names remain non-downloadable', () async {
+      var calls = 0;
+      final client = UpdateClient(
+        httpClientFactory: () {
+          calls++;
+          throw StateError('HTTP must not start');
+        },
+        temporaryDirectoryProvider: () async {
+          calls++;
+          throw StateError('disk must not be accessed');
+        },
+      );
+      for (final entry in {
+        'Slovofon-v0.0.6-windows-x64-msix.msix': UpdateAssetKind.msix,
+        'Slovofon-v0.0.6-windows-x64-setup.msi': UpdateAssetKind.msi,
+        'Slovofon-v0.0.6-windows-x64-msi.exe': UpdateAssetKind.msi,
+        'Slovofon-v0.0.6-windows-x64-portable.exe': UpdateAssetKind.portable,
+        'installer.msi': UpdateAssetKind.msi,
+        'portable.zip': UpdateAssetKind.portable,
+      }.entries) {
+        await expectLater(
+          client.downloadAsset(_asset(name: entry.key, kind: entry.value)),
+          throwsA(isA<UpdateClientException>()),
+        );
+      }
+      expect(calls, 0);
+    });
+  });
+
   test(
     'transparent gzip preserves decoded asset and SHA256SUMS size/hash checks',
     () async {

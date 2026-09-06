@@ -72,6 +72,8 @@ class UpdateClient {
         );
       }
       Map<String, String> checksums = const {};
+      // Fail closed for the whole supported release set, including other
+      // platforms/distributions. Selection must never hide a missing hash.
       if (release.needsChecksums) {
         final checksumAsset = release.checksumAsset;
         if (checksumAsset == null) {

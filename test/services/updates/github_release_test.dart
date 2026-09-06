@@ -8,6 +8,13 @@ const _repository = 'https://github.com/Dushnyj/Slovofon';
 const _downloadBase = '$_repository/releases/download/$_tag';
 const _androidName = 'Slovofon-$_tag-android-universal-release.apk';
 const _windowsName = 'Slovofon-$_tag-windows-x64-setup.exe';
+const _msiName = 'Slovofon-$_tag-windows-x64-msi.msi';
+const _portableName = 'Slovofon-$_tag-windows-x64-portable.zip';
+const _windowsPackages = {
+  _windowsName: UpdateAssetKind.installer,
+  _msiName: UpdateAssetKind.msi,
+  _portableName: UpdateAssetKind.portable,
+};
 final _androidHash = 'ab' * 32;
 final _windowsHash = 'cd' * 32;
 
@@ -81,13 +88,51 @@ void main() {
       expect(() => manifest.assets.clear(), throwsUnsupportedError);
     });
 
+    test('normalizes exact Windows distribution kinds without fallback', () {
+      final release = GitHubRelease.fromJson(
+        _release(
+          assets: [
+            for (final name in _windowsPackages.keys)
+              _asset(name: name, digest: 'sha256:$_windowsHash', size: 5678),
+          ],
+        ),
+      );
+      final manifest = release.toManifest();
+      expect(manifest.assets, hasLength(3));
+      expect(release.needsChecksums, isFalse);
+      for (final asset in manifest.assets) {
+        expect(asset.platform, UpdateAssetPlatform.windows);
+        expect(asset.arch, 'x64');
+        expect(asset.kind, _windowsPackages[asset.fileName]);
+        expect(asset.url.toString(), '$_downloadBase/${asset.fileName}');
+        expect(asset.sha256, _windowsHash);
+        expect(asset.size, 5678);
+      }
+    });
+
+    test('in-memory manifest preserves the MSI package kind', () {
+      final asset = UpdateAsset.fromJson({
+        'platform': 'windows',
+        'arch': 'x64',
+        'kind': 'msi',
+        'url': '$_downloadBase/$_msiName',
+        'file_name': _msiName,
+        'sha256': _windowsHash,
+        'size': 5678,
+      });
+      expect(asset.kind, UpdateAssetKind.msi);
+      expect(asset.platform, UpdateAssetPlatform.windows);
+      expect(asset.arch, 'x64');
+      expect(asset.hasValidChecksum, isTrue);
+    });
+
     test(
       'keeps a stable release available when no installers are supported',
       () {
         final release = GitHubRelease.fromJson(
           _release(
             assets: [
-              _asset(name: 'Slovofon-$_tag-windows-x64-portable.zip'),
+              _asset(name: 'Slovofon-$_tag-windows-arm64-portable.zip'),
               _asset(name: 'Slovofon-$_tag-windows-x64-msix.msix'),
               _asset(name: 'Slovofon-$_tag-android-arm64-v8a-release.apk'),
               _asset(name: 'Slovofon-$_tag-android-tv-universal-release.apk'),
@@ -209,16 +254,24 @@ void main() {
         expect(android.platform, UpdateAssetPlatform.android);
         expect(android.arch, 'universal');
         expect(android.kind, UpdateAssetKind.apk);
-        final windows = GitHubRelease.installerIdentity(_windowsName)!;
-        expect(windows.version, _version);
-        expect(windows.platform, UpdateAssetPlatform.windows);
-        expect(windows.arch, 'x64');
-        expect(windows.kind, UpdateAssetKind.installer);
+        for (final entry in _windowsPackages.entries) {
+          final windows = GitHubRelease.installerIdentity(entry.key)!;
+          expect(windows.version, _version);
+          expect(windows.platform, UpdateAssetPlatform.windows);
+          expect(windows.arch, 'x64');
+          expect(windows.kind, entry.value);
+        }
         for (final name in [
           'Slovofon-v00.0.6-android-universal-release.apk',
           'Slovofon-v0.0.1000000000-windows-x64-setup.exe',
           'Slovofon-v0.0.6-android-arm64-v8a-release.apk',
-          'Slovofon-v0.0.6-windows-x64-portable.zip',
+          'Slovofon-v0.0.6-windows-arm64-portable.zip',
+          'Slovofon-v0.0.6-windows-x64-msix.msix',
+          'Slovofon-v0.0.6-windows-x64-setup.msi',
+          'Slovofon-v0.0.6-windows-x64-msi.exe',
+          'Slovofon-v0.0.6-windows-x64-portable.exe',
+          'Slovofon-v0.0.6-windows-x64-msi.msi.exe',
+          'Slovofon-v0.0.6-windows-x64-portable.zip.exe',
           'Slovofon-v0.0.6-windows-x64-setup.exe.apk',
           'slovofon-v0.0.6-windows-x64-setup.exe',
           '../$_androidName',
@@ -231,7 +284,11 @@ void main() {
     test(
       'URL helper validates installer and checksum against supplied version',
       () {
-        for (final name in [_androidName, _windowsName, 'SHA256SUMS.txt']) {
+        for (final name in [
+          _androidName,
+          ..._windowsPackages.keys,
+          'SHA256SUMS.txt',
+        ]) {
           expect(
             () => GitHubRelease.validateAssetUrl(
               Uri.parse('$_downloadBase/$name'),
@@ -251,6 +308,49 @@ void main() {
         }
       },
     );
+
+    for (final name in [_msiName, _portableName]) {
+      test('strict metadata identity, URL, size and hash for $name', () {
+        for (final url in [
+          '$_repository/releases/download/v0.0.7/$name',
+          'https://github.com/other/Slovofon/releases/download/$_tag/$name',
+          '$_downloadBase/$_windowsName',
+          '$_downloadBase/$name?download=1',
+          '$_downloadBase/$name#fragment',
+          '$_downloadBase/unused/../$name',
+          '$_downloadBase/${name.replaceFirst('-', '%2D')}',
+          'https://release-assets.githubusercontent.com/$name',
+        ]) {
+          expect(
+            () => GitHubRelease.fromJson(
+              _release(
+                assets: [_asset(name: name)..['browser_download_url'] = url],
+              ),
+            ),
+            throwsFormatException,
+            reason: url,
+          );
+        }
+        for (final fields in <Map<String, Object?>>[
+          {'name': name.replaceFirst(_version, '0.0.7')},
+          {'size': 0},
+          {'size': -1},
+          {'size': 1234.0},
+          {'size': '1234'},
+          {'state': 'new'},
+          {'digest': 'sha256:${'g' * 64}'},
+          {'digest': 'sha512:$_windowsHash'},
+        ]) {
+          expect(
+            () => GitHubRelease.fromJson(
+              _release(assets: [_asset(name: name)..addAll(fields)]),
+            ),
+            throwsFormatException,
+            reason: fields.toString(),
+          );
+        }
+      });
+    }
 
     for (final url in <Object?>[
       null,
@@ -385,6 +485,25 @@ void main() {
   });
 
   group('SHA256 digest and fallback contracts', () {
+    for (final name in [_msiName, _portableName]) {
+      test('requires an exact same-release SHA256SUMS entry for $name', () {
+        final release = GitHubRelease.fromJson(
+          _release(assets: [_asset(name: name, digest: null)]),
+        );
+        expect(release.needsChecksums, isTrue);
+        expect(release.toManifest, throwsFormatException);
+        expect(
+          () => release.toManifest(checksums: {_windowsName: _windowsHash}),
+          throwsFormatException,
+        );
+        final manifest = release.toManifest(
+          checksums: GitHubRelease.parseChecksums('$_windowsHash  $name\n'),
+        );
+        expect(manifest.assets.single.fileName, name);
+        expect(manifest.assets.single.kind, _windowsPackages[name]);
+        expect(manifest.assets.single.sha256, _windowsHash);
+      });
+    }
     test('normalizes uppercase API hashes', () {
       final manifest = GitHubRelease.fromJson(
         _release(

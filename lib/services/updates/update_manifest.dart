@@ -1,6 +1,6 @@
 enum UpdateAssetPlatform { android, androidTv, windows, unknown }
 
-enum UpdateAssetKind { apk, aab, installer, portable, msix, unknown }
+enum UpdateAssetKind { apk, aab, installer, msi, portable, msix, unknown }
 
 /// Normalized in-memory release metadata used by the UI and update service.
 /// The production client reads GitHub Releases, not a server JSON manifest.
@@ -103,6 +103,7 @@ UpdateAssetKind _assetKind(String? value) {
     'apk' => UpdateAssetKind.apk,
     'aab' => UpdateAssetKind.aab,
     'installer' => UpdateAssetKind.installer,
+    'msi' => UpdateAssetKind.msi,
     'portable' => UpdateAssetKind.portable,
     'msix' => UpdateAssetKind.msix,
     _ => UpdateAssetKind.unknown,
