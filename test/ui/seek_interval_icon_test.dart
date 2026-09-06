@@ -116,10 +116,18 @@ void main() {
             return alpha;
           }
 
-          expect(regionInk(bitmaps[0], 4, 7, 7, 10), 0);
-          expect(regionInk(bitmaps[0], 17, 7, 20, 10), greaterThan(0));
-          expect(regionInk(bitmaps[1], 4, 7, 7, 10), greaterThan(0));
-          expect(regionInk(bitmaps[1], 17, 7, 20, 10), 0);
+          // FreeType and DirectWrite can differ at a numeral's anti-aliased
+          // edge by less than 1/8 of an opaque logical pixel across the whole
+          // region. This is not arrow ink: a present body must cover more
+          // than one full logical pixel. Exact arc/head/transform geometry
+          // is additionally checked in seek_interval_geometry_test.dart.
+          final opaquePixel = 255 * dpr * dpr;
+          final visuallyEmpty = lessThanOrEqualTo(opaquePixel / 8);
+          final bodyPresent = greaterThan(opaquePixel);
+          expect(regionInk(bitmaps[0], 4, 7, 7, 10), visuallyEmpty);
+          expect(regionInk(bitmaps[0], 17, 7, 20, 10), bodyPresent);
+          expect(regionInk(bitmaps[1], 4, 7, 7, 10), bodyPresent);
+          expect(regionInk(bitmaps[1], 17, 7, 20, 10), visuallyEmpty);
           // The head faces along the endpoint tangent: left for rewind,
           // right for forward, not merely a reflected curved body.
           expect(regionInk(bitmaps[0], 14, 2, 16, 4), greaterThan(0));
