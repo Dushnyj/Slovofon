@@ -138,8 +138,12 @@ class AppTheme {
       chipTheme: base.chipTheme.copyWith(
         backgroundColor: colorScheme.surfaceContainerHighest,
         selectedColor: colorScheme.secondaryContainer,
-        labelStyle: TextStyle(color: colorScheme.onSurface),
-        secondaryLabelStyle: TextStyle(color: colorScheme.onSecondaryContainer),
+        labelStyle: base.textTheme.labelLarge?.copyWith(
+          color: colorScheme.onSurface,
+        ),
+        secondaryLabelStyle: base.textTheme.labelLarge?.copyWith(
+          color: colorScheme.onSecondaryContainer,
+        ),
         side: BorderSide(color: colorScheme.outlineVariant),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(radii.pill),

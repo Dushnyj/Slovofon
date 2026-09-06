@@ -163,6 +163,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
                 Align(
                   alignment: Alignment.centerLeft,
                   child: InputChip(
+                    key: const ValueKey('library-shelf-picker'),
                     avatar: const AppIcon(AppIconAssets.systemFilter, size: 16),
                     label: Text('${strings.filter}: $selected'),
                     onPressed: () => _pickShelf(context, shelves),
@@ -368,12 +369,14 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   }
 
   Future<void> _pickShelf(BuildContext context, List<String> shelves) async {
+    // Rotation and keyboard insets rebuild the route, not only StatefulBuilder.
+    // Keep the unapplied selection for the lifetime of this picker invocation.
+    var draft = _selectedShelf;
     final next = await showModalBottomSheet<int>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
       builder: (context) {
-        var draft = _selectedShelf;
         return StatefulBuilder(
           builder: (context, setModalState) {
             return FilterPickerSheet(
@@ -390,6 +393,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
                     children: [
                       for (var index = 0; index < shelves.length; index++)
                         RadioListTile<int>(
+                          key: ValueKey('library-shelf-option-$index'),
                           value: index,
                           visualDensity: VisualDensity.compact,
                           title: Text(shelves[index]),
@@ -399,6 +403,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
                 ),
               ],
               action: FilledButton(
+                key: const ValueKey('library-shelf-apply'),
                 onPressed: () => Navigator.of(context).pop(draft),
                 child: Text(context.strings.apply),
               ),

@@ -17,6 +17,7 @@ import 'package:slovofon/data/mock/stage3_mock_data.dart';
 import 'package:slovofon/domain/models/app_settings.dart';
 import 'package:slovofon/domain/models/download_task.dart';
 import 'package:slovofon/domain/models/playback_session.dart';
+import 'package:slovofon/features/book_details/saved_book_details_screen.dart';
 import 'package:slovofon/services/audio/audio_engine.dart';
 import 'package:slovofon/services/audio/audio_persistence.dart';
 import 'package:slovofon/services/audio/audio_state.dart';
@@ -44,6 +45,7 @@ import 'package:slovofon/ui/components/book_card.dart';
 import 'package:slovofon/ui/components/book_cover.dart';
 import 'package:slovofon/ui/components/source_badge.dart';
 import 'package:slovofon/ui/icons/app_icons.dart';
+import 'package:slovofon/core/platform/app_device_profile.dart';
 
 import 'test_search_history_store.dart';
 
@@ -64,11 +66,14 @@ import 'test_search_history_store.dart';
 /// Optional SLOVOFON_VISUAL_WORKSPACE=1: deterministic populated download queue,
 /// search history, and desktop workspace geometry checks. Defaults stay intact.
 /// The appearance sheet is captured only when explicitly requested by filter.
+/// saved-details opts into the real saved-metadata route. legacy-details is
+/// retained only as an old capture-name alias; neither route renders mock UI.
 void main() {
   final output = Platform.environment['SLOVOFON_VISUAL_DIR'];
   final filter = Platform.environment['SLOVOFON_VISUAL_FILTER'] ?? '';
   final pageFilter = Platform.environment['SLOVOFON_VISUAL_PAGE_FILTER'] ?? '';
   final workspace = Platform.environment['SLOVOFON_VISUAL_WORKSPACE'] == '1';
+  final television = Platform.environment['SLOVOFON_VISUAL_TELEVISION'] == '1';
   final resizeAudit =
       Platform.environment['SLOVOFON_VISUAL_RESIZE_AUDIT'] == '1';
   final searchResultCount = _visualSearchResultCount(
@@ -243,6 +248,9 @@ void main() {
               await tester.pumpWidget(
                 ProviderScope(
                   overrides: [
+                    appDeviceProfileProvider.overrideWithValue(
+                      AppDeviceProfile(isTelevision: television),
+                    ),
                     playbackControllerProvider.overrideWith((ref) {
                       ref.onDispose(controller.dispose);
                       return controller;
@@ -306,6 +314,8 @@ void main() {
                 'source-details':
                     '/source-book/${activeMockBook.sourceId}/${Uri.encodeComponent(activeMockBook.id)}',
                 'legacy-details': '/book/${activeMockBook.id}',
+                if (explicitlyRequested('saved-details'))
+                  'saved-details': '/book/${activeMockBook.id}',
                 if (explicitlyRequested('appearance'))
                   'appearance': '/settings',
                 if (explicitlyRequested('player-information'))
@@ -395,6 +405,7 @@ void main() {
                         const {
                           'source-details',
                           'legacy-details',
+                          'saved-details',
                         }.contains(page.key)
                     ? await _probeResizeDetails(tester)
                     : null;
@@ -417,6 +428,7 @@ void main() {
                     : null;
                 final lazyDownloadChecks =
                     workspace &&
+                        platform == TargetPlatform.windows &&
                         page.key == 'downloads' &&
                         _visualDownloadRows().evaluate().isEmpty
                     ? await _probeVisualDownloads(tester, size, appScale, books)
@@ -428,6 +440,37 @@ void main() {
                   error = tester.takeException()
                 ) {
                   errors.add(error.toString());
+                }
+                final routeChecks = <Map<String, Object>>[];
+                if (page.key == 'saved-details' ||
+                    page.key == 'legacy-details') {
+                  final saved = find.byType(SavedBookDetailsScreen);
+                  final expected = books
+                      .where((book) => book.id == activeMockBook.id)
+                      .firstOrNull;
+                  routeChecks.add({
+                    'name':
+                        'production book route resolves the requested saved identity',
+                    'passed':
+                        saved.evaluate().length == 1 &&
+                        tester.widget<SavedBookDetailsScreen>(saved).bookId ==
+                            activeMockBook.id,
+                    'requestedBookId': activeMockBook.id,
+                  });
+                  final title = find.byKey(const ValueKey('saved-book-title'));
+                  routeChecks.add({
+                    'name':
+                        'saved details use fixture metadata or a genuine missing state',
+                    'passed': expected == null
+                        ? find
+                                  .byKey(const ValueKey('saved-book-not-found'))
+                                  .evaluate()
+                                  .length ==
+                              1
+                        : title.evaluate().length == 1 &&
+                              tester.widget<Text>(title).data == expected.title,
+                    'expectedTitle': expected?.title ?? '',
+                  });
                 }
                 final cardBounds = [
                   for (final card in tester.widgetList<BookCard>(
@@ -580,6 +623,7 @@ void main() {
                       'systemTextScale': textScale,
                       'appTextScale': appScale,
                       'platform': platform.name,
+                      'isTelevision': television,
                       'fixtureBookCount': fixtureBookCount,
                       'fixtureBookmarkCount': bookmarks.entries.length,
                       'fixtureBookmarks': [
@@ -598,6 +642,7 @@ void main() {
                       'render':
                           'Flutter app content, not native-window capture',
                       'errors': errors,
+                      if (routeChecks.isNotEmpty) 'routeChecks': routeChecks,
                       if (resizeAudit) ...{
                         'resizeChecks': resizeChecks,
                         'scrollSurfaces': _visualScrollEvidence(tester),
@@ -648,7 +693,11 @@ void main() {
                   );
                   debugPrint('VISUAL_ERRORS ${page.key} $variant: $errors');
                 }
-                for (final check in [...workspaceChecks, ...resizeChecks]) {
+                for (final check in [
+                  ...workspaceChecks,
+                  ...resizeChecks,
+                  ...routeChecks,
+                ]) {
                   if (check['passed'] != true) {
                     visualErrors.add('${page.key} $variant: $check');
                   }
@@ -907,6 +956,7 @@ List<Map<String, Object>> _workspaceGeometry(WidgetTester tester, Size size) =>
                 key.value.startsWith('library-book-') ||
                 key.value.startsWith('home-history-') ||
                 key.value.startsWith('source-details-') ||
+                key.value.startsWith('saved-book-') ||
                 key.value.startsWith('book-card-'));
       }).evaluate())
         if (_workspaceRenderBounds(element.findRenderObject())
@@ -1306,7 +1356,9 @@ List<Map<String, Object>> _workspaceChecks(
       );
     }
   }
-  if (page == 'source-details' || page == 'legacy-details') {
+  if (page == 'source-details' ||
+      page == 'legacy-details' ||
+      page == 'saved-details') {
     final summary = keyedRect('desktop-details-summary');
     final main = keyedRect('desktop-details-main-column');
     final identity = keyedRect('desktop-details-identity');
@@ -1914,6 +1966,7 @@ List<Map<String, Object>> _resizeVisualChecks(
     'settings',
     'source-details',
     'legacy-details',
+    'saved-details',
   }.contains(page)) {
     check(
       'real desktop content frame exists on this shell route',

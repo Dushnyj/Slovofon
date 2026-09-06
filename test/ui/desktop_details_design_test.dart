@@ -413,6 +413,59 @@ void main() {
       },
     );
   }
+  for (final scale in [1.0, 2.0]) {
+    for (final dark in [false, true]) {
+      testWidgets(
+        'phone source details actions have 48px targets scale=$scale dark=$dark',
+        (tester) async {
+          await _pumpDetails(
+            tester,
+            source: true,
+            width: 390,
+            height: 1000,
+            platform: TargetPlatform.android,
+            scale: scale,
+            dark: dark,
+          );
+          for (final name in ['play', 'download', 'favorite', 'share']) {
+            final action = find.byKey(ValueKey('source-details-$name'));
+            await _revealPhoneDetails(tester, action);
+            final bounds = tester.getRect(action);
+            expect(bounds.width, greaterThanOrEqualTo(48));
+            expect(bounds.height, greaterThanOrEqualTo(48));
+            expect(bounds.left, greaterThanOrEqualTo(0));
+            expect(bounds.right, lessThanOrEqualTo(390));
+          }
+          final favorite = find.byKey(
+            const ValueKey('source-details-favorite'),
+          );
+          await _revealPhoneDetails(tester, favorite);
+          await tester.tap(favorite);
+          await tester.pumpAndSettle();
+          expect(find.byTooltip('Remove from favorites'), findsWidgets);
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
+  }
+}
+
+Future<void> _revealPhoneDetails(WidgetTester tester, Finder finder) async {
+  if (finder.evaluate().isEmpty) {
+    await tester.scrollUntilVisible(
+      finder,
+      200,
+      scrollable: find
+          .descendant(
+            of: find.byType(SourceBookDetailsScreen),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+  }
+  await tester.pumpAndSettle();
+  await Scrollable.ensureVisible(tester.element(finder), alignment: .5);
+  await tester.pumpAndSettle();
 }
 
 Future<({GoRouter router, PlaybackController controller})> _pumpDetails(

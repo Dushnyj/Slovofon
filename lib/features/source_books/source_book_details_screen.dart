@@ -314,14 +314,14 @@ class _SourceBookDetailsBodyState
                     ? AppIconAssets.playerPause
                     : AppIconAssets.playerPlay,
                 foregroundColor: colorScheme.primary,
-                buttonSize: desktop ? 44 : 36,
+                buttonSize: desktop ? 44 : 48,
                 iconSize: 26,
               ),
             DownloadActionButton(
               buttonKey: const ValueKey('source-details-download'),
               state: bookDownloadState,
               progress: bookDownloadProgress,
-              size: desktop ? 44 : 36,
+              size: desktop ? 44 : 48,
               onPressed: () =>
                   unawaited(_runBookDownload(downloadManager, widget.snapshot)),
             ),
@@ -342,7 +342,7 @@ class _SourceBookDetailsBodyState
               foregroundColor: libraryStore.isFavorite(audioBook)
                   ? colorScheme.error
                   : colorScheme.onSurfaceVariant,
-              buttonSize: desktop ? 44 : 36,
+              buttonSize: desktop ? 44 : 48,
               iconSize: 25,
             ),
             AppIconActionButton(
@@ -351,7 +351,7 @@ class _SourceBookDetailsBodyState
               onPressed: () => _showShareSheet(context, version),
               iconAsset: AppIconAssets.systemShare,
               foregroundColor: colorScheme.onSurfaceVariant,
-              buttonSize: desktop ? 44 : 36,
+              buttonSize: desktop ? 44 : 48,
               iconSize: 25,
             ),
           ],
@@ -1231,7 +1231,7 @@ class _HeaderInlineMeta extends StatelessWidget {
       children: [
         AppIcon(iconAsset, size: 14, color: colorScheme.onSurfaceVariant),
         const SizedBox(width: 4),
-        if (DesktopLayout.isActive(context)) Flexible(child: text) else text,
+        Flexible(child: text),
       ],
     );
   }

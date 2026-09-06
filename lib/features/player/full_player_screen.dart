@@ -15,6 +15,7 @@ import '../../services/downloads/download_manager_provider.dart';
 import '../../sources/source_models.dart';
 import '../../ui/components/book_card.dart';
 import '../../ui/adaptive/adaptive_sheet.dart';
+import '../../ui/adaptive/television_layout.dart';
 import '../../ui/components/book_cover.dart';
 import '../../ui/components/book_fragment_badge.dart';
 import '../../ui/components/chapter_tile.dart';
@@ -70,7 +71,7 @@ class _FullPlayerScreenState extends ConsumerState<FullPlayerScreen>
         final book = state.book;
         final mockBook = _mockBookForPlayback(book);
 
-        if (book == null && _isWindowsFullPlayer(context)) {
+        if (book == null) {
           final colors = Theme.of(context).colorScheme;
           final strings = context.strings;
           final loading =
@@ -167,7 +168,7 @@ class _FullPlayerScreenState extends ConsumerState<FullPlayerScreen>
           );
         }
 
-        if (book != null && _isWindowsFullPlayer(context)) {
+        if (_usesLargeScreenPlayer(context)) {
           final colors = Theme.of(context).colorScheme;
           final strings = context.strings;
           final windowSize = MediaQuery.sizeOf(context);
@@ -342,44 +343,42 @@ class _FullPlayerScreenState extends ConsumerState<FullPlayerScreen>
                   ),
                 ),
                 Expanded(
-                  child: book == null
-                      ? const Center(child: CircularProgressIndicator())
-                      : TabBarView(
-                          controller: _tabs,
-                          children: [
-                            Listener(
-                              behavior: HitTestBehavior.translucent,
-                              onPointerDown: (event) {
-                                _pointerDownPosition = event.position;
-                              },
-                              onPointerCancel: (_) {
-                                _pointerDownPosition = null;
-                              },
-                              onPointerUp: (event) {
-                                final start = _pointerDownPosition;
-                                _pointerDownPosition = null;
-                                if (start == null || _tabs.index != 0) {
-                                  return;
-                                }
-                                final delta = event.position - start;
-                                if (delta.dx > 120 && delta.dy.abs() < 90) {
-                                  _close(context);
-                                }
-                              },
-                              child: _NowPlayingPage(
-                                state: state,
-                                downloadManager: downloadManager,
-                              ),
-                            ),
-                            _ChaptersPage(
-                              state: state,
-                              service: service,
-                              downloadManager: downloadManager,
-                            ),
-                            _BookmarksPage(book: book, service: service),
-                            _InformationPage(book: book, mockBook: mockBook),
-                          ],
+                  child: TabBarView(
+                    controller: _tabs,
+                    children: [
+                      Listener(
+                        behavior: HitTestBehavior.translucent,
+                        onPointerDown: (event) {
+                          _pointerDownPosition = event.position;
+                        },
+                        onPointerCancel: (_) {
+                          _pointerDownPosition = null;
+                        },
+                        onPointerUp: (event) {
+                          final start = _pointerDownPosition;
+                          _pointerDownPosition = null;
+                          if (start == null || _tabs.index != 0) {
+                            return;
+                          }
+                          final delta = event.position - start;
+                          if (delta.dx > 120 && delta.dy.abs() < 90) {
+                            _close(context);
+                          }
+                        },
+                        child: _NowPlayingPage(
+                          state: state,
+                          downloadManager: downloadManager,
                         ),
+                      ),
+                      _ChaptersPage(
+                        state: state,
+                        service: service,
+                        downloadManager: downloadManager,
+                      ),
+                      _BookmarksPage(book: book, service: service),
+                      _InformationPage(book: book, mockBook: mockBook),
+                    ],
+                  ),
                 ),
                 _PlayerChrome(
                   state: state,
@@ -403,8 +402,9 @@ class _FullPlayerScreenState extends ConsumerState<FullPlayerScreen>
   }
 }
 
-bool _isWindowsFullPlayer(BuildContext context) =>
-    Theme.of(context).platform == TargetPlatform.windows;
+bool _usesLargeScreenPlayer(BuildContext context) =>
+    Theme.of(context).platform == TargetPlatform.windows ||
+    TelevisionLayout.isActive(context);
 
 class _CompactWindowsPlayerHeader extends StatelessWidget {
   const _CompactWindowsPlayerHeader({
@@ -1452,7 +1452,7 @@ class _ChaptersPageState extends State<_ChaptersPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (!_isWindowsFullPlayer(context)) ...[
+              if (!_usesLargeScreenPlayer(context)) ...[
                 Text(
                   strings.chapters,
                   style: Theme.of(context).textTheme.headlineSmall,
@@ -1513,7 +1513,7 @@ class _ChaptersPageState extends State<_ChaptersPage> {
                       bottom: 8,
                       child: AnimatedSwitcher(
                         duration:
-                            _isWindowsFullPlayer(context) &&
+                            _usesLargeScreenPlayer(context) &&
                                 MediaQuery.disableAnimationsOf(context)
                             ? Duration.zero
                             : const Duration(milliseconds: 180),
@@ -1863,7 +1863,7 @@ class _BookmarkEditorState extends State<_BookmarkEditor> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (!_isWindowsFullPlayer(context)) ...[
+        if (!_usesLargeScreenPlayer(context)) ...[
           Text(
             context.strings.addBookmark,
             style: Theme.of(context).textTheme.titleLarge,
@@ -1907,7 +1907,7 @@ class _InformationPage extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 18),
       children: [
-        if (!_isWindowsFullPlayer(context)) ...[
+        if (!_usesLargeScreenPlayer(context)) ...[
           Text(
             strings.information,
             style: Theme.of(context).textTheme.headlineSmall,
@@ -2013,7 +2013,7 @@ class _PlayerChromeState extends State<_PlayerChrome> {
         .clamp(0, 1)
         .toDouble();
 
-    if (_isWindowsFullPlayer(context)) {
+    if (_usesLargeScreenPlayer(context)) {
       final compact = MediaQuery.sizeOf(context).width < 900;
       final transportControls = <Widget>[
         _ControlIcon(
@@ -2369,7 +2369,7 @@ Future<T?> _showPlayerOptions<T>({
   required String title,
   required WidgetBuilder builder,
 }) {
-  if (_isWindowsFullPlayer(context)) {
+  if (_usesLargeScreenPlayer(context)) {
     return showAdaptiveSheet<T>(
       context: context,
       title: title,
@@ -2619,12 +2619,12 @@ class _ControlIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final desktop = _isWindowsFullPlayer(context);
+    final desktop = _usesLargeScreenPlayer(context);
     final colors = Theme.of(context).colorScheme;
     return IconButton(
       tooltip: tooltip,
       onPressed: onPressed,
-      style: desktop
+      style: desktop && !TelevisionLayout.isActive(context)
           ? IconButton.styleFrom(
               foregroundColor: colors.onSurfaceVariant,
               hoverColor: colors.surfaceContainerHighest,
@@ -2648,7 +2648,7 @@ class _ControlIcon extends StatelessWidget {
             )
           : null,
       icon:
-          _isWindowsFullPlayer(context) &&
+          _usesLargeScreenPlayer(context) &&
               (iconAsset == AppIconAssets.playerRewind15 ||
                   iconAsset == AppIconAssets.playerForward15)
           ? SeekIntervalIcon(

@@ -14,6 +14,10 @@ import '../../services/downloads/download_manager.dart';
 import '../../services/downloads/download_manager_provider.dart';
 import '../../services/home/home_listening_visibility_store.dart';
 import '../../services/library/library_store.dart';
+import '../../services/library/library_metadata.dart';
+import '../../services/sources/source_catalog_provider.dart';
+import '../../services/sources/source_access_policy.dart';
+import '../../services/sources/source_access_policy_provider.dart';
 import '../../ui/adaptive/desktop_layout.dart';
 import '../../ui/components/book_card.dart';
 import '../../ui/components/responsive_tile_grid.dart';
@@ -24,7 +28,6 @@ import '../shared/playback_resume.dart';
 
 final _homeListeningHistoryProvider =
     FutureProvider<List<_StoredListeningEntry>>((ref) async {
-      final storage = ref.watch(downloadStorageProvider);
       final progressSnapshots = await ref.watch(
         playbackProgressSnapshotsProvider.future,
       );
@@ -32,7 +35,7 @@ final _homeListeningHistoryProvider =
         return const [];
       }
 
-      final books = await storage.readAllMetadata();
+      final books = await ref.watch(libraryPlaybackBooksProvider.future);
       final booksByVersionId = {for (final book in books) book.versionId: book};
 
       final entries = <_StoredListeningEntry>[];
@@ -175,7 +178,7 @@ class HomeScreen extends ConsumerWidget {
   }
 }
 
-class _HistoryBookCard extends StatelessWidget {
+class _HistoryBookCard extends ConsumerWidget {
   const _HistoryBookCard({
     required this.entry,
     required this.playbackController,
@@ -197,7 +200,7 @@ class _HistoryBookCard extends StatelessWidget {
   final DesktopBookPresentation desktopPresentation;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final colorScheme = Theme.of(context).colorScheme;
     final book = entry.book;
     final audioBook = _audioBookForPlayback(book, entry.progressValue);
@@ -248,35 +251,91 @@ class _HistoryBookCard extends StatelessWidget {
         downloadState: downloadStateForBook(downloadManager, book),
         downloadProgress: downloadProgressForBook(downloadManager, book),
         onFavoritePressed: () => libraryStore.toggleFavorite(audioBook),
-        onDownloadPressed: () =>
-            runBookCardDownloadAction(downloadManager, book),
-        onPlay: () async {
-          if (entry.isCurrent) {
-            await playbackController.togglePlayPause();
-          } else {
-            final playbackBook = await downloadManager.offlinePlaybackBook(
-              book,
-            );
-            final resumePoint = playbackResumePointForBook(
-              playbackBook,
-              progressSnapshots,
-            );
-            await playbackController.loadBook(
-              playbackBook,
-              chapterIndex: resumePoint.chapterIndex,
-              position: resumePoint.position,
-              autoPlay: true,
-            );
-            await visibilityStore.show(entry.key);
-            onProgressChanged();
+        onDownloadPressed: () async {
+          try {
+            final state = downloadStateForBook(downloadManager, book);
+            final downloadBook =
+                state == BookCardDownloadState.none ||
+                    state == BookCardDownloadState.failed
+                ? await _resolveBook(ref, forDownload: true)
+                : book;
+            await runBookCardDownloadAction(downloadManager, downloadBook);
+          } catch (_) {
+            if (context.mounted) {
+              _showActionError(context);
+            }
           }
-          if (context.mounted) {
-            await context.push('/player');
+        },
+        onPlay: () async {
+          try {
+            if (entry.isCurrent) {
+              await playbackController.togglePlayPause();
+            } else {
+              final playbackBook = await _resolveBook(ref, forDownload: false);
+              final resumePoint = playbackResumePointForBook(
+                playbackBook,
+                progressSnapshots,
+              );
+              await playbackController.loadBook(
+                playbackBook,
+                chapterIndex: resumePoint.chapterIndex,
+                position: resumePoint.position,
+                autoPlay: true,
+              );
+              await visibilityStore.show(entry.key);
+              onProgressChanged();
+            }
+            if (context.mounted) {
+              await context.push('/player');
+            }
+          } catch (_) {
+            if (context.mounted) {
+              _showActionError(context);
+            }
           }
         },
         onTap: () => _openBook(context, book),
       ),
     );
+  }
+
+  Future<AudioPlaybackBook> _resolveBook(
+    WidgetRef ref, {
+    required bool forDownload,
+  }) async {
+    final offline = await downloadManager.offlinePlaybackBook(entry.book);
+    final point = offline.chapters.isEmpty
+        ? null
+        : playbackResumePointForBook(offline, progressSnapshots);
+    final missing =
+        offline.chapters.isEmpty ||
+        (forDownload
+            ? offline.chapters.any((chapter) => chapter.mediaSource == null)
+            : offline.chapters[point!.chapterIndex].mediaSource == null);
+    if (!missing) {
+      return offline;
+    }
+    await ref
+        .read(sourceAccessPolicyProvider)
+        .ensureRemoteAllowed(
+          offline.sourceId,
+          forDownload
+              ? SourceAccessOperation.download
+              : SourceAccessOperation.streaming,
+        );
+    final catalog = ref.read(sourceCatalogServiceProvider);
+    final refreshed = forDownload
+        ? await catalog.refreshBookForDownloads(offline)
+        : await catalog.refreshBookForPlayback(offline);
+    return downloadManager.offlinePlaybackBook(refreshed);
+  }
+
+  void _showActionError(BuildContext context) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(context.strings.libraryActionError)),
+      );
+    }
   }
 }
 

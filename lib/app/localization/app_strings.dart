@@ -557,6 +557,27 @@ class AppStrings {
     return _isRu ? 'Размер текста: $percent%' : 'Text size: $percent%';
   }
 
+  String get sourceStreamingDisabled => _isRu
+      ? 'Воспроизведение из этого источника отключено в настройках'
+      : 'Streaming from this source is disabled in settings';
+  String get downloadMetadataUnavailableTitle =>
+      _isRu ? 'Данные книги недоступны' : 'Book details unavailable';
+  String get downloadMetadataUnavailable => _isRu
+      ? 'Откройте книгу через поиск, чтобы восстановить её данные. Скачанные файлы сохранены.'
+      : 'Open the book from search to restore its details. Downloaded files are preserved.';
+  String get sourceDownloadDisabled => _isRu
+      ? 'Загрузка из этого источника отключена в настройках'
+      : 'Downloads from this source are disabled in settings';
+  String get savedBookNotFound =>
+      _isRu ? 'Книга не найдена в библиотеке' : 'Book not found in the library';
+  String get savedBookMediaUnavailable => _isRu
+      ? 'Нет сохранённых аудиоглав. Найдите книгу в источнике.'
+      : 'No saved audio chapters. Find the book in a source.';
+  String get savedBookPlaybackError =>
+      _isRu ? 'Не удалось начать воспроизведение' : 'Could not start playback';
+  String get cacheClearFailed => _isRu
+      ? 'Не удалось очистить кэш. Попробуйте ещё раз.'
+      : 'Could not clear the cache. Please try again.';
   String get retry => _isRu ? 'Повторить' : 'Retry';
   String get share => _isRu ? 'Поделиться' : 'Share';
   String get shareSlovofonLink => _isRu ? 'Ссылка Словофон' : 'Slovofon link';

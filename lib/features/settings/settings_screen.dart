@@ -701,22 +701,34 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   : () async {
                       final confirmed = await _confirmClearCache(context);
                       if (confirmed != true) return;
-                      final cleared = await storage.clearCardCache();
-                      if (!context.mounted) return;
-                      setModalState(
-                        () => statsFuture = storage.cardCacheStats(),
-                      );
-                      _refreshCacheStats(storage);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            context.strings.cacheCleared(
-                              cleared.bookCount,
-                              _formatBytes(cleared.bytes),
+                      try {
+                        await ref
+                            .read(downloadManagerProvider)
+                            .loadPersistedTasks();
+                        final cleared = await storage.clearCardCache();
+                        if (!context.mounted) return;
+                        setModalState(
+                          () => statsFuture = storage.cardCacheStats(),
+                        );
+                        _refreshCacheStats(storage);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              context.strings.cacheCleared(
+                                cleared.bookCount,
+                                _formatBytes(cleared.bytes),
+                              ),
                             ),
                           ),
-                        ),
-                      );
+                        );
+                      } catch (_) {
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(context.strings.cacheClearFailed),
+                          ),
+                        );
+                      }
                     },
               icon: const AppIcon(AppIconAssets.systemTrash),
               label: Text(strings.clearCardCache),
@@ -750,7 +762,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           constraints: DesktopLayout.isActive(context)
               ? const BoxConstraints(maxWidth: 560)
               : null,
-          scrollable: DesktopLayout.isActive(context),
+          scrollable: true,
           title: Text(strings.clearCardCache),
           content: Text(strings.clearCardCacheConfirm),
           actions: [
@@ -1334,28 +1346,39 @@ class _AccentColorPicker extends StatelessWidget {
               for (final swatch in _accentSwatches)
                 Tooltip(
                   message: swatch.label,
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(24),
-                    onTap: () => onChanged(swatch.id),
-                    child: SizedBox.square(
-                      dimension: 40,
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: swatch.color,
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: selectedId == swatch.id
-                                ? colorScheme.onSurface
-                                : colorScheme.outlineVariant,
-                            width: selectedId == swatch.id ? 3 : 1,
+                  child: Semantics(
+                    button: true,
+                    selected: selectedId == swatch.id,
+                    label: swatch.label,
+                    child: InkWell(
+                      key: ValueKey('settings-accent-${swatch.id}'),
+                      borderRadius: BorderRadius.circular(24),
+                      onTap: () => onChanged(swatch.id),
+                      child: Padding(
+                        padding: const EdgeInsets.all(4),
+                        child: SizedBox.square(
+                          dimension: 40,
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: swatch.color,
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: selectedId == swatch.id
+                                    ? colorScheme.onSurface
+                                    : colorScheme.outlineVariant,
+                                width: selectedId == swatch.id ? 3 : 1,
+                              ),
+                            ),
+                            child: selectedId == swatch.id
+                                ? AppIcon(
+                                    AppIconAssets.systemCheck,
+                                    color: AppColorTokens.readableOn(
+                                      swatch.color,
+                                    ),
+                                  )
+                                : null,
                           ),
                         ),
-                        child: selectedId == swatch.id
-                            ? AppIcon(
-                                AppIconAssets.systemCheck,
-                                color: AppColorTokens.readableOn(swatch.color),
-                              )
-                            : null,
                       ),
                     ),
                   ),
@@ -1366,7 +1389,7 @@ class _AccentColorPicker extends StatelessWidget {
                   borderRadius: BorderRadius.circular(24),
                   onTap: onCustom,
                   child: Container(
-                    constraints: const BoxConstraints(minHeight: 40),
+                    constraints: const BoxConstraints(minHeight: 48),
                     padding: const EdgeInsets.symmetric(
                       horizontal: 12,
                       vertical: 8,
@@ -1589,31 +1612,43 @@ Future<String?> _pickCustomAccentColor(
               runSpacing: 8,
               children: [
                 for (final preset in _customAccentPalette)
-                  InkWell(
-                    borderRadius: BorderRadius.circular(18),
-                    onTap: () => setModalState(() {
-                      draft = HSVColor.fromColor(preset);
-                    }),
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: preset,
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: color == preset
-                              ? colors.onSurface
-                              : colors.outlineVariant,
-                          width: color == preset ? 2.5 : 1,
-                        ),
+                  Semantics(
+                    button: true,
+                    selected: color == preset,
+                    label:
+                        '${context.strings.colorPreview}: ${_customAccentId(preset)}',
+                    child: InkWell(
+                      key: ValueKey(
+                        'settings-custom-accent-${_customAccentId(preset)}',
                       ),
-                      child: SizedBox.square(
-                        dimension: 32,
-                        child: color == preset
-                            ? AppIcon(
-                                AppIconAssets.systemCheck,
-                                color: AppColorTokens.readableOn(preset),
-                                size: 17,
-                              )
-                            : null,
+                      borderRadius: BorderRadius.circular(18),
+                      onTap: () => setModalState(() {
+                        draft = HSVColor.fromColor(preset);
+                      }),
+                      child: Padding(
+                        padding: const EdgeInsets.all(8),
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: preset,
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: color == preset
+                                  ? colors.onSurface
+                                  : colors.outlineVariant,
+                              width: color == preset ? 2.5 : 1,
+                            ),
+                          ),
+                          child: SizedBox.square(
+                            dimension: 32,
+                            child: color == preset
+                                ? AppIcon(
+                                    AppIconAssets.systemCheck,
+                                    color: AppColorTokens.readableOn(preset),
+                                    size: 17,
+                                  )
+                                : null,
+                          ),
+                        ),
                       ),
                     ),
                   ),

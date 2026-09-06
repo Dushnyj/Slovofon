@@ -7,12 +7,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:slovofon/app/app.dart';
 import 'package:slovofon/app/localization/app_strings.dart';
 import 'package:slovofon/app/router.dart';
-import 'package:slovofon/data/mock/stage3_mock_data.dart';
 import 'package:slovofon/domain/models/audio_book.dart';
 import 'package:slovofon/domain/models/book_version.dart';
 import 'package:slovofon/domain/models/chapter.dart';
 import 'package:slovofon/domain/models/download_task.dart';
-import 'package:slovofon/features/book_details/book_details_screen.dart';
+import 'package:slovofon/features/book_details/saved_book_details_screen.dart';
 import 'package:slovofon/features/downloads/downloads_screen.dart';
 import 'package:slovofon/features/home/home_screen.dart';
 import 'package:slovofon/features/library/library_screen.dart';
@@ -89,7 +88,7 @@ void main() {
               ('/library', LibraryScreen),
               ('/downloads', DownloadsScreen),
               ('/search?q=Audiobook&run=1&reset=resize', SearchScreen),
-              ('/book/${activeMockBook.id}', BookDetailsScreen),
+              ('/book/${_book.id}', SavedBookDetailsScreen),
               ('/source-book/knigavuhe/resize-book', SourceBookDetailsScreen),
               ('/theme-preview', ThemePreviewScreen),
             ];
@@ -99,6 +98,16 @@ void main() {
               await _frames(tester);
               final detailRequests = catalog.detailRequests;
               final searchRequests = catalog.searchRequests;
+              if (route.$2 == SavedBookDetailsScreen) {
+                expect(find.byType(SavedBookDetailsScreen), findsOneWidget);
+                expect(
+                  find.byKey(const ValueKey('saved-book-not-found')),
+                  findsNothing,
+                );
+                final title = find.byKey(const ValueKey('saved-book-title'));
+                expect(title, findsOneWidget);
+                expect(tester.widget<Text>(title).data, _book.title);
+              }
               if (route.$2 == SearchScreen) {
                 expect(find.byType(BookCard), findsNWidgets(15));
               }
@@ -453,6 +462,10 @@ Future<void> _pumpApp(
     }
   }
   final storage = _MemoryStorage();
+  if (!empty) {
+    // The production /book route resolves real metadata, never demo IDs.
+    await storage.writeMetadata(_book);
+  }
   final manager = _ResizeManager(storage, empty ? 0 : 15);
   appRouter.go('/');
   await tester.pumpWidget(
@@ -690,7 +703,8 @@ class _MemoryStorage extends FileDownloadStorage {
     : super(rootDirectory: Directory('unused-resize-test-storage'));
 
   @override
-  Future<List<AudioPlaybackBook>> readAllMetadata() async => const [];
+  Future<List<AudioPlaybackBook>> readAllMetadata() async =>
+      List.unmodifiable(_metadata.values);
 
   final _metadata = <String, AudioPlaybackBook>{};
   @override

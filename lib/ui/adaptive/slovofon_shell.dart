@@ -6,6 +6,8 @@ import '../../app/localization/app_strings.dart';
 import '../../app/app_version.dart';
 import '../../app/theme/app_color_tokens.dart';
 import 'desktop_layout.dart';
+import 'television_layout.dart';
+import 'television_shell.dart';
 import '../components/mini_player_bar.dart';
 import '../icons/app_icons.dart';
 
@@ -39,6 +41,13 @@ class SlovofonShell extends StatelessWidget {
           },
           child: LayoutBuilder(
             builder: (context, constraints) {
+              if (TelevisionLayout.isActive(context)) {
+                return TelevisionShell(
+                  selectedIndex: navigationShell.currentIndex,
+                  onSelected: (index) => _goToBranch(context, index),
+                  child: navigationShell,
+                );
+              }
               final body = GestureDetector(
                 behavior: HitTestBehavior.translucent,
                 onHorizontalDragEnd: DesktopLayout.isActive(context)
@@ -225,9 +234,73 @@ class _DesktopShellLayout extends StatelessWidget {
           SingleActivator(key, control: true): () =>
               onDestinationSelected(index),
       },
-      child: layout,
+      // CallbackShortcuts cannot request focus itself. Without a descendant
+      // focus target, the app-level playback scope can own startup focus and
+      // Ctrl+1..5 never enters this shell's event chain. Skip traversal so the
+      // fallback does not add an empty keyboard stop before real controls.
+      child: _DesktopShortcutFocus(child: layout),
     );
   }
+}
+
+/// Navigator can focus the enclosing route scope after pointer navigation,
+/// bypassing a shortcut listener below that scope. Recover only that empty
+/// scope focus, never focus belonging to a control, another route or a dialog.
+class _DesktopShortcutFocus extends StatefulWidget {
+  const _DesktopShortcutFocus({required this.child});
+  final Widget child;
+
+  @override
+  State<_DesktopShortcutFocus> createState() => _DesktopShortcutFocusState();
+}
+
+class _DesktopShortcutFocusState extends State<_DesktopShortcutFocus> {
+  final _focus = FocusNode(debugLabel: 'Windows shell shortcut focus');
+  FocusScopeNode? _scope;
+  bool _restoreScheduled = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final scope = FocusScope.of(context);
+    if (!identical(scope, _scope)) {
+      _scope?.removeListener(_restoreEmptyScopeFocus);
+      _scope = scope..addListener(_restoreEmptyScopeFocus);
+    }
+    _restoreEmptyScopeFocus();
+  }
+
+  void _restoreEmptyScopeFocus() {
+    if (_restoreScheduled || !(_scope?.hasPrimaryFocus ?? false)) return;
+    _restoreScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _restoreScheduled = false;
+      if (!mounted ||
+          !(_scope?.hasPrimaryFocus ?? false) ||
+          !_focus.canRequestFocus ||
+          ModalRoute.of(context)?.isCurrent == false) {
+        return;
+      }
+      _focus.requestFocus();
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  @override
+  void dispose() {
+    _scope?.removeListener(_restoreEmptyScopeFocus);
+    _focus.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Focus(
+    key: const ValueKey('windows-shell-shortcut-focus'),
+    focusNode: _focus,
+    autofocus: true,
+    skipTraversal: true,
+    child: widget.child,
+  );
 }
 
 class _WindowsCompactNavigationRail extends StatelessWidget {

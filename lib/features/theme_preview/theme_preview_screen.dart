@@ -18,6 +18,7 @@ class ThemePreviewScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final strings = context.strings;
     final tokens = Theme.of(context).extension<AppColorTokens>()!;
+    final colorScheme = Theme.of(context).colorScheme;
 
     return Scaffold(
       appBar: AppBar(
@@ -181,8 +182,8 @@ class ThemePreviewScreen extends StatelessWidget {
               ),
               _StateBadge(
                 label: 'Focus',
-                background: tokens.focus,
-                foreground: AppColorTokens.readableOn(tokens.focus),
+                background: colorScheme.primary,
+                foreground: colorScheme.onPrimary,
               ),
             ],
           ),

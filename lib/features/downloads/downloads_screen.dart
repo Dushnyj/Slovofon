@@ -5,8 +5,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/localization/app_strings.dart';
-import '../../data/mock/mock_audio_playback.dart';
-import '../../data/mock/stage3_mock_data.dart';
 import '../../domain/models/download_task.dart';
 import '../../services/audio/audio_persistence.dart';
 import '../../services/audio/playback_controller.dart';
@@ -311,7 +309,10 @@ class _DownloadBookTile extends ConsumerWidget {
     final listeningProgress = isCurrentBook
         ? playbackState.bookProgress
         : _progressForBook(playbackBook, progressSnapshots);
-    final year = playbackBook.publishedYear ?? group.mockBook?.year;
+    final year = playbackBook.publishedYear;
+    final displayTitle = group.hasMetadata
+        ? playbackBook.title
+        : strings.downloadMetadataUnavailableTitle;
     final duration = _formatDuration(playbackBook.totalDuration);
     final author = _shortPeopleLabel(playbackBook.author);
     final narrator = _shortPeopleLabel(playbackBook.narrator);
@@ -351,7 +352,7 @@ class _DownloadBookTile extends ConsumerWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             BookCover(
-              title: playbackBook.title,
+              title: displayTitle,
               progress: listeningProgress,
               imageUrl: playbackBook.coverUrl,
               width: 58,
@@ -363,7 +364,7 @@ class _DownloadBookTile extends ConsumerWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    playbackBook.title,
+                    displayTitle,
                     maxLines: 3,
                     overflow: TextOverflow.ellipsis,
                     style: textTheme.titleMedium?.copyWith(
@@ -439,6 +440,18 @@ class _DownloadBookTile extends ConsumerWidget {
                       color: colorScheme.onSurfaceVariant,
                     ),
                   ),
+                  if (group.tasks.any(_isSourceDownloadDisabled)) ...[
+                    const SizedBox(height: 8),
+                    _DownloadPolicyMessage(
+                      key: ValueKey(
+                        'download-policy-book-${playbackBook.sourceId}-${playbackBook.versionId}',
+                      ),
+                    ),
+                  ],
+                  if (!group.hasMetadata) ...[
+                    const SizedBox(height: 8),
+                    _DownloadMetadataMessage(book: playbackBook),
+                  ],
                   const SizedBox(height: 8),
                   LinearProgressIndicator(
                     value: progress,
@@ -518,7 +531,7 @@ class _DesktopDownloadBookTile extends StatelessWidget {
     final coverWidth = compact ? 72.0 : 88.0;
     final bookKey = '${book.sourceId}:${book.versionId}';
     final title = Text(
-      book.title,
+      group.hasMetadata ? book.title : strings.downloadMetadataUnavailableTitle,
       key: ValueKey('desktop-download-title-$bookKey'),
       style: theme.textTheme.titleMedium?.copyWith(
         fontWeight: FontWeight.w700,
@@ -530,7 +543,9 @@ class _DesktopDownloadBookTile extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         BookCover(
-          title: book.title,
+          title: group.hasMetadata
+              ? book.title
+              : strings.downloadMetadataUnavailableTitle,
           imageUrl: book.coverUrl,
           width: condensed ? 56 : coverWidth,
           height: (condensed ? 56 : coverWidth) * 1.43,
@@ -581,10 +596,9 @@ class _DesktopDownloadBookTile extends StatelessWidget {
                       _formatDuration(book.totalDuration),
                       style: theme.textTheme.labelMedium,
                     ),
-                  if (!condensed &&
-                      (book.publishedYear ?? group.mockBook?.year) != null)
+                  if (!condensed && book.publishedYear != null)
                     Text(
-                      '${book.publishedYear ?? group.mockBook?.year}',
+                      '${book.publishedYear}',
                       style: theme.textTheme.labelMedium,
                     ),
                   if (!condensed && _ratingLabel(book.ratingValue) != null)
@@ -617,6 +631,18 @@ class _DesktopDownloadBookTile extends StatelessWidget {
               ? scheme.error
               : scheme.primary,
         ),
+        if (group.tasks.any(_isSourceDownloadDisabled)) ...[
+          const SizedBox(height: 8),
+          _DownloadPolicyMessage(
+            key: ValueKey(
+              'download-policy-book-${book.sourceId}-${book.versionId}',
+            ),
+          ),
+        ],
+        if (!group.hasMetadata) ...[
+          const SizedBox(height: 8),
+          _DownloadMetadataMessage(book: book),
+        ],
         const SizedBox(height: 8),
         LinearProgressIndicator(
           key: ValueKey('desktop-download-progress-$bookKey'),
@@ -798,13 +824,13 @@ class _InlineDownloadMeta extends StatelessWidget {
       children: [
         AppIcon(iconAsset, size: 13, color: foreground),
         const SizedBox(width: 4),
-        Text(
-          label,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: color == null
-              ? null
-              : TextStyle(color: foreground, fontWeight: FontWeight.w800),
+        Flexible(
+          child: Text(
+            label,
+            style: color == null
+                ? null
+                : TextStyle(color: foreground, fontWeight: FontWeight.w800),
+          ),
         ),
       ],
     );
@@ -836,40 +862,48 @@ class _DownloadBookActions extends StatelessWidget {
     final status = group.displayStatus;
     final colorScheme = Theme.of(context).colorScheme;
 
-    return Row(
+    return Wrap(
+      key: ValueKey('mobile-download-actions-${group.playbackBook.versionId}'),
+      spacing: 8,
+      runSpacing: 8,
+      crossAxisAlignment: WrapCrossAlignment.center,
       children: [
         if (status == DownloadTaskStatus.running ||
             status == DownloadTaskStatus.queued) ...[
           AppIconActionButton(
+            buttonSize: 48,
             tooltip: strings.pauseDownload,
             iconAsset: AppIconAssets.pauseDownload,
             onPressed: () => _pauseBook(group, manager),
           ),
-          const SizedBox(width: 8),
           DownloadActionButton(
+            size: 48,
             state: _bookDownloadState(status),
             progress: group.progress,
             onPressed: () => manager.cancelAndDeleteBook(group.playbackBook),
           ),
         ] else ...[
           DownloadActionButton(
+            size: 48,
             state: _bookDownloadState(status),
             progress: group.progress,
-            onPressed: () => _runPrimary(group, manager),
+            onPressed:
+                group.hasMetadata || status == DownloadTaskStatus.completed
+                ? () => _runPrimary(group, manager)
+                : null,
           ),
           if (status != DownloadTaskStatus.completed) ...[
-            const SizedBox(width: 8),
             AppIconActionButton(
+              buttonSize: 48,
               tooltip: strings.deleteDownloaded,
               iconAsset: AppIconAssets.deleteDownload,
               onPressed: () => manager.cancelAndDeleteBook(group.playbackBook),
             ),
           ],
         ],
-        const SizedBox(width: 8),
         if (isPlaybackLoading)
           SizedBox.square(
-            dimension: 44,
+            dimension: 48,
             child: Center(
               child: SizedBox.square(
                 dimension: 22,
@@ -882,18 +916,19 @@ class _DownloadBookActions extends StatelessWidget {
           )
         else
           AppIconActionButton(
+            buttonSize: 48,
             tooltip: isCurrentBook && isPlaying ? strings.pause : strings.play,
             iconAsset: isCurrentBook && isPlaying
                 ? AppIconAssets.playerPause
                 : AppIconAssets.playerPlay,
-            onPressed: onPlay,
+            onPressed: group.hasMetadata ? onPlay : null,
             foregroundColor: isCurrentBook ? colorScheme.primary : null,
           ),
-        const SizedBox(width: 8),
         AppIconActionButton(
+          buttonSize: 48,
           tooltip: strings.bookDetails,
           iconAsset: AppIconAssets.systemInfo,
-          onPressed: onInfo,
+          onPressed: group.hasMetadata ? onInfo : null,
         ),
       ],
     );
@@ -990,6 +1025,7 @@ class _DownloadChapterRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final task = this.task;
     final colorScheme = Theme.of(context).colorScheme;
     final progress = (task?.progress ?? 0).clamp(0, 1).toDouble();
 
@@ -1055,6 +1091,13 @@ class _DownloadChapterRow extends StatelessWidget {
                           style: Theme.of(context).textTheme.labelSmall
                               ?.copyWith(color: colorScheme.onSurfaceVariant),
                         ),
+                        if (task != null &&
+                            _isSourceDownloadDisabled(task)) ...[
+                          const SizedBox(height: 4),
+                          _DownloadPolicyMessage(
+                            key: ValueKey('download-policy-task-${task.id}'),
+                          ),
+                        ],
                         if (task?.status == DownloadTaskStatus.running &&
                             (task?.speedBytesPerSecond ?? 0) > 0) ...[
                           const SizedBox(height: 3),
@@ -1108,16 +1151,55 @@ class _DownloadChapterRow extends StatelessWidget {
 
 enum _DownloadBookSection { active, queued, failed, completed }
 
+bool _isSourceDownloadDisabled(DownloadTask task) =>
+    task.errorCode == 'source_download_disabled';
+
+/// Display only the stable policy category, never transport text or payloads.
+class _DownloadPolicyMessage extends StatelessWidget {
+  const _DownloadPolicyMessage({super.key});
+  @override
+  Widget build(BuildContext context) => Text(
+    context.strings.sourceDownloadDisabled,
+    style: Theme.of(
+      context,
+    ).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.error),
+  );
+}
+
+class _DownloadMetadataMessage extends StatelessWidget {
+  const _DownloadMetadataMessage({required this.book});
+  final AudioPlaybackBook book;
+  @override
+  Widget build(BuildContext context) => Column(
+    key: ValueKey(
+      'download-metadata-unavailable-${book.sourceId}-${book.versionId}',
+    ),
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        context.strings.downloadMetadataUnavailable,
+        style: Theme.of(context).textTheme.bodySmall,
+      ),
+      const SizedBox(height: 8),
+      TextButton.icon(
+        onPressed: () => context.go('/search'),
+        icon: const AppIcon(AppIconAssets.navSearch),
+        label: Text(context.strings.openSearch),
+      ),
+    ],
+  );
+}
+
 class _DownloadBookGroup {
   const _DownloadBookGroup({
     required this.playbackBook,
     required this.tasks,
-    this.mockBook,
+    required this.hasMetadata,
   });
 
   final AudioPlaybackBook playbackBook;
   final List<DownloadTask> tasks;
-  final MockBook? mockBook;
+  final bool hasMetadata;
 
   DownloadTask? taskForChapter(AudioPlaybackChapter chapter) {
     for (final task in tasks) {
@@ -1205,12 +1287,8 @@ List<_DownloadBookGroup> _downloadBookGroups(
   for (final entry in byBook.entries) {
     final groupTasks = [...entry.value];
     final firstTask = groupTasks.first;
-    final mockBook = _mockBookByIdOrNull(firstTask.bookId);
-    final playbackBook =
-        _attachedBookForTasks(manager, groupTasks) ??
-        (mockBook == null
-            ? _fallbackPlaybackBook(firstTask)
-            : mockAudioPlaybackBook(mockBook));
+    final attachedBook = _attachedBookForTasks(manager, groupTasks);
+    final playbackBook = attachedBook ?? _fallbackPlaybackBook(firstTask);
     groupTasks.sort((left, right) {
       final leftChapter = chapterForTask(playbackBook, left);
       final rightChapter = chapterForTask(playbackBook, right);
@@ -1222,7 +1300,7 @@ List<_DownloadBookGroup> _downloadBookGroups(
       _DownloadBookGroup(
         playbackBook: playbackBook,
         tasks: List.unmodifiable(groupTasks),
-        mockBook: mockBook,
+        hasMetadata: attachedBook != null,
       ),
     );
   }
@@ -1526,15 +1604,6 @@ String _formatBytes(int bytes) {
   }
   final gib = mib / 1024;
   return '${gib.toStringAsFixed(1)} GB';
-}
-
-MockBook? _mockBookByIdOrNull(String id) {
-  for (final book in stage3MockBooks) {
-    if (book.id == id) {
-      return book;
-    }
-  }
-  return null;
 }
 
 AudioPlaybackBook _fallbackPlaybackBook(DownloadTask task) {

@@ -2,9 +2,11 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import '../adaptive/desktop_layout.dart';
+import '../adaptive/television_layout.dart';
 
 bool isDesktopTileLayout(BuildContext context) {
-  return MediaQuery.sizeOf(context).width >= 900;
+  return !TelevisionLayout.isActive(context) &&
+      MediaQuery.sizeOf(context).width >= 900;
 }
 
 class ResponsiveTileGrid extends StatelessWidget {

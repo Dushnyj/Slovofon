@@ -5,16 +5,21 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../domain/models/app_settings.dart';
+import '../core/platform/app_device_profile.dart';
 import '../services/deep_links/app_deep_links.dart';
 import '../services/deep_links/slovofon_deep_link.dart';
 import '../services/settings/app_settings_store.dart';
 import '../services/updates/update_prompt.dart';
 import '../ui/adaptive/desktop_layout.dart';
+import '../ui/adaptive/television_layout.dart';
+import '../ui/adaptive/windows_playback_shortcuts.dart';
+import '../ui/components/playback_error_listener.dart';
 import 'localization/app_strings.dart';
 import 'router.dart';
 import 'theme/app_theme.dart';
 import 'theme/app_text_scaler.dart';
 import 'theme/windows_theme.dart';
+import 'theme/television_theme.dart';
 
 class SlovofonApp extends ConsumerStatefulWidget {
   const SlovofonApp({
@@ -95,6 +100,7 @@ class _SlovofonAppState extends ConsumerState<SlovofonApp> {
   @override
   Widget build(BuildContext context) {
     final appSettings = ref.watch(appSettingsStoreProvider).settings;
+    final television = ref.watch(appDeviceProfileProvider).isTelevision;
     final accent = _accentColor(appSettings.accentColor);
 
     return MaterialApp.router(
@@ -115,12 +121,15 @@ class _SlovofonAppState extends ConsumerState<SlovofonApp> {
         amoled: appSettings.themeMode == AppThemeMode.amoled,
       ),
       builder: (context, child) {
+        final routeChild = PlaybackErrorListener(
+          child: child ?? const SizedBox.shrink(),
+        );
         return UpdateStartupGate(
           child: MediaQuery(
             data: MediaQuery.of(context).copyWith(
               disableAnimations:
                   MediaQuery.disableAnimationsOf(context) ||
-                  (DesktopLayout.isActive(context) &&
+                  ((DesktopLayout.isActive(context) || television) &&
                       appSettings.animationsMode != AppAnimationsMode.full),
               textScaler: AppTextScaler(
                 MediaQuery.textScalerOf(context),
@@ -131,12 +140,20 @@ class _SlovofonAppState extends ConsumerState<SlovofonApp> {
               compactCards: appSettings.compactCards,
               showSourceOnCards: appSettings.showSourceOnCards,
               showPercentOnCovers: appSettings.showPercentOnCovers,
-              child: DesktopLayout.isActive(context)
+              child: television
+                  ? TelevisionLayout(
+                      enabled: true,
+                      child: Theme(
+                        data: TelevisionTheme.from(Theme.of(context)),
+                        child: TelevisionViewport(child: routeChild),
+                      ),
+                    )
+                  : DesktopLayout.isActive(context)
                   ? Theme(
                       data: WindowsTheme.from(Theme.of(context)),
-                      child: child ?? const SizedBox.shrink(),
+                      child: WindowsPlaybackShortcuts(child: routeChild),
                     )
-                  : child ?? const SizedBox.shrink(),
+                  : routeChild,
             ),
           ),
         );

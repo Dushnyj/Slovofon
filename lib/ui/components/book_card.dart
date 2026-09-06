@@ -3,12 +3,14 @@ import 'package:flutter/material.dart';
 import '../../app/localization/app_strings.dart';
 import '../../domain/models/audio_book.dart';
 import '../adaptive/desktop_layout.dart';
+import '../adaptive/television_layout.dart';
 import '../icons/app_icons.dart';
 import 'book_cover.dart';
 import 'book_fragment_badge.dart';
 import 'download_action_button.dart';
 import 'source_badge.dart';
 import 'responsive_tile_grid.dart';
+import 'television_book_card.dart';
 
 export 'download_action_button.dart';
 
@@ -56,11 +58,11 @@ class BookCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final strings = context.strings;
-    final boundedProgress = book.progress.clamp(0, 1).toDouble();
-    final showPause = isCurrentBook && isPlaying;
-    final showPlayLoading = !showPause && (isPlayLoading || isPlaybackLoading);
     final isDesktopLayout = isDesktopTileLayout(context);
+
+    if (TelevisionLayout.isActive(context)) {
+      return TelevisionBookCard(card: this);
+    }
 
     if (DesktopLayout.isActive(context)) {
       return _WindowsBookCard(card: this);
@@ -70,38 +72,13 @@ class BookCard extends StatelessWidget {
       child: InkWell(
         borderRadius: BorderRadius.circular(8),
         onTap: onTap,
-        child: isDesktopLayout
-            ? _DesktopBookCardLayout(
-                key: const ValueKey('book-card-desktop-tile'),
-                strings: strings,
-                book: book,
-                boundedProgress: boundedProgress,
-                yearLabel: yearLabel,
-                isFavorite: isFavorite,
-                downloadState: downloadState,
-                downloadProgress: downloadProgress,
-                isDownloadLoading: isDownloadLoading,
-                showPause: showPause,
-                showPlayLoading: showPlayLoading,
-                onFavoritePressed: onFavoritePressed,
-                onDownloadPressed: onDownloadPressed,
-                onPlay: onPlay,
-              )
-            : _MobileBookCardLayout(
-                strings: strings,
-                book: book,
-                boundedProgress: boundedProgress,
-                yearLabel: yearLabel,
-                isFavorite: isFavorite,
-                downloadState: downloadState,
-                downloadProgress: downloadProgress,
-                isDownloadLoading: isDownloadLoading,
-                showPause: showPause,
-                showPlayLoading: showPlayLoading,
-                onFavoritePressed: onFavoritePressed,
-                onDownloadPressed: onDownloadPressed,
-                onPlay: onPlay,
-              ),
+        child: _PortableBookCardLayout(
+          key: isDesktopLayout
+              ? const ValueKey('book-card-desktop-tile')
+              : null,
+          card: this,
+          wide: isDesktopLayout,
+        ),
       ),
     );
 
@@ -874,45 +851,24 @@ class _WorkspaceBookPerson extends StatelessWidget {
   );
 }
 
-class _MobileBookCardLayout extends StatelessWidget {
-  const _MobileBookCardLayout({
-    required this.strings,
-    required this.book,
-    required this.boundedProgress,
-    required this.yearLabel,
-    required this.isFavorite,
-    required this.downloadState,
-    required this.downloadProgress,
-    required this.isDownloadLoading,
-    required this.showPause,
-    required this.showPlayLoading,
-    required this.onFavoritePressed,
-    required this.onDownloadPressed,
-    required this.onPlay,
+class _PortableBookCardLayout extends StatelessWidget {
+  const _PortableBookCardLayout({
+    required this.card,
+    required this.wide,
+    super.key,
   });
 
-  final AppStrings strings;
-  final AudioBook book;
-  final double boundedProgress;
-  final String? yearLabel;
-  final bool isFavorite;
-  final BookCardDownloadState downloadState;
-  final double downloadProgress;
-  final bool isDownloadLoading;
-  final bool showPause;
-  final bool showPlayLoading;
-  final VoidCallback? onFavoritePressed;
-  final VoidCallback? onDownloadPressed;
-  final VoidCallback? onPlay;
+  final BookCard card;
+  final bool wide;
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
+    final book = card.book;
     final preferences = DesktopPreferences.maybeOf(context);
     final compact = preferences?.compactCards ?? false;
     final showSource = preferences?.showSourceOnCards ?? true;
     final showPercent = preferences?.showPercentOnCovers ?? true;
-    final coverWidth = compact ? 56.0 : 66.0;
+    final coverWidth = wide ? (compact ? 72.0 : 84.0) : (compact ? 56.0 : 66.0);
     final footer = _needsCoverMetadataFooter(
       context,
       book,
@@ -922,7 +878,7 @@ class _MobileBookCardLayout extends StatelessWidget {
     );
 
     return Padding(
-      padding: EdgeInsets.all(compact ? 6 : 8),
+      padding: EdgeInsets.all(wide ? (compact ? 8 : 10) : (compact ? 6 : 8)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
@@ -937,14 +893,16 @@ class _MobileBookCardLayout extends StatelessWidget {
                   children: [
                     BookCover(
                       title: book.title,
-                      progress: boundedProgress,
+                      progress: book.progress.clamp(0, 1).toDouble(),
                       imageUrl: book.coverUrl,
                       width: coverWidth,
-                      height: compact ? 80 : 94,
+                      height: wide
+                          ? (compact ? 102 : 118)
+                          : (compact ? 80 : 94),
                       showProgressPercent: showPercent && !footer,
                     ),
                     if (showSource && !footer) ...[
-                      const SizedBox(height: 4),
+                      SizedBox(height: wide ? 6 : 4),
                       SourceBadge(
                         sourceId: book.sourceId,
                         textAlign: TextAlign.center,
@@ -953,64 +911,15 @@ class _MobileBookCardLayout extends StatelessWidget {
                   ],
                 ),
               ),
-              const SizedBox(width: 9),
+              SizedBox(width: wide ? 14 : 9),
               Expanded(
-                child: _BookCardBody(book: book, yearLabel: yearLabel),
-              ),
-              const SizedBox(width: 6),
-              SizedBox(
-                width: 36,
-                height: 112,
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    _FavoriteActionButton(
-                      buttonKey: ValueKey(
-                        'book-card-favorite-${book.sourceId}-${book.sourceBookId}',
-                      ),
-                      isFavorite: isFavorite,
-                      onPressed: onFavoritePressed,
-                    ),
-                    DownloadActionButton(
-                      buttonKey: ValueKey(
-                        'book-card-download-${book.sourceId}-${book.sourceBookId}',
-                      ),
-                      state: downloadState,
-                      progress: downloadProgress,
-                      isResolving: isDownloadLoading,
-                      size: 38,
-                      onPressed: onDownloadPressed,
-                    ),
-                    if (showPlayLoading)
-                      SizedBox.square(
-                        dimension: 34,
-                        child: Center(
-                          child: SizedBox.square(
-                            key: const ValueKey('book-card-play-loading'),
-                            dimension: 22,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2.6,
-                              color: colorScheme.primary,
-                            ),
-                          ),
-                        ),
+                child: wide
+                    ? _DesktopBookCardBody(
+                        strings: context.strings,
+                        book: book,
+                        yearLabel: card.yearLabel,
                       )
-                    else
-                      _CardIconButton(
-                        buttonKey: ValueKey(
-                          'book-card-play-${book.sourceId}-${book.sourceBookId}',
-                        ),
-                        tooltip: showPause ? strings.pause : strings.play,
-                        iconAsset: showPause
-                            ? AppIconAssets.playerPause
-                            : AppIconAssets.playerPlay,
-                        onPressed: onPlay,
-                        foregroundColor: colorScheme.primary,
-                        size: 34,
-                        iconSize: 25,
-                      ),
-                  ],
-                ),
+                    : _BookCardBody(book: book, yearLabel: card.yearLabel),
               ),
             ],
           ),
@@ -1020,165 +929,80 @@ class _MobileBookCardLayout extends StatelessWidget {
               showSource: showSource,
               showPercent: showPercent,
             ),
+          const SizedBox(height: 4),
+          // Keep every action touch-sized without squeezing the book metadata.
+          // A wrapping footer also works on a narrow phone at large text sizes.
+          _PortableBookCardActions(card: card),
         ],
       ),
     );
   }
 }
 
-class _DesktopBookCardLayout extends StatelessWidget {
-  const _DesktopBookCardLayout({
-    super.key,
-    required this.strings,
-    required this.book,
-    required this.boundedProgress,
-    required this.yearLabel,
-    required this.isFavorite,
-    required this.downloadState,
-    required this.downloadProgress,
-    required this.isDownloadLoading,
-    required this.showPause,
-    required this.showPlayLoading,
-    required this.onFavoritePressed,
-    required this.onDownloadPressed,
-    required this.onPlay,
-  });
-
-  final AppStrings strings;
-  final AudioBook book;
-  final double boundedProgress;
-  final String? yearLabel;
-  final bool isFavorite;
-  final BookCardDownloadState downloadState;
-  final double downloadProgress;
-  final bool isDownloadLoading;
-  final bool showPause;
-  final bool showPlayLoading;
-  final VoidCallback? onFavoritePressed;
-  final VoidCallback? onDownloadPressed;
-  final VoidCallback? onPlay;
+class _PortableBookCardActions extends StatelessWidget {
+  const _PortableBookCardActions({required this.card});
+  final BookCard card;
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final preferences = DesktopPreferences.maybeOf(context);
-    final compact = preferences?.compactCards ?? false;
-    final showSource = preferences?.showSourceOnCards ?? true;
-    final showPercent = preferences?.showPercentOnCovers ?? true;
-    final coverWidth = compact ? 72.0 : 84.0;
-    final footer = _needsCoverMetadataFooter(
-      context,
-      book,
-      coverWidth,
-      showSource: showSource,
-      showPercent: showPercent,
-    );
-
-    return Padding(
-      padding: EdgeInsets.all(compact ? 8 : 10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              SizedBox(
-                width: coverWidth,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    BookCover(
-                      title: book.title,
-                      progress: boundedProgress,
-                      imageUrl: book.coverUrl,
-                      width: coverWidth,
-                      height: compact ? 102 : 118,
-                      showProgressPercent: showPercent && !footer,
-                    ),
-                    if (showSource && !footer) ...[
-                      const SizedBox(height: 6),
-                      SourceBadge(
-                        sourceId: book.sourceId,
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: _DesktopBookCardBody(
-                  strings: strings,
-                  book: book,
-                  yearLabel: yearLabel,
-                ),
-              ),
-              const SizedBox(width: 12),
-              SizedBox(
-                width: 42,
-                height: 126,
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    _FavoriteActionButton(
-                      buttonKey: ValueKey(
-                        'book-card-favorite-${book.sourceId}-${book.sourceBookId}',
-                      ),
-                      isFavorite: isFavorite,
-                      onPressed: onFavoritePressed,
-                    ),
-                    DownloadActionButton(
-                      buttonKey: ValueKey(
-                        'book-card-download-${book.sourceId}-${book.sourceBookId}',
-                      ),
-                      state: downloadState,
-                      progress: downloadProgress,
-                      isResolving: isDownloadLoading,
-                      size: 38,
-                      onPressed: onDownloadPressed,
-                    ),
-                    if (showPlayLoading)
-                      SizedBox.square(
-                        dimension: 34,
-                        child: Center(
-                          child: SizedBox.square(
-                            key: const ValueKey('book-card-play-loading'),
-                            dimension: 22,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2.6,
-                              color: colorScheme.primary,
-                            ),
-                          ),
-                        ),
-                      )
-                    else
-                      _CardIconButton(
-                        buttonKey: ValueKey(
-                          'book-card-play-${book.sourceId}-${book.sourceBookId}',
-                        ),
-                        tooltip: showPause ? strings.pause : strings.play,
-                        iconAsset: showPause
-                            ? AppIconAssets.playerPause
-                            : AppIconAssets.playerPlay,
-                        onPressed: onPlay,
-                        foregroundColor: colorScheme.primary,
-                        size: 34,
-                        iconSize: 24,
-                      ),
-                  ],
-                ),
-              ),
-            ],
+    final book = card.book;
+    final strings = context.strings;
+    final colors = Theme.of(context).colorScheme;
+    final paused = card.isCurrentBook && card.isPlaying;
+    final loading = !paused && (card.isPlayLoading || card.isPlaybackLoading);
+    return Wrap(
+      key: const ValueKey('book-card-portable-actions'),
+      alignment: WrapAlignment.end,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        _FavoriteActionButton(
+          buttonKey: ValueKey(
+            'book-card-favorite-${book.sourceId}-${book.sourceBookId}',
           ),
-          if (footer)
-            _BookCardMetadataFooter(
-              book: book,
-              showSource: showSource,
-              showPercent: showPercent,
+          isFavorite: card.isFavorite,
+          onPressed: card.onFavoritePressed,
+          size: 48,
+        ),
+        DownloadActionButton(
+          buttonKey: ValueKey(
+            'book-card-download-${book.sourceId}-${book.sourceBookId}',
+          ),
+          state: card.downloadState,
+          progress: card.downloadProgress,
+          isResolving: card.isDownloadLoading,
+          size: 48,
+          onPressed: card.onDownloadPressed,
+        ),
+        if (card.onLaterPressed != null) _BookLaterMenu(card: card),
+        if (loading)
+          SizedBox.square(
+            dimension: 48,
+            child: Center(
+              child: SizedBox.square(
+                key: const ValueKey('book-card-play-loading'),
+                dimension: 22,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.6,
+                  color: colors.primary,
+                ),
+              ),
             ),
-        ],
-      ),
+          )
+        else
+          _CardIconButton(
+            buttonKey: ValueKey(
+              'book-card-play-${book.sourceId}-${book.sourceBookId}',
+            ),
+            tooltip: paused ? strings.pause : strings.play,
+            iconAsset: paused
+                ? AppIconAssets.playerPause
+                : AppIconAssets.playerPlay,
+            onPressed: card.onPlay,
+            foregroundColor: colors.primary,
+            size: 48,
+            iconSize: 25,
+          ),
+      ],
     );
   }
 }
@@ -1436,9 +1260,11 @@ class _FavoriteActionButton extends StatelessWidget {
     required this.isFavorite,
     required this.onPressed,
     this.buttonKey,
+    this.size = 38,
   });
 
   final bool isFavorite;
+  final double size;
   final VoidCallback? onPressed;
   final Key? buttonKey;
 
@@ -1457,7 +1283,7 @@ class _FavoriteActionButton extends StatelessWidget {
       foregroundColor: isFavorite
           ? colorScheme.error
           : colorScheme.onSurfaceVariant,
-      size: 38,
+      size: size,
       iconSize: 25,
     );
   }

@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-import '../data/mock/stage3_mock_data.dart';
-import '../features/book_details/book_details_screen.dart';
+import '../features/book_details/saved_book_details_screen.dart';
 import '../features/downloads/downloads_screen.dart';
 import '../features/home/home_screen.dart';
 import '../features/library/library_screen.dart';
@@ -87,8 +86,7 @@ final GoRouter appRouter = GoRouter(
     GoRoute(
       path: '/book/:bookId',
       builder: (context, state) {
-        final book = mockBookById(state.pathParameters['bookId']);
-        return BookDetailsScreen(book: book);
+        return SavedBookDetailsScreen(bookId: state.pathParameters['bookId']!);
       },
     ),
     GoRoute(

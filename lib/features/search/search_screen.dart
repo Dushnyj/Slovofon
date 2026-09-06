@@ -65,6 +65,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   final _playLoadingIds = <String>{};
   final _downloadLoadingIds = <String>{};
   String? _appliedInitialRouteKey;
+  int _searchRequestGeneration = 0;
 
   @override
   void initState() {
@@ -433,6 +434,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       return;
     }
     _appliedInitialRouteKey = routeKey;
+    _searchRequestGeneration++;
 
     void apply() {
       if ((widget.resetToken ?? '').isNotEmpty && query.isEmpty) {
@@ -456,7 +458,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 
     if (widget.submitInitialSearch && query.length >= 2) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
+        if (mounted && _appliedInitialRouteKey == routeKey) {
           _submitSearchWithKinds(query, searchKindsOverride: initialKinds);
         }
       });
@@ -471,6 +473,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     String? submittedQuery, {
     Set<SearchKind>? searchKindsOverride,
   }) async {
+    final generation = ++_searchRequestGeneration;
     final query = (submittedQuery ?? _controller.text).trim();
     if (query.length < 2) {
       setState(() {
@@ -486,10 +489,16 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         ? Set<SearchKind>.unmodifiable(searchKindsOverride)
         : _selectedKinds;
     final historyKind = _historyKindFor(searchKinds);
-    final history = await ref
-        .read(searchHistoryStoreProvider)
-        .record(query, historyKind);
-    if (!mounted) {
+    final sort = _selectedSort;
+    var history = _history;
+    try {
+      history = await ref
+          .read(searchHistoryStoreProvider)
+          .record(query, historyKind);
+    } catch (_) {
+      // History is optional: a local write failure must not block the search.
+    }
+    if (!mounted || generation != _searchRequestGeneration) {
       return;
     }
 
@@ -504,7 +513,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
               query: query,
               kind: historyKind,
               kinds: searchKinds,
-              sort: _selectedSort,
+              sort: sort,
             ),
           );
     });
@@ -548,6 +557,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   }
 
   void _handleResultsBack(BuildContext context) {
+    _searchRequestGeneration++;
     if (widget.popOnResultsBack && Navigator.of(context).canPop()) {
       Navigator.of(context).pop();
       return;

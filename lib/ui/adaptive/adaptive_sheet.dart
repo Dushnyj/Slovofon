@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../icons/app_icons.dart';
 import 'desktop_layout.dart';
+import 'television_layout.dart';
 
 /// Desktop options are bounded, keyboard-dismissable dialogs, not mobile sheets.
 /// The body keeps its own scrolling and state when the host window is resized.
@@ -14,7 +15,7 @@ Future<T?> showAdaptiveSheet<T>({
   bool useSafeArea = false,
   bool showDragHandle = true,
 }) {
-  if (!DesktopLayout.isActive(context)) {
+  if (!DesktopLayout.isActive(context) && !TelevisionLayout.isActive(context)) {
     return showModalBottomSheet<T>(
       context: context,
       builder: builder,

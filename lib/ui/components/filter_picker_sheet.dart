@@ -64,23 +64,35 @@ class FilterPickerSheet extends StatelessWidget {
         },
       );
     }
-    final maxHeight = MediaQuery.sizeOf(context).height * 0.72;
+    final media = MediaQuery.of(context);
+    final keyboardHeight = media.viewInsets.bottom;
+    final availableHeight =
+        (media.size.height - keyboardHeight - media.padding.top)
+            .clamp(0.0, double.infinity)
+            .toDouble();
+    final maxHeight = (media.size.height * 0.72)
+        .clamp(0.0, availableHeight)
+        .toDouble();
 
-    return SafeArea(
-      top: false,
-      child: ConstrainedBox(
-        constraints: BoxConstraints(maxHeight: maxHeight),
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ...options,
-              if (action != null) ...[
-                const SizedBox(height: 8),
-                SizedBox(width: double.infinity, child: action),
+    return Padding(
+      padding: EdgeInsets.only(bottom: keyboardHeight),
+      child: SafeArea(
+        top: false,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: maxHeight),
+          child: SingleChildScrollView(
+            key: const ValueKey('mobile-picker-scroll'),
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ...options,
+                if (action != null) ...[
+                  const SizedBox(height: 8),
+                  SizedBox(width: double.infinity, child: action),
+                ],
               ],
-            ],
+            ),
           ),
         ),
       ),

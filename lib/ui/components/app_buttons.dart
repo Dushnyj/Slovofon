@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../adaptive/television_layout.dart';
 
 import '../icons/app_icons.dart';
 
@@ -104,6 +105,14 @@ class AppIconActionButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (TelevisionLayout.isActive(context)) {
+      return IconButton(
+        key: buttonKey,
+        tooltip: tooltip,
+        onPressed: onPressed,
+        icon: AppIcon(iconAsset, size: iconSize < 24 ? 24 : iconSize),
+      );
+    }
     final colorScheme = Theme.of(context).colorScheme;
     return IconButton(
       key: buttonKey,

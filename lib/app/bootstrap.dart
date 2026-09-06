@@ -4,8 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/database/app_database.dart';
+import '../core/platform/app_device_profile.dart';
 import '../data/database/database_connection.dart';
 import '../services/audio/audio_persistence.dart';
+import '../services/audio/audio_state.dart';
 import '../services/audio/playback_controller.dart';
 import '../services/audio/playback_controller_provider.dart';
 import '../services/downloads/download_manager_provider.dart';
@@ -23,11 +25,13 @@ import '../services/settings/app_settings_store.dart';
 import '../services/sources/source_catalog_provider.dart';
 import '../services/sources/source_catalog_service.dart';
 import '../services/sources/source_settings_store.dart';
+import '../services/sources/source_access_policy.dart';
 import '../sources/sources.dart';
 import 'app.dart';
 
 Future<void> bootstrap() async {
   WidgetsFlutterBinding.ensureInitialized();
+  final deviceProfile = await AppDeviceProfile.detect();
   final audioEngine = await createPlatformAudioEngine();
   final appDatabase = AppDatabase(openAppDatabaseConnection());
   final downloadStorage = await FileDownloadStorage.create();
@@ -44,12 +48,20 @@ Future<void> bootstrap() async {
   final playbackPersistence = DriftPlaybackPersistenceStore(appDatabase);
   final sourceRegistry = SourceRegistry(defaultSourceConnectors());
   final sourceCatalogService = SourceCatalogService(registry: sourceRegistry);
+  final sourceSettings = SourceSettingsStore(
+    DriftSourceSettingsPersistenceStore(appDatabase),
+  );
+  await sourceSettings.load();
+  final accessPolicy = SourceAccessPolicy(sourceSettings);
   final playbackController = PlaybackController(
     engine: audioEngine,
     persistence: playbackPersistence,
     bookMetadataStore: metadataStore,
+    playbackAccessGuard: (book, chapter) =>
+        ensurePlaybackAllowedByPolicy(accessPolicy, book, chapter),
     playbackBookResolver: downloadStorage.offlinePlaybackBook,
     playbackErrorBookResolver: (book) async {
+      await ensureRemotePlaybackAllowedByPolicy(accessPolicy, book.sourceId);
       final refreshed = await sourceCatalogService.refreshBookForPlayback(book);
       return downloadStorage.offlinePlaybackBook(refreshed);
     },
@@ -74,6 +86,7 @@ Future<void> bootstrap() async {
   runApp(
     ProviderScope(
       overrides: [
+        appDeviceProfileProvider.overrideWithValue(deviceProfile),
         audioEngineProvider.overrideWith((ref) {
           return audioEngine;
         }),
@@ -113,9 +126,7 @@ Future<void> bootstrap() async {
         }),
         sourceSettingsStoreProvider.overrideWith((ref) {
           ref.onDispose(() => unawaited(closeDatabase()));
-          return SourceSettingsStore(
-            DriftSourceSettingsPersistenceStore(appDatabase),
-          )..load();
+          return sourceSettings;
         }),
       ],
       child: SlovofonApp(deepLinks: PluginAppDeepLinkSource()),
@@ -130,6 +141,7 @@ Future<void> bootstrap() async {
       playbackController: playbackController,
       sourceRegistry: sourceRegistry,
       sourceCatalogService: sourceCatalogService,
+      accessPolicy: accessPolicy,
     ),
   );
 }
@@ -141,6 +153,7 @@ Future<void> _restoreSavedPlaybackSession({
   required PlaybackController playbackController,
   required SourceRegistry sourceRegistry,
   required SourceCatalogService sourceCatalogService,
+  required SourceAccessPolicy accessPolicy,
 }) async {
   try {
     final savedSession = await persistence.loadSession();
@@ -159,6 +172,13 @@ Future<void> _restoreSavedPlaybackSession({
     }
 
     final sourceBookId = savedBook.sourceBookId;
+    savedBook = await downloadStorage.offlinePlaybackBook(savedBook);
+    final savedChapter = savedBook.chapters
+        .where((chapter) => chapter.id == savedSession?.activeChapterId)
+        .firstOrNull;
+    final hasLocalChapter =
+        savedChapter?.mediaSource?.type == AudioMediaSourceType.file ||
+        savedChapter?.mediaSource?.type == AudioMediaSourceType.asset;
     var hasTemporaryUrls = false;
     try {
       hasTemporaryUrls = sourceRegistry
@@ -174,8 +194,10 @@ Future<void> _restoreSavedPlaybackSession({
         savedBook.chapters.any((chapter) => chapter.mediaSource == null);
     if (sourceBookId != null &&
         sourceBookId.isNotEmpty &&
+        !hasLocalChapter &&
         (hasTemporaryUrls || missingMedia)) {
       try {
+        await ensureRemotePlaybackAllowedByPolicy(accessPolicy, savedSourceId);
         savedBook = (await sourceCatalogService.loadBook(
           SourceBookRef(sourceId: savedSourceId, sourceBookId: sourceBookId),
         )).playbackBook;
