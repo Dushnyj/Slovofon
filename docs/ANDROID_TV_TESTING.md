@@ -86,7 +86,7 @@ negative → 0, then a known 75 s upper bound; speed and paused state remain unc
 adb -s <serial> shell am instrument -w com.slovofon.app.test/com.slovofon.app.SlovofonMediaSeekInstrumentation
 ```
 
-## Verification status (2026-09-06)
+## Historical verification status (2026-09-06)
 
 The root-run `android-debug-build02` completed successfully: the application Debug
 APK and androidTest APK compile. The final universal application APK was then
@@ -103,10 +103,13 @@ successfully rebuilt and verified (`android-universal-debug-verified.log`):
 Compilation and signature verification do **not** mean that either instrumentation
 runner or device/remote scenarios passed.
 
-Native instrumentation remains **NOT EXECUTED**: a usable emulator hypervisor was unavailable,
-and the owner declined its installation. No further emulators are being started
-for this iteration. Phone/TV visual and real-device behavior checks are delegated
-to the owner; code/widget verification remains separate from those checks.
+At that checkpoint native instrumentation was **NOT EXECUTED** because a usable
+hypervisor was unavailable. This is historical, not the current environment:
+on 2026-09-07 the owner authorized native QA with usable WHPX. Only one emulator
+(phone or TV) runs at a time. The TV redesign uses a separate Debug AVD with the
+already installed API 36 TV image, preserving the earlier release AVD and its data.
+Keep instrumentation, widget/render tests, emulator input checks and physical-device
+results separate; none implies the others passed.
 
 Use the Russian [manual device checklist](MANUAL_DEVICE_QA_RU.md). A Debug APK may
 not update an existing release signed with a different key. Use a spare/test device
