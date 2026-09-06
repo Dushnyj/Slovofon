@@ -292,10 +292,27 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Install packaging tools
+        id: packaging
         shell: pwsh
         run: |
-          choco install innosetup --version=6.7.2 --no-progress -y
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # The pinned upstream version is not necessarily on Chocolatey.
+          # Verify the official immutable asset before executing any code.
+          $innoSetup = Join-Path $env:RUNNER_TEMP 'innosetup-6.7.2.exe'
+          $innoDir = Join-Path $env:RUNNER_TEMP 'innosetup-6.7.2'
+          if (Test-Path -LiteralPath $innoDir) { throw 'Inno compiler directory already exists.' }
+          Invoke-WebRequest -Uri 'https://github.com/jrsoftware/issrc/releases/download/is-6_7_2/innosetup-6.7.2.exe' -OutFile $innoSetup
+          $hash = (Get-FileHash -LiteralPath $innoSetup -Algorithm SHA256).Hash
+          if ($hash -ine '9f27f8386e554eb093336a1ca5c2dcacb7dbf04ab020889491d7ac53c38a12ff') {
+            throw 'Inno Setup SHA-256 mismatch; refusing to execute the download.'
+          }
+          if ((Get-Item -LiteralPath $innoSetup).Length -ne 10618616) { throw 'Inno Setup size mismatch.' }
+          # Upstream portable mode avoids registration, file associations and IDE launch.
+          $arguments = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', '/NOICONS', '/CURRENTUSER', '/PORTABLE=1', '/TASKS=""', "/DIR=`"$innoDir`"")
+          $process = Start-Process -FilePath $innoSetup -ArgumentList $arguments -WindowStyle Hidden -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Inno Setup bootstrap failed ($($process.ExitCode))." }
+          $innoCompiler = Join-Path $innoDir 'ISCC.exe'
+          if (-not (Test-Path -LiteralPath $innoCompiler -PathType Leaf)) { throw 'Pinned Inno compiler is missing.' }
+          "inno_compiler=$innoCompiler" >> $env:GITHUB_OUTPUT
           dotnet tool install --global wix --version 6.0.2
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & "$env:USERPROFILE\.dotnet\tools\wix.exe" extension add -g WixToolset.UI.wixext/6.0.2 WixToolset.Util.wixext/6.0.2
@@ -319,7 +336,8 @@ jobs:
           ./tools/windows/Build-WindowsInstallers.ps1 `
             -BundleDir build/windows/x64/runner/Release `
             -OutputDir "${{ needs.metadata.outputs.artifact_dir }}" `
-            -Format All -Culture ru-RU
+            -Format All -Culture ru-RU `
+            -InnoCompiler "${{ steps.packaging.outputs.inno_compiler }}"
 
       - name: Sign Windows installers
         if: steps.signing.outputs.enabled == 'true'

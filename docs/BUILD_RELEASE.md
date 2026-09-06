@@ -210,6 +210,15 @@ Release workflow делает полный публичный релиз:
 
 Android signing secrets обязательны для release workflow. Windows signing secrets опциональны: если их нет, Windows artifacts собираются, но остаются unsigned и Windows может показать `Unknown Publisher`.
 
+Inno Setup 6.7.2 для Actions загружается из [официального immutable release](https://github.com/jrsoftware/issrc/releases/tag/is-6_7_2),
+а не из Chocolatey, где закреплённая версия может отсутствовать. Workflow проверяет
+SHA-256 `9f27f8386e554eb093336a1ca5c2dcacb7dbf04ab020889491d7ac53c38a12ff`
+и размер файла до запуска. Portable-режим upstream разворачивает compiler только
+в `RUNNER_TEMP`, без регистрации, ассоциаций файлов и запуска IDE. Точный путь
+к этой копии `ISCC.exe` передаётся в `Build-WindowsInstallers.ps1 -InnoCompiler`;
+системный compiler другой версии не подставляется. На ПК разработчика этот workflow
+ничего не устанавливает.
+
 #### Неизменяемость release tag и artifacts
 
 До дорогих build jobs и повторно перед публикацией `tools/release/ReleaseGuard.ps1`

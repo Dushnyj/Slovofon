@@ -19,6 +19,72 @@ void main() {
 
   String quote(String value) => "'${value.replaceAll("'", "''")}'";
 
+  test('release packaging pins and verifies the official Inno compiler', () async {
+    final workflow = File('.github/workflows/release.yml').readAsStringSync();
+    final start = workflow.indexOf('      - name: Install packaging tools');
+    final end = workflow.indexOf('      - name: Prepare Windows portable ZIP');
+    expect(start, greaterThanOrEqualTo(0));
+    expect(end, greaterThan(start));
+    final step = workflow.substring(start, end);
+    expect(step, contains('id: packaging'));
+    expect(step, isNot(contains('choco install innosetup')));
+    expect(
+      step,
+      contains(
+        'https://github.com/jrsoftware/issrc/releases/download/'
+        'is-6_7_2/innosetup-6.7.2.exe',
+      ),
+    );
+    expect(
+      step,
+      contains('Get-FileHash -LiteralPath \$innoSetup -Algorithm SHA256'),
+    );
+    expect(
+      step,
+      contains(
+        "if (\$hash -ine '9f27f8386e554eb093336a1ca5c2dcacb7dbf04ab020889491d7ac53c38a12ff')",
+      ),
+    );
+    expect(step, contains("throw 'Inno Setup SHA-256 mismatch;"));
+    expect(
+      step.indexOf('SHA-256 mismatch'),
+      lessThan(step.indexOf('Start-Process')),
+    );
+    for (final flag in [
+      '/VERYSILENT',
+      '/SUPPRESSMSGBOXES',
+      '/NORESTART',
+      '/CURRENTUSER',
+      '/PORTABLE=1',
+      '/TASKS=""',
+      '-WindowStyle Hidden -Wait -PassThru',
+    ]) {
+      expect(step, contains(flag));
+    }
+    expect(
+      workflow,
+      contains('-InnoCompiler "\${{ steps.packaging.outputs.inno_compiler }}"'),
+    );
+
+    // Parse the actual workflow script without downloading/installing anything.
+    final script = step
+        .substring(step.indexOf('        run: |') + '        run: |'.length)
+        .split('\n')
+        .map(
+          (line) => line.startsWith('          ') ? line.substring(10) : line,
+        )
+        .join('\n');
+    final encoded = base64.encode(utf8.encode(script));
+    final result = await powershell('''
+\$source = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$encoded'))
+\$tokens = \$null
+\$errors = \$null
+[Management.Automation.Language.Parser]::ParseInput(\$source, [ref]\$tokens, [ref]\$errors) | Out-Null
+if (\$errors.Count -gt 0) { throw (\$errors | Out-String) }
+''');
+    expect(result.exitCode, 0, reason: '${result.stdout}\n${result.stderr}');
+  });
+
   test(
     'release guard resolves annotated and lightweight refs, failing closed',
     () async {
