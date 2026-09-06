@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -12,13 +13,27 @@ import 'package:slovofon/ui/icons/app_icons.dart';
 
 void main() {
   setUpAll(() async {
-    // Real installed Windows glyphs for optional 1:1 render inspection.
-    final file = File(r'C:\Windows\Fonts\seguisb.ttf');
-    if (await file.exists()) {
-      final loader = FontLoader('Segoe UI');
-      loader.addFont(file.readAsBytes().then(ByteData.sublistView));
-      await loader.load();
-    }
+    // Use the same real numeral metrics on Windows and Linux. Without an
+    // explicit font Flutter tests use Ahem blocks: their wide "15" overlaps
+    // the arrow-only inspection regions, causing false geometry failures.
+    // Roboto ships with the pinned Flutter SDK (Apache-2.0); no host font,
+    // downloaded asset or platform-dependent fallback is needed by the test.
+    // Package URI resolution is unavailable in flutter_tester's precompiled
+    // isolate, so use the package config produced by flutter pub get instead.
+    final configFile = File('.dart_tool/package_config.json');
+    final config = jsonDecode(await configFile.readAsString()) as Map;
+    final flutterPackage = (config['packages'] as List).cast<Map>().singleWhere(
+      (package) => package['name'] == 'flutter',
+    );
+    final sdk = Directory.fromUri(
+      configFile.absolute.uri.resolve(flutterPackage['rootUri'] as String),
+    ).parent.parent;
+    final file = File.fromUri(
+      sdk.uri.resolve('bin/cache/artifacts/material_fonts/roboto-medium.ttf'),
+    );
+    final loader = FontLoader('Segoe UI');
+    loader.addFont(file.readAsBytes().then(ByteData.sublistView));
+    await loader.load();
   });
 
   for (final dark in [true, false]) {
