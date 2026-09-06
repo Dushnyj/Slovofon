@@ -72,7 +72,10 @@
     <Publish Dialog="MaintenanceTypeDlg" Control="RepairButton" Event="NewDialog" Value="VerifyReadyDlg" />
     <Publish Dialog="MaintenanceTypeDlg" Control="RemoveButton" Event="NewDialog" Value="VerifyReadyDlg" />
     <!-- Opt-in launch is UI-only, never during /qn, repair, remove or a reboot. -->
-    <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="LaunchSlovofon" Order="1" Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = &quot;1&quot; AND NOT Installed AND NOT REMOVE AND NOT ReplacedInUseFiles AND NOT MsiSystemRebootPending" />
-    <Publish Dialog="ExitDialog" Control="Finish" Event="EndDialog" Value="Return" Order="2" />
+    <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="SetSlovofonLaunchTarget" Order="1" />
+    <!-- REMOVE may list only DesktopFeature when its optional checkbox is off;
+         that must not suppress launching a successfully installed application. -->
+    <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="LaunchSlovofon" Order="2" Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = &quot;1&quot; AND NOT Installed AND REMOVE &lt;&gt; &quot;ALL&quot; AND NOT ReplacedInUseFiles AND NOT MsiSystemRebootPending" />
+    <Publish Dialog="ExitDialog" Control="Finish" Event="EndDialog" Value="Return" Order="3" />
   </UI>
 </Include>

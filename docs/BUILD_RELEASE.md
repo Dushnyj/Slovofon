@@ -668,10 +668,57 @@ rollback-транзакции, распознавая также старый а
 flutter test test/platform/windows_installer_contract_test.dart test/platform/installer_update_url_test.dart
 ```
 
-Preview собирается на неисполняемых заглушках в `artifacts/installer-preview/`,
+Setup preview собирается на неисполняемых заглушках в `artifacts/installer-preview/`,
 имеет отдельный AppId и compile-time блокировку `PrepareToInstall`. Это **не релиз**
 и не рабочая программа; реальную установку выполнить нельзя. Открытие/отмена мастера
 не доказывают корректность установки, удаления или rollback.
+
+Для MSI есть отдельный неустанавливаемый preview на минимальных PE-заглушках:
+
+```powershell
+./tools/windows/New-MsiInstallerPreview.ps1 -Culture ru-RU
+./tools/windows/New-MsiInstallerPreview.ps1 -Culture en-US
+# Только генерация source, без WiX, компиляции или запуска:
+./tools/windows/New-MsiInstallerPreview.ps1 -GenerateOnly
+```
+
+WiX 6.0.2 и UI/Util 6.0.2 должны быть уже доступны. Можно передать `-WixCompiler`
+и `-ExtensionCacheDirectory` (путь к локальной `.wix/extensions`). Скрипт ничего
+не скачивает, не меняет PATH и сам не открывает мастер. Каждый preview получает
+отдельные ProductCode/UpgradeCode/component GUID, изолированные registry searches
+и папку. Безусловный MSI type-19 guard останавливает Install/Admin/Advertise execute
+sequences до `CostInitialize`, включая тихий запуск. UI использует реальные исходники
+мастера, но установка приложения и регистрация preview запрещены.
+
+При необходимости инструменты можно разместить только в QA-папке, **после согласия
+владельца на скачивание**, не устанавливая их глобально:
+
+```powershell
+# Выполнять из отдельной папки artifacts/installer-preview/<qa-run>.
+# NUGET_PACKAGES задаётся только для текущего процесса; восстановить прежнее значение после работы.
+$oldNuget = $env:NUGET_PACKAGES
+try {
+  $env:NUGET_PACKAGES = Join-Path $PWD 'nuget'
+  dotnet tool install wix --version 6.0.2 --tool-path ./tools --add-source https://api.nuget.org/v3/index.json
+  ./tools/wix.exe extension add WixToolset.UI.wixext/6.0.2 WixToolset.Util.wixext/6.0.2
+} finally { $env:NUGET_PACKAGES = $oldNuget }
+# Без -g: extensions находятся в .wix/extensions текущей QA-папки.
+```
+
+`New-MsiInstallerPreview.ps1` после компиляции автоматически проверяет таблицы MSI.
+`Build-WindowsInstallers.ps1` делает такую же read-only проверку в production-режиме
+перед дальнейшим подписанием/публикацией. Отдельный запуск:
+
+```powershell
+./tools/windows/Test-MsiInstaller.ps1 -MsiPath <path-to-msi>
+./tools/windows/Test-MsiInstaller.ps1 -MsiPath <path-to-msi-preview> -Preview
+```
+
+Валидатор открывает базу MSI только для чтения, не создаёт installer session, не
+выполняет действия пакета и не меняет реестр. Проверяются identity, ARP/uninstall,
+UI sequence, native launch, optional desktop feature и upgrade/rollback sequencing.
+Production-проверка отклоняет preview; наличие контрактов не доказывает реальную
+установку, работу запуска после неё или удаление через настройки Windows.
 
 Перед выпуском нужно отдельно проверить в чистой Windows VM: оба режима Setup,
 MSI с admin/non-admin запуском, пути с пробелами/кириллицей, 100/150/200% DPI,

@@ -201,7 +201,9 @@ $script:Lines.Add('    <Property Id="ARPNOMODIFY" Value="1" />') | Out-Null
 $script:Lines.Add('    <Property Id="REBOOT" Value="ReallySuppress" />') | Out-Null
 $script:Lines.Add('    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="!(loc.LaunchApplication)" />') | Out-Null
 $script:Lines.Add('    <Property Id="WIXUI_EXITDIALOGOPTIONALTEXT" Value="!(loc.FinishDetails)" />') | Out-Null
-$script:Lines.Add('    <Property Id="WixUnelevatedShellExecTarget" Value="[INSTALLFOLDER]Slovofon.exe" />') | Out-Null
+# Resolve the final, user-selected folder on Finish, not in the Property table
+# or before the destination dialog. Type 51 formats this value at action time.
+$script:Lines.Add('    <CustomAction Id="SetSlovofonLaunchTarget" Property="WixUnelevatedShellExecTarget" Value="[INSTALLFOLDER]Slovofon.exe" />') | Out-Null
 $script:Lines.Add('    <CustomAction Id="LaunchSlovofon" BinaryRef="Wix4UtilCA_X64" DllEntry="WixUnelevatedShellExec" Execute="immediate" Impersonate="yes" Return="ignore" />') | Out-Null
 $script:Lines.Add("    <WixVariable Id=`"WixUILicenseRtf`" Value=`"$(Escape-Xml $licensePath)`" />") | Out-Null
 foreach ($asset in @(@('WixUIBannerBmp', 'wix-banner.bmp'), @('WixUIDialogBmp', 'wix-dialog.bmp'))) {

@@ -85,6 +85,9 @@ if ($Format -in @('All', 'Msi')) {
         -ext WixToolset.Util.wixext/6.0.2 -culture $Culture `
         -loc (Join-Path $root "installer/windows/wix/Slovofon.$Culture.wxl") -out $msi
     if ($LASTEXITCODE -ne 0) { throw "WiX compilation failed ($LASTEXITCODE)." }
+    # Read the compiled MSI, not just the source XML. Fail before signing or
+    # publication if UI, uninstall, upgrade or product-identity contracts drift.
+    & (Join-Path $PSScriptRoot 'Test-MsiInstaller.ps1') -MsiPath $msi
     $symbols = [IO.Path]::ChangeExtension($msi, '.wixpdb')
     if (Test-Path -LiteralPath $symbols) { Remove-Item -LiteralPath $symbols }
 }

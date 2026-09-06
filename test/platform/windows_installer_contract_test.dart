@@ -94,6 +94,7 @@ void main() {
       late Directory fixture;
       late Directory bundle;
       late Map<String, dynamic> snapshot;
+      late Map<String, dynamic> uiSnapshot;
       final generator = File(
         'tools/windows/New-WixInstallerSource.ps1',
       ).absolute.path;
@@ -151,6 +152,9 @@ void main() {
         snapshot = await _snapshot(
           p.join(fixture.path, 'output', 'Slovofon.wxs'),
         );
+        uiSnapshot = await _snapshot(
+          File('installer/windows/wix/SlovofonUI.wxi').absolute.path,
+        );
       });
 
       tearDownAll(() async {
@@ -180,6 +184,203 @@ void main() {
         expect(upgrade['DowngradeErrorMessage'], isNotEmpty);
         expect(upgrade['AllowDowngrades'], isNot('yes'));
       });
+
+      test(
+        'formats the launch target before invoking the unelevated action',
+        () {
+          final actions = (snapshot['customActions'] as List<dynamic>)
+              .cast<Map<String, dynamic>>();
+          final setTarget = actions.singleWhere(
+            (action) => action['Id'] == 'SetSlovofonLaunchTarget',
+          );
+          expect(setTarget['Property'], 'WixUnelevatedShellExecTarget');
+          expect(setTarget['Value'], r'[INSTALLFOLDER]Slovofon.exe');
+          final launch = actions.singleWhere(
+            (action) => action['Id'] == 'LaunchSlovofon',
+          );
+          expect(launch['BinaryRef'], 'Wix4UtilCA_X64');
+          expect(launch['DllEntry'], 'WixUnelevatedShellExec');
+          expect(launch['Execute'], 'immediate');
+          expect(launch['Impersonate'], 'yes');
+          expect(launch['Return'], 'ignore');
+          final properties = snapshot['properties'] as Map<String, dynamic>;
+          expect(
+            properties.containsKey('WixUnelevatedShellExecTarget'),
+            isFalse,
+          );
+          expect(
+            properties.containsKey('WIXUI_EXITDIALOGOPTIONALCHECKBOX'),
+            isFalse,
+            reason: 'Launching must remain opt-in, not checked by default.',
+          );
+          expect(
+            (snapshot['executeActions'] as List<dynamic>)
+                .cast<Map<String, dynamic>>()
+                .where(
+                  (action) => [
+                    'SetSlovofonLaunchTarget',
+                    'LaunchSlovofon',
+                  ].contains(action['Action']),
+                ),
+            isEmpty,
+            reason: 'Silent installs and removals must not launch the app.',
+          );
+        },
+      );
+
+      test('Finish launches only by consent and always closes afterward', () {
+        final events =
+            (uiSnapshot['publishes'] as List<dynamic>)
+                .cast<Map<String, dynamic>>()
+                .where(
+                  (event) =>
+                      event['Dialog'] == 'ExitDialog' &&
+                      event['Control'] == 'Finish',
+                )
+                .toList()
+              ..sort(
+                (left, right) => int.parse(
+                  left['Order'] as String,
+                ).compareTo(int.parse(right['Order'] as String)),
+              );
+        expect(events.map((event) => '${event['Event']}:${event['Value']}'), [
+          'DoAction:SetSlovofonLaunchTarget',
+          'DoAction:LaunchSlovofon',
+          'EndDialog:Return',
+        ]);
+        expect(events.map((event) => event['Order']), ['1', '2', '3']);
+        expect(
+          events[1]['Condition'],
+          'WIXUI_EXITDIALOGOPTIONALCHECKBOX = "1" AND NOT Installed '
+          'AND REMOVE <> "ALL" AND NOT ReplacedInUseFiles '
+          'AND NOT MsiSystemRebootPending',
+          reason: 'Removing only DesktopFeature must not block opt-in launch.',
+        );
+        expect(events.last['Condition'], anyOf(isNull, '1'));
+      });
+
+      test(
+        'GenerateOnly preview isolates identities and blocks all execution',
+        () async {
+          final previewScript = File(
+            'tools/windows/New-MsiInstallerPreview.ps1',
+          ).absolute.path;
+          final result = await Process.run(
+            'pwsh',
+            [
+              '-NoProfile',
+              '-NonInteractive',
+              '-Command',
+              r"$ErrorActionPreference = 'Stop'; [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); "
+                  '\$preview = & ${_quote(previewScript)} -GenerateOnly '
+                  '-WixCompiler ${_quote(p.join(fixture.path, 'not-installed-wix.exe'))} 6>\$null; '
+                  '\$preview | ConvertTo-Json -Compress',
+            ],
+            stdoutEncoding: utf8,
+            stderrEncoding: utf8,
+          );
+          expect(
+            result.exitCode,
+            0,
+            reason: '${result.stdout}\n${result.stderr}',
+          );
+          final preview =
+              jsonDecode('${result.stdout}') as Map<String, dynamic>;
+          final directory = Directory(preview['Directory'] as String);
+          // Delete only this newly generated, exact GUID-named fixture. Never
+          // clean the artifacts parent or any other installer-preview output.
+          final canonical = await directory.resolveSymbolicLinks();
+          final parent = await Directory(
+            'artifacts/installer-preview',
+          ).resolveSymbolicLinks();
+          if (!p.equals(p.dirname(canonical), parent) ||
+              !RegExp(r'^[a-f0-9]{32}$').hasMatch(p.basename(canonical))) {
+            throw StateError(
+              'Preview output escaped its expected fixture parent',
+            );
+          }
+          try {
+            final source = preview['Source'] as String;
+            expect(p.isWithin(directory.path, source), isTrue);
+            expect(File(preview['Msi'] as String).existsSync(), isFalse);
+            final generated = await _snapshot(source);
+            final package = generated['package'] as Map<String, dynamic>;
+            final realPackage = snapshot['package'] as Map<String, dynamic>;
+            for (final identity in ['ProductCode', 'UpgradeCode']) {
+              expect(package[identity], isNotEmpty);
+              expect(package[identity], isNot(realPackage[identity]));
+            }
+            for (final key in ['components', 'componentSearches']) {
+              final realGuids = (snapshot[key] as List<dynamic>)
+                  .cast<Map<String, dynamic>>()
+                  .map((node) => (node['Guid'] as String).toLowerCase())
+                  .toSet();
+              final isolated = (generated[key] as List<dynamic>)
+                  .cast<Map<String, dynamic>>();
+              expect(isolated, isNotEmpty);
+              expect(
+                isolated
+                    .map((node) => (node['Guid'] as String).toLowerCase())
+                    .toSet(),
+                hasLength(isolated.length),
+                reason: 'Preview identities must also be mutually unique.',
+              );
+              expect(
+                isolated.every(
+                  (node) => !realGuids.contains(
+                    (node['Guid'] as String).toLowerCase(),
+                  ),
+                ),
+                isTrue,
+              );
+            }
+            final registryKeys = (generated['registryKeys'] as List<dynamic>)
+                .cast<String>();
+            expect(
+              registryKeys.any((key) => key.startsWith(r'Software\Slovofon\')),
+              isFalse,
+            );
+            expect(
+              registryKeys.any(
+                (key) => key.contains('{C8CE9579-9F96-40B5-A58C-9726E9F76F89}'),
+              ),
+              isFalse,
+            );
+            final directoryNodes = (generated['directories'] as List<dynamic>)
+                .cast<Map<String, dynamic>>();
+            expect(
+              directoryNodes.singleWhere(
+                (node) => node['Id'] == 'INSTALLFOLDER',
+              )['Name'],
+              'SlovofonInstallerPreview',
+            );
+            final guard = (generated['customActions'] as List<dynamic>)
+                .cast<Map<String, dynamic>>()
+                .singleWhere((node) => node['Id'] == 'BlockPreviewExecution');
+            expect(guard['Error'], contains('Installation is disabled'));
+            expect(guard['DllEntry'], isNull);
+            final guards = (generated['executeActions'] as List<dynamic>)
+                .cast<Map<String, dynamic>>()
+                .where((node) => node['Action'] == 'BlockPreviewExecution')
+                .toList();
+            expect(guards, hasLength(3));
+            expect(
+              guards.map((node) => node['Sequence']),
+              unorderedEquals([
+                'InstallExecuteSequence',
+                'AdminExecuteSequence',
+                'AdvertiseExecuteSequence',
+              ]),
+            );
+            for (final guard in guards) {
+              expect(guard['Before'], 'CostInitialize');
+              expect(guard['Condition'], '1');
+            }
+          } finally {
+            await Directory(canonical).delete(recursive: true);
+          }
+        },
+      );
 
       test(
         'registers discoverable uninstall metadata and MSI installation marker',
@@ -429,6 +630,17 @@ $files = @(foreach ($node in $document.SelectNodes("//*[local-name()='File']")) 
   majorUpgrade = Attributes $document.SelectSingleNode("//*[local-name()='MajorUpgrade']")
   properties = $properties
   files = $files
+  components = @(foreach ($node in $document.SelectNodes("//*[local-name()='Component']")) { Attributes $node })
+  componentSearches = @(foreach ($node in $document.SelectNodes("//*[local-name()='ComponentSearch']")) { Attributes $node })
+  directories = @(foreach ($node in $document.SelectNodes("//*[local-name()='Directory']")) { Attributes $node })
+  registryKeys = @(foreach ($node in $document.SelectNodes("//*[@Key]")) { $node.GetAttribute('Key') })
+  customActions = @(foreach ($node in $document.SelectNodes("//*[local-name()='CustomAction']")) { Attributes $node })
+  publishes = @(foreach ($node in $document.SelectNodes("//*[local-name()='Publish']")) { Attributes $node })
+  executeActions = @(foreach ($node in $document.SelectNodes("//*[local-name()='InstallExecuteSequence' or local-name()='AdminExecuteSequence' or local-name()='AdvertiseExecuteSequence']/*[local-name()='Custom']")) {
+    $item = Attributes $node
+    $item['Sequence'] = $node.ParentNode.LocalName
+    $item
+  })
   registry = @(foreach ($node in $document.SelectNodes("//*[local-name()='RegistryValue']")) {
     $item = Attributes $node
     if ($node.ParentNode.LocalName -eq 'RegistryKey') {
