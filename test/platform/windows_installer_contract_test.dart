@@ -123,6 +123,11 @@ void main() {
         fixture = await Directory.systemTemp.createTemp(
           'slovofon-installer-test-',
         );
+        // Windows CI can expose TEMP through an 8.3 alias (e.g. RUNNER~1),
+        // while PowerShell enumerates the same files using their long paths.
+        // Canonicalize before deriving any paths so containment and relative
+        // component-identity assertions compare the same filesystem spelling.
+        fixture = Directory(await fixture.resolveSymbolicLinks());
         bundle = await Directory(
           p.join(fixture.path, 'bundle & пробел'),
         ).create();
