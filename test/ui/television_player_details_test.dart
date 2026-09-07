@@ -35,8 +35,26 @@ import 'package:slovofon/ui/adaptive/slovofon_shell.dart';
 import 'package:slovofon/ui/adaptive/television_layout.dart';
 import 'package:slovofon/ui/adaptive/television_shell.dart';
 import 'package:slovofon/ui/components/mini_player_bar.dart';
+import 'package:slovofon/ui/components/chapter_tile.dart';
 
 void main() {
+  testWidgets(
+    'player chapter ordinals are one-based without changing stored indices',
+    (tester) async {
+      final fixture = await _pump(tester);
+      await tester.tap(find.byKey(const ValueKey('tv-player-tab-1')));
+      await tester.pumpAndSettle();
+      final first = find.byKey(const ValueKey('full-player-chapter-chapter-0'));
+      final second = find.byKey(
+        const ValueKey('full-player-chapter-chapter-1'),
+      );
+      expect(tester.widget<ChapterTile>(first).index, 1);
+      expect(tester.widget<ChapterTile>(second).index, 2);
+      expect(fixture.controller.state.book!.chapters.first.index, 0);
+      expect(fixture.controller.state.chapterIndex, 0);
+      expect(tester.takeException(), isNull);
+    },
+  );
   for (final size in [
     const Size(393, 852),
     const Size(800, 1280),
@@ -156,7 +174,7 @@ void main() {
                   .widget<Text>(find.byKey(const ValueKey('tv-player-title')))
                   .style!
                   .fontSize,
-              22,
+              20,
             );
           }
           final sourceContext = tester.element(
@@ -395,6 +413,8 @@ void main() {
       fixture.router.go('/source');
       await tester.pumpAndSettle();
       expect(find.byType(TelevisionStandaloneShell), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('television-details-tab-1')));
+      await tester.pumpAndSettle();
       for (final key in [
         'tv-source-details-url',
         'tv-source-details-author-0',

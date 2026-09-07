@@ -5,6 +5,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:slovofon/app/theme/app_color_tokens.dart';
 import 'package:slovofon/app/theme/app_text_scaler.dart';
 import 'package:slovofon/app/theme/app_theme.dart';
 import 'package:slovofon/app/theme/television_theme.dart';
@@ -66,6 +67,7 @@ void main() {
     tester,
   ) async {
     await _pumpSettings(tester, scale: 2, systemScale: 1.5);
+    await tester.ensureVisible(find.text('Appearance'));
     await tester.tap(find.text('Appearance'));
     await tester.pumpAndSettle();
     final preview = find.byKey(const ValueKey('appearance-text-scale-preview'));
@@ -77,6 +79,55 @@ void main() {
     );
     expect(tester.takeException(), isNull);
   });
+
+  for (final scale in [1.0, 2.0]) {
+    for (final dark in [false, true]) {
+      testWidgets(
+        'TV settings categories are remote selectable scale=$scale dark=$dark',
+        (tester) async {
+          await _pumpSettings(tester, scale: scale, dark: dark);
+          for (final index in [1, 2, 0]) {
+            final category = find.byKey(
+              ValueKey('tv-settings-category-$index'),
+            );
+            await tester.ensureVisible(category);
+            _focusInside(category).requestFocus();
+            await tester.pumpAndSettle();
+            expect(
+              find.byKey(ValueKey('tv-settings-detail-$index')),
+              findsOneWidget,
+            );
+            expect(category.hitTestable(), findsOneWidget);
+            await tester.sendKeyEvent(LogicalKeyboardKey.select);
+            await tester.pumpAndSettle();
+            expect(
+              find.byKey(ValueKey('tv-settings-detail-$index')),
+              findsOneWidget,
+            );
+          }
+          final appearance = find.text('Appearance');
+          await tester.ensureVisible(appearance);
+          _focusInside(
+            find.ancestor(of: appearance, matching: find.byType(ListTile)),
+          ).requestFocus();
+          await tester.pumpAndSettle();
+          await tester.sendKeyEvent(LogicalKeyboardKey.select);
+          await tester.pumpAndSettle();
+          expect(
+            find.byKey(const ValueKey('television-options-dialog')),
+            findsOneWidget,
+          );
+          expect(
+            find
+                .byKey(const ValueKey('television-picker-action'))
+                .hitTestable(),
+            findsOneWidget,
+          );
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
+  }
 
   testWidgets(
     'TV custom color is remote editable and persists without a wheel',
@@ -177,6 +228,142 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  for (final dpr in [2.0, 4.0]) {
+    for (final scale in [1.0, 2.0]) {
+      for (final dark in [false, true]) {
+        testWidgets('TV modal whole close control stays inside clip DPR $dpr '
+            'scale $scale dark $dark', (tester) async {
+          _viewport(tester, dpr);
+          const titles = [
+            'Источники',
+            'Внешний вид и персонализация',
+            'О приложении',
+            'Фильтры и сортировка аудиокниг',
+          ];
+          await tester.pumpWidget(
+            _host(
+              scale: scale,
+              dark: dark,
+              accent: const Color(0xFF7C3AED),
+              home: Scaffold(
+                body: Builder(
+                  builder: (context) => Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      for (var index = 0; index < titles.length; index++)
+                        TextButton(
+                          key: ValueKey('open-modal-$index'),
+                          onPressed: () => showAdaptiveSheet<void>(
+                            context: context,
+                            title: titles[index],
+                            builder: (context) => FilterPickerSheet(
+                              options: [
+                                for (var row = 0; row < 10; row++)
+                                  ListTile(
+                                    title: Text('Параметр ${row + 1}'),
+                                    onTap: () {},
+                                  ),
+                              ],
+                              action: FilledButton(
+                                onPressed: () => Navigator.of(context).pop(),
+                                child: const Text('Готово'),
+                              ),
+                            ),
+                          ),
+                          child: Text(titles[index]),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+          for (var index = 0; index < titles.length; index++) {
+            await tester.tap(find.byKey(ValueKey('open-modal-$index')));
+            await tester.pumpAndSettle();
+            final dialog = find.byKey(
+              const ValueKey('television-options-dialog'),
+            );
+            final close = find.byKey(const ValueKey('desktop-options-close'));
+            final title = find.byKey(const ValueKey('desktop-options-title'));
+            final dialogRect = tester.getRect(dialog);
+            final closeRect = tester.getRect(close);
+            final titleRect = tester.getRect(title);
+            final host = tester.widget<Dialog>(find.byType(Dialog));
+            final shape = host.shape! as RoundedRectangleBorder;
+            expect(shape.borderRadius, BorderRadius.circular(12));
+            // Layout size is exact. Global Rect subtraction can accumulate
+            // floating-point error after fractional TV safe-area translations.
+            expect(tester.getSize(close), const Size.square(40));
+            expect(closeRect.width, closeTo(40, 1e-7));
+            expect(closeRect.height, closeTo(40, 1e-7));
+            expect(closeRect.top - dialogRect.top, greaterThanOrEqualTo(12));
+            expect(
+              dialogRect.right - closeRect.right,
+              greaterThanOrEqualTo(12),
+            );
+            expect(titleRect.right, lessThanOrEqualTo(closeRect.left - 8));
+            final clip = shape.getOuterPath(dialogRect);
+            for (final point in [
+              closeRect.topLeft,
+              closeRect.topRight,
+              closeRect.bottomLeft,
+              closeRect.bottomRight,
+            ]) {
+              expect(
+                clip.contains(point),
+                isTrue,
+                reason:
+                    'The complete close button, including its focus '
+                    'border, must remain inside the rounded dialog clip',
+              );
+            }
+            expect(close.hitTestable(), findsOneWidget);
+            expect(find.text('Готово').hitTestable(), findsOneWidget);
+
+            final button = tester.widget<IconButton>(close);
+            final colors = Theme.of(tester.element(close)).colorScheme;
+            final idle = button.style!;
+            expect(idle.backgroundColor!.resolve({})!.a, 0);
+            expect(idle.side!.resolve({}), BorderSide.none);
+
+            final closeFocus = _focusInside(close);
+            closeFocus.requestFocus();
+            await tester.pumpAndSettle();
+            expect(closeFocus.hasFocus, isTrue);
+            final material = tester.widget<Material>(
+              find.descendant(of: close, matching: find.byType(Material)).first,
+            );
+            expect(material.color, colors.primary);
+            expect(
+              idle.foregroundColor!.resolve({WidgetState.focused}),
+              colors.onPrimary,
+            );
+            expect(idle.side!.resolve({WidgetState.focused})!.width, 2);
+
+            await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+            await tester.pumpAndSettle();
+            expect(closeFocus.hasFocus, isFalse);
+            closeFocus.requestFocus();
+            await tester.pumpAndSettle();
+            if (index == 0) {
+              await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+            } else if (index == 1) {
+              await tester.sendKeyEvent(LogicalKeyboardKey.select);
+            } else if (index == 2) {
+              await tester.binding.handlePopRoute();
+            } else {
+              await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+            }
+            await tester.pumpAndSettle();
+            expect(dialog, findsNothing);
+            expect(tester.takeException(), isNull);
+          }
+        });
+      }
+    }
+  }
 }
 
 void _viewport(WidgetTester tester, double dpr) {
@@ -192,11 +379,11 @@ Widget _host({
   double scale = 1,
   double systemScale = 1,
   bool dark = true,
+  Color accent = AppColorTokens.defaultAccent,
 }) => MaterialApp(
   theme: TelevisionTheme.from(
-    (dark ? AppTheme.dark() : AppTheme.light()).copyWith(
-      platform: TargetPlatform.android,
-    ),
+    (dark ? AppTheme.dark(accent: accent) : AppTheme.light(accent: accent))
+        .copyWith(platform: TargetPlatform.android),
   ),
   builder: (context, child) => MediaQuery(
     data: MediaQuery.of(context).copyWith(

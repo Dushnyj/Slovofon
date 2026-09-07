@@ -259,14 +259,44 @@ class _SourceBookDetailsBodyState
 
         final actions = Wrap(
           spacing: television
-              ? 8
+              ? 6
               : desktop
               ? 12
               : 18,
           runSpacing: desktop ? 12 : 8,
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
-            if (desktop || television)
+            if (television)
+              TelevisionBookPlayButton(
+                buttonKey: showPlayLoading
+                    ? null
+                    : const ValueKey('source-details-play'),
+                tooltip: isPlaying ? strings.pause : strings.play,
+                onPressed: showPlayLoading
+                    ? null
+                    : () => _handlePlayButton(
+                        context,
+                        playbackController,
+                        isCurrentBook,
+                        isPlaying,
+                      ),
+                icon: showPlayLoading
+                    ? SizedBox.square(
+                        key: const ValueKey('source-details-play-loading'),
+                        dimension: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      )
+                    : AppIcon(
+                        isPlaying
+                            ? AppIconAssets.playerPause
+                            : AppIconAssets.playerPlay,
+                        size: 20,
+                      ),
+              )
+            else if (desktop)
               SizedBox(
                 width: double.infinity,
                 child: FilledButton.icon(
@@ -337,7 +367,7 @@ class _SourceBookDetailsBodyState
               state: bookDownloadState,
               progress: bookDownloadProgress,
               size: television
-                  ? 40
+                  ? 36
                   : desktop
                   ? 44
                   : 48,
@@ -362,11 +392,11 @@ class _SourceBookDetailsBodyState
                   ? colorScheme.error
                   : colorScheme.onSurfaceVariant,
               buttonSize: television
-                  ? 40
+                  ? 36
                   : desktop
                   ? 44
                   : 48,
-              iconSize: 25,
+              iconSize: television ? 20 : 25,
             ),
             AppIconActionButton(
               buttonKey: const ValueKey('source-details-share'),
@@ -375,18 +405,52 @@ class _SourceBookDetailsBodyState
               iconAsset: AppIconAssets.systemShare,
               foregroundColor: colorScheme.onSurfaceVariant,
               buttonSize: television
-                  ? 40
+                  ? 36
                   : desktop
                   ? 44
                   : 48,
-              iconSize: 25,
+              iconSize: television ? 20 : 25,
             ),
+            if (television)
+              IconButton(
+                key: const ValueKey('source-details-later'),
+                tooltip: libraryStore.isLater(audioBook)
+                    ? strings.removeFromLater
+                    : strings.addToLater,
+                onPressed: () async {
+                  try {
+                    final added = await libraryStore.toggleLater(audioBook);
+                    if (added) _cacheFreshSnapshot(widget.snapshot);
+                  } catch (_) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text(strings.libraryActionError)),
+                      );
+                    }
+                  }
+                },
+                icon: AppIcon(
+                  libraryStore.isLater(audioBook)
+                      ? AppIconAssets.systemCheck
+                      : AppIconAssets.bookDuration,
+                  size: 20,
+                ),
+              ),
           ],
         );
-        final bodyChildren = <Widget>[
+        final informationChildren = <Widget>[
           if ((version.description ?? '').trim().isNotEmpty) ...[
             if (!desktop && !television) const SizedBox(height: 18),
-            SectionHeader(title: strings.description),
+            if (television)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Text(
+                  strings.description,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              )
+            else
+              SectionHeader(title: strings.description),
             _CollapsibleDescription(
               text: version.description!.trim(),
               expanded: _showFullDescription,
@@ -396,8 +460,9 @@ class _SourceBookDetailsBodyState
             ),
           ],
           _SourceFacts(version: version),
-          const SizedBox(height: 20),
-          SectionHeader(title: strings.chapters),
+        ];
+        final chapterChildren = <Widget>[
+          if (!television) SectionHeader(title: strings.chapters),
           for (var index = 0; index < visibleChapterCount; index++)
             Builder(
               builder: (context) {
@@ -413,7 +478,8 @@ class _SourceBookDetailsBodyState
                           .toDouble()
                     : 0.0;
                 return ChapterTile(
-                  index: sourceChapter.index,
+                  key: ValueKey('source-details-chapter-$index'),
+                  index: index + 1,
                   title: sourceChapter.title,
                   durationLabel: _formatShortDuration(
                     Duration(milliseconds: sourceChapter.durationMs ?? 0),
@@ -469,6 +535,11 @@ class _SourceBookDetailsBodyState
                 ),
               ),
             ),
+        ];
+        final bodyChildren = <Widget>[
+          ...informationChildren,
+          const SizedBox(height: 20),
+          ...chapterChildren,
           _OtherNarrationsSection(future: _otherNarrationsFuture),
         ];
         if (desktop || television) {
@@ -507,6 +578,24 @@ class _SourceBookDetailsBodyState
               actions: actions,
             ),
             contentSlivers: [SliverList.list(children: bodyChildren)],
+            televisionTabs: [
+              TelevisionBookDetailsTab(
+                title: strings.chapters,
+                slivers: [SliverList.list(children: chapterChildren)],
+              ),
+              TelevisionBookDetailsTab(
+                title: strings.information,
+                slivers: [
+                  SliverList.list(
+                    children: [
+                      ...informationChildren,
+                      const SizedBox(height: 12),
+                      _OtherNarrationsSection(future: _otherNarrationsFuture),
+                    ],
+                  ),
+                ],
+              ),
+            ],
           );
         }
         return ListView(
@@ -961,7 +1050,9 @@ class _SourceFactTile extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 6),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerHighest,
+        color: TelevisionLayout.isActive(context)
+            ? colorScheme.surfaceContainerLow
+            : colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(8),
       ),
       child: Column(
@@ -1132,7 +1223,12 @@ class _SourceHeaderDetails extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (identity) ...[
-          Text(version.title, style: Theme.of(context).textTheme.headlineSmall),
+          Text(
+            version.title,
+            style: TelevisionLayout.isActive(context)
+                ? Theme.of(context).textTheme.titleMedium
+                : Theme.of(context).textTheme.headlineSmall,
+          ),
           if (version.isFragment) const BookFragmentBadge(),
           const SizedBox(height: 8),
         ],

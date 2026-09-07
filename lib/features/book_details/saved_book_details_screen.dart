@@ -20,9 +20,11 @@ import '../../ui/adaptive/television_shell.dart';
 import '../../ui/components/app_bar_text.dart';
 import '../../ui/components/book_cover.dart';
 import '../../ui/components/book_fragment_badge.dart';
+import '../../ui/components/download_action_button.dart';
 import '../../ui/components/source_badge.dart';
 import '../../ui/components/state_placeholder.dart';
 import '../../ui/icons/app_icons.dart';
+import '../shared/download_ui_state.dart';
 import '../shared/playback_resume.dart';
 import '../source_books/source_book_details_screen.dart';
 
@@ -191,6 +193,8 @@ class _SavedBookDetailsScreenState
   Widget _details(AudioBook book, AudioPlaybackBook? playback) {
     final strings = context.strings;
     final theme = Theme.of(context);
+    final television = TelevisionLayout.isActive(context);
+    final downloads = ref.watch(downloadManagerProvider);
     final library = ref.watch(libraryStoreProvider);
     final chapters = playback?.chapters ?? const <AudioPlaybackChapter>[];
     final hasChapters = chapters.isNotEmpty;
@@ -208,24 +212,33 @@ class _SavedBookDetailsScreenState
         Text(
           book.title,
           key: const ValueKey('saved-book-title'),
-          style: theme.textTheme.headlineSmall,
+          style: television
+              ? theme.textTheme.titleMedium
+              : theme.textTheme.headlineSmall,
         ),
         const SizedBox(height: 8),
         if (book.author.trim().isNotEmpty)
-          Text(book.author, style: theme.textTheme.bodyLarge),
+          Text(
+            book.author,
+            style: television
+                ? theme.textTheme.bodyMedium
+                : theme.textTheme.bodyLarge,
+          ),
         const SizedBox(height: 4),
         Text(
           book.narrator.trim().isEmpty
               ? strings.narratorUnknown
               : book.narrator,
           key: const ValueKey('saved-book-narrator'),
-          style: theme.textTheme.bodyLarge,
+          style: television
+              ? theme.textTheme.bodySmall
+              : theme.textTheme.bodyLarge,
         ),
       ],
     );
     final facts = Wrap(
-      spacing: 16,
-      runSpacing: 8,
+      spacing: television ? 8 : 16,
+      runSpacing: television ? 4 : 8,
       children: [
         Text(
           strings.chaptersCount(playback?.chapters.length ?? book.chapterCount),
@@ -242,30 +255,76 @@ class _SavedBookDetailsScreenState
       ],
     );
     final actions = Wrap(
-      spacing: 12,
-      runSpacing: 12,
+      spacing: television ? 6 : 12,
+      runSpacing: television ? 6 : 12,
+      crossAxisAlignment: television
+          ? WrapCrossAlignment.center
+          : WrapCrossAlignment.start,
       children: [
-        if (hasChapters)
+        if (hasChapters && television)
+          TelevisionBookPlayButton(
+            buttonKey: const ValueKey('saved-book-play'),
+            tooltip: strings.play,
+            onPressed: _busy ? null : () => unawaited(_play(playback!)),
+            icon: const AppIcon(AppIconAssets.playerPlay, size: 20),
+          )
+        else if (hasChapters)
           FilledButton.icon(
             key: const ValueKey('saved-book-play'),
             onPressed: _busy ? null : () => unawaited(_play(playback!)),
             icon: const AppIcon(AppIconAssets.playerPlay),
             label: Text(strings.play),
           ),
-        OutlinedButton.icon(
-          key: const ValueKey('saved-book-favorite'),
-          onPressed: _busy ? null : () => unawaited(_favorite(book)),
-          icon: AppIcon(
-            library.isFavorite(book)
-                ? AppIconAssets.bookFavoriteFilled
-                : AppIconAssets.bookFavorite,
-          ),
-          label: Text(
-            library.isFavorite(book)
+        if (television) ...[
+          IconButton(
+            key: const ValueKey('saved-book-favorite'),
+            tooltip: library.isFavorite(book)
                 ? strings.removeFavorite
                 : strings.addFavorite,
+            onPressed: _busy ? null : () => unawaited(_favorite(book)),
+            icon: AppIcon(
+              library.isFavorite(book)
+                  ? AppIconAssets.bookFavoriteFilled
+                  : AppIconAssets.bookFavorite,
+              size: 20,
+            ),
           ),
-        ),
+          IconButton(
+            key: const ValueKey('saved-book-later'),
+            tooltip: library.isLater(book)
+                ? strings.removeFromLater
+                : strings.addToLater,
+            onPressed: _busy ? null : () => unawaited(_later(book)),
+            icon: AppIcon(
+              library.isLater(book)
+                  ? AppIconAssets.systemCheck
+                  : AppIconAssets.bookDuration,
+              size: 20,
+            ),
+          ),
+          if (hasChapters)
+            DownloadActionButton(
+              buttonKey: const ValueKey('saved-book-download'),
+              size: 36,
+              state: downloadStateForBook(downloads, playback!),
+              progress: downloadProgressForBook(downloads, playback),
+              onPressed: _busy ? null : () => unawaited(_download(playback)),
+            ),
+        ] else
+          OutlinedButton.icon(
+            key: const ValueKey('saved-book-favorite'),
+            onPressed: _busy ? null : () => unawaited(_favorite(book)),
+            icon: AppIcon(
+              library.isFavorite(book)
+                  ? AppIconAssets.bookFavoriteFilled
+                  : AppIconAssets.bookFavorite,
+            ),
+            label: Text(
+              library.isFavorite(book)
+                  ? strings.removeFavorite
+                  : strings.addFavorite,
+            ),
+          ),
       ],
     );
     final content = <Widget>[
@@ -284,12 +343,17 @@ class _SavedBookDetailsScreenState
         ),
       ],
       if (book.description?.trim().isNotEmpty == true) ...[
-        Text(strings.description, style: theme.textTheme.titleLarge),
-        const SizedBox(height: 12),
+        Text(
+          strings.description,
+          style: television
+              ? theme.textTheme.titleMedium
+              : theme.textTheme.titleLarge,
+        ),
+        SizedBox(height: television ? 6 : 12),
         Text(book.description!, key: const ValueKey('saved-book-description')),
-        const SizedBox(height: 24),
+        SizedBox(height: television ? 12 : 24),
       ],
-      if (hasChapters)
+      if (hasChapters && !television)
         Text(strings.chapters, style: theme.textTheme.titleLarge),
     ];
     Widget chapter(int index) {
@@ -331,6 +395,22 @@ class _SavedBookDetailsScreenState
                 itemCount: chapters.length,
                 itemBuilder: (context, index) => chapter(index),
               ),
+          ],
+          televisionTabs: [
+            if (hasChapters)
+              TelevisionBookDetailsTab(
+                title: strings.chapters,
+                slivers: [
+                  SliverList.builder(
+                    itemCount: chapters.length,
+                    itemBuilder: (context, index) => chapter(index),
+                  ),
+                ],
+              ),
+            TelevisionBookDetailsTab(
+              title: strings.information,
+              slivers: [SliverList.list(children: content)],
+            ),
           ],
         ),
       );
@@ -383,6 +463,34 @@ class _SavedBookDetailsScreenState
     final operation = ++_operation;
     try {
       await ref.read(libraryStoreProvider).toggleFavorite(book);
+    } catch (_) {
+      if (mounted && operation == _operation) {
+        _error(context.strings.libraryActionError);
+      }
+    } finally {
+      if (mounted && operation == _operation) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _later(AudioBook book) async {
+    setState(() => _busy = true);
+    final operation = ++_operation;
+    try {
+      await ref.read(libraryStoreProvider).toggleLater(book);
+    } catch (_) {
+      if (mounted && operation == _operation) {
+        _error(context.strings.libraryActionError);
+      }
+    } finally {
+      if (mounted && operation == _operation) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _download(AudioPlaybackBook book) async {
+    setState(() => _busy = true);
+    final operation = ++_operation;
+    try {
+      await runBookCardDownloadAction(ref.read(downloadManagerProvider), book);
     } catch (_) {
       if (mounted && operation == _operation) {
         _error(context.strings.libraryActionError);

@@ -34,6 +34,9 @@ Future<T?> showAdaptiveSheet<T>({
     builder: (dialogContext) => Dialog(
       insetPadding: EdgeInsets.all(television ? 16 : 24),
       constraints: BoxConstraints(maxWidth: dialogWidth),
+      shape: television
+          ? RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))
+          : null,
       clipBehavior: Clip.antiAlias,
       child: SizedBox(
         key: ValueKey(
@@ -45,12 +48,16 @@ Future<T?> showAdaptiveSheet<T>({
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Padding(
-              padding: EdgeInsetsDirectional.fromSTEB(
-                title == null ? 4 : 20,
-                4,
-                4,
-                4,
-              ),
+              // Keep the entire focused control inside the rounded clip, not
+              // just its glyph. TV uses a compact desktop-like corner radius.
+              padding: television
+                  ? const EdgeInsets.all(12)
+                  : EdgeInsetsDirectional.fromSTEB(
+                      title == null ? 4 : 20,
+                      4,
+                      4,
+                      4,
+                    ),
               child: Row(
                 children: [
                   Expanded(
@@ -67,8 +74,14 @@ Future<T?> showAdaptiveSheet<T>({
                             ),
                           ),
                   ),
+                  if (television) const SizedBox(width: 8),
                   IconButton(
                     key: const ValueKey('desktop-options-close'),
+                    style: television
+                        ? _televisionCloseStyle(
+                            Theme.of(dialogContext).colorScheme,
+                          )
+                        : null,
                     tooltip: MaterialLocalizations.of(
                       dialogContext,
                     ).closeButtonTooltip,
@@ -85,3 +98,25 @@ Future<T?> showAdaptiveSheet<T>({
     ),
   );
 }
+
+ButtonStyle _televisionCloseStyle(ColorScheme colors) => ButtonStyle(
+  minimumSize: const WidgetStatePropertyAll(Size.square(40)),
+  fixedSize: const WidgetStatePropertyAll(Size.square(40)),
+  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+  backgroundColor: WidgetStateProperty.resolveWith(
+    (states) => states.contains(WidgetState.focused)
+        ? colors.primary
+        : colors.surface.withValues(alpha: 0),
+  ),
+  foregroundColor: WidgetStateProperty.resolveWith(
+    (states) => states.contains(WidgetState.focused)
+        ? colors.onPrimary
+        : colors.onSurface,
+  ),
+  side: WidgetStateProperty.resolveWith(
+    (states) => states.contains(WidgetState.focused)
+        ? BorderSide(color: colors.primary, width: 2)
+        : BorderSide.none,
+  ),
+  overlayColor: WidgetStatePropertyAll(colors.primary.withValues(alpha: 0)),
+);

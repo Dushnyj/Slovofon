@@ -120,10 +120,10 @@ void main() {
           expect(shellBounds.height, closeTo(safe.height, .01));
           for (var index = 0; index < 5; index++) {
             final control = find.byKey(ValueKey('tv-nav-$index'));
-            // Large user text may require horizontal navigation scrolling.
-            // Every focused tab must be fully revealed, without shrinking text.
+            // The icon rail has a vertical traversal axis.
+            // Labels remain available through semantics/tooltips at every text size.
             if (index > 0) {
-              await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+              await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
               await tester.pumpAndSettle();
             }
             expect(_focusedWithin(control), isTrue);
@@ -160,7 +160,7 @@ void main() {
       expect(_focusedWithin(find.byKey(const ValueKey('tv-nav-0'))), isTrue);
       final routes = ['/', '/search', '/library', '/downloads', '/settings'];
       for (var index = 1; index < 5; index++) {
-        await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+        await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
         await tester.pumpAndSettle();
         expect(_focusedWithin(find.byKey(ValueKey('tv-nav-$index'))), isTrue);
         await tester.sendKeyEvent(LogicalKeyboardKey.select);
@@ -177,11 +177,11 @@ void main() {
 
   for (final dark in [false, true]) {
     testWidgets(
-      'TV D-pad card details and actions are keyboard reachable dark=$dark',
+      'TV D-pad opens poster details without extra action stops dark=$dark',
       (tester) async {
         final fixture = await _isolated(tester, dark: dark);
         expect(_focusedWithin(find.byKey(const ValueKey('tv-nav-0'))), isTrue);
-        await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+        await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
         await tester.pumpAndSettle();
         final frame = find.byType(TelevisionFocusFrame);
         expect(_focusedWithin(frame), isTrue);
@@ -203,41 +203,14 @@ void main() {
         await tester.sendKeyEvent(LogicalKeyboardKey.select);
         await tester.pumpAndSettle();
         expect(fixture.actions, ['details']);
-        await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
-        await tester.pumpAndSettle();
-        final play = find.descendant(
-          of: find.byType(TelevisionBookCard),
-          matching: find.byWidgetPredicate((widget) => widget is FilledButton),
-        );
-        expect(_focusedWithin(play), isTrue);
-        for (final action in ['play', 'favorite', 'later', 'download']) {
-          await tester.sendKeyEvent(LogicalKeyboardKey.select);
-          await tester.pumpAndSettle();
-          expect(fixture.actions.last, action);
-          if (action != 'download') {
-            await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
-            await tester.pumpAndSettle();
-          }
-        }
-        expect(fixture.actions, [
-          'details',
-          'play',
-          'favorite',
-          'later',
-          'download',
-        ]);
-        final style = Theme.of(tester.element(play)).filledButtonTheme.style!;
-        final background = style.backgroundColor!.resolve({
-          WidgetState.focused,
-        })!;
-        final foreground = style.foregroundColor!.resolve({
-          WidgetState.focused,
-        })!;
-        final a = background.computeLuminance(),
-            b = foreground.computeLuminance();
+        // Catalog posters have one focus stop; actions live in book details.
         expect(
-          (a > b ? (a + .05) / (b + .05) : (b + .05) / (a + .05)),
-          greaterThanOrEqualTo(4.5),
+          find.descendant(of: frame, matching: find.byType(IconButton)),
+          findsNothing,
+        );
+        expect(
+          find.descendant(of: frame, matching: find.byType(InkWell)),
+          findsOneWidget,
         );
         expect(tester.takeException(), isNull);
       },

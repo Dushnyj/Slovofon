@@ -18,6 +18,8 @@ class ChapterTile extends StatelessWidget {
     super.key,
   });
 
+  /// Human-readable one-based position in the displayed chapter list.
+  /// A source's raw chapter index is an identifier/order hint, not this label.
   final int index;
   final String title;
   final String durationLabel;

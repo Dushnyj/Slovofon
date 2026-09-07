@@ -1,15 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import 'package:go_router/go_router.dart';
 
 import '../../app/localization/app_strings.dart';
-import '../../services/audio/playback_controller_provider.dart';
-import '../components/playback_source_label.dart';
-import '../components/seek_interval_icon.dart';
-import '../icons/app_icons.dart';
-import 'television_metrics.dart';
 
-/// The menu uses its content width; extra TV space belongs to books, not tabs.
+import '../icons/app_icons.dart';
+import 'television_transport.dart';
+export 'television_transport.dart';
+
+/// A slim persistent rail leaves the vertical working area to the catalog.
 class TelevisionShell extends StatefulWidget {
   const TelevisionShell({
     required this.selectedIndex,
@@ -62,17 +61,23 @@ class _TelevisionShellState extends State<TelevisionShell> {
   @override
   Widget build(BuildContext context) => Scaffold(
     key: const ValueKey('television-shell'),
-    body: Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    body: Row(
       children: [
         _TelevisionNavigation(
           selectedIndex: widget.selectedIndex,
           onSelected: widget.onSelected,
           focusNodes: _navigationFocus,
         ),
-        const SizedBox(height: 8),
-        Expanded(child: FocusTraversalGroup(child: widget.child)),
-        const TelevisionTransport(),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(child: FocusTraversalGroup(child: widget.child)),
+              const TelevisionTransport(),
+            ],
+          ),
+        ),
       ],
     ),
   );
@@ -144,8 +149,7 @@ class _TelevisionStandaloneShellState extends State<TelevisionStandaloneShell> {
   @override
   Widget build(BuildContext context) => Scaffold(
     key: const ValueKey('television-standalone-shell'),
-    body: Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    body: Row(
       children: [
         _TelevisionNavigation(
           selectedIndex: widget.selectedIndex,
@@ -153,31 +157,40 @@ class _TelevisionStandaloneShellState extends State<TelevisionStandaloneShell> {
           focusNodes: _navigationFocus,
           keyPrefix: 'tv-standalone-nav',
         ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            widget.leading ??
-                IconButton(
-                  key: const ValueKey('tv-standalone-back'),
-                  focusNode: _backFocus,
-                  tooltip: MaterialLocalizations.of(context).backButtonTooltip,
-                  onPressed: _back,
-                  icon: const AppIcon(AppIconAssets.systemBack, size: 22),
-                ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                widget.title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.titleMedium,
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  widget.leading ??
+                      IconButton(
+                        key: const ValueKey('tv-standalone-back'),
+                        focusNode: _backFocus,
+                        tooltip: MaterialLocalizations.of(
+                          context,
+                        ).backButtonTooltip,
+                        onPressed: _back,
+                        icon: const AppIcon(AppIconAssets.systemBack, size: 22),
+                      ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      widget.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  ),
+                ],
               ),
-            ),
-          ],
+              const SizedBox(height: 8),
+              Expanded(child: widget.child),
+              if (widget.showTransport) const TelevisionTransport(),
+            ],
+          ),
         ),
-        const SizedBox(height: 8),
-        Expanded(child: widget.child),
-        if (widget.showTransport) const TelevisionTransport(),
       ],
     ),
   );
@@ -206,187 +219,55 @@ class _TelevisionNavigation extends StatelessWidget {
       (strings.downloads, AppIconAssets.navDownloads),
       (strings.settings, AppIconAssets.navSettings),
     ];
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: [
-          for (final (index, item) in items.indexed) ...[
-            if (index > 0) const SizedBox(width: 6),
-            Semantics(
-              selected: index == selectedIndex,
-              child: TextButton.icon(
-                key: ValueKey('$keyPrefix-$index'),
-                focusNode: focusNodes[index],
-                onPressed: () => onSelected(index),
-                style: ButtonStyle(
-                  minimumSize: const WidgetStatePropertyAll(Size(40, 40)),
-                  foregroundColor: WidgetStatePropertyAll(
-                    index == selectedIndex
-                        ? colors.onSecondaryContainer
-                        : colors.onSurface,
-                  ),
-                  backgroundColor: WidgetStateProperty.resolveWith((states) {
-                    if (index == selectedIndex) {
-                      return colors.secondaryContainer;
-                    }
-                    return states.contains(WidgetState.focused)
-                        ? colors.surfaceContainerHigh
-                        : colors.surface;
-                  }),
-                  side: WidgetStateProperty.resolveWith(
-                    (states) => BorderSide(
-                      color: states.contains(WidgetState.focused)
-                          ? colors.primary
-                          : colors.outlineVariant,
-                      width: states.contains(WidgetState.focused) ? 2 : 1,
-                    ),
-                  ),
-                ),
-                icon: AppIcon(item.$2, size: 18),
-                label: Text(item.$1),
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class TelevisionTransport extends ConsumerWidget {
-  const TelevisionTransport({super.key});
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final controller = ref.watch(playbackControllerProvider);
-    return ListenableBuilder(
-      listenable: controller,
-      builder: (context, _) {
-        final state = controller.state;
-        final book = state.book;
-        if (book == null) return const SizedBox.shrink();
-        final strings = context.strings;
-        final theme = Theme.of(context);
-        final colors = theme.colorScheme;
-        return Padding(
-          padding: const EdgeInsets.only(top: 8),
-          child: Material(
-            color: colors.surfaceContainer,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-              side: BorderSide(color: colors.outlineVariant),
-            ),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(
-                minHeight: TelevisionMetrics.transportMinHeight,
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(8),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Tooltip(
-                        message: book.title,
-                        child: TextButton(
-                          key: const ValueKey('tv-open-player'),
-                          onPressed: () => context.push('/player'),
-                          // A focus outline preserves contrast of source-owned
-                          // colors; do not put those labels on a purple fill.
-                          style: ButtonStyle(
-                            overlayColor: WidgetStatePropertyAll(
-                              colors.primary.withValues(alpha: 0),
-                            ),
-                            backgroundColor: WidgetStatePropertyAll(
-                              colors.surfaceContainer,
-                            ),
-                            foregroundColor: WidgetStatePropertyAll(
-                              colors.onSurface,
-                            ),
-                            padding: const WidgetStatePropertyAll(
-                              EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                            ),
-                            side: WidgetStateProperty.resolveWith(
-                              (states) => BorderSide(
-                                color: states.contains(WidgetState.focused)
-                                    ? colors.primary
-                                    : colors.surfaceContainer,
-                                width: states.contains(WidgetState.focused)
-                                    ? 2
-                                    : 1,
+    return SizedBox(
+      width: 56,
+      child: SingleChildScrollView(
+        child: Column(
+          children: [
+            for (final (index, item) in items.indexed) ...[
+              if (index > 0) const SizedBox(height: 8),
+              Semantics(
+                selected: index == selectedIndex,
+                child: Tooltip(
+                  message: item.$1,
+                  child: IconButton(
+                    key: ValueKey('$keyPrefix-$index'),
+                    focusNode: focusNodes[index],
+                    onPressed: () => onSelected(index),
+                    style: ButtonStyle(
+                      minimumSize: const WidgetStatePropertyAll(Size(48, 48)),
+                      foregroundColor: WidgetStatePropertyAll(
+                        index == selectedIndex
+                            ? colors.onSecondaryContainer
+                            : colors.onSurfaceVariant,
+                      ),
+                      backgroundColor: WidgetStateProperty.resolveWith((
+                        states,
+                      ) {
+                        if (index == selectedIndex) {
+                          return colors.secondaryContainer;
+                        }
+                        return states.contains(WidgetState.focused)
+                            ? colors.surfaceContainerHigh
+                            : colors.surface;
+                      }),
+                      side: WidgetStateProperty.resolveWith(
+                        (states) => states.contains(WidgetState.focused)
+                            ? BorderSide(color: colors.primary, width: 2)
+                            : BorderSide(
+                                color: colors.surface.withValues(alpha: 0),
+                                width: 2,
                               ),
-                            ),
-                          ),
-                          child: SizedBox(
-                            width: double.infinity,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  book.title,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: theme.textTheme.titleSmall,
-                                ),
-                                const SizedBox(height: 2),
-                                PlaybackSourceLabel(
-                                  sourceId: book.sourceId,
-                                  sourceName: book.sourceName,
-                                  maxLines: 1,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    IconButton(
-                      tooltip: strings.rewind15,
-                      onPressed: () =>
-                          controller.skipBy(const Duration(seconds: -15)),
-                      icon: const SeekIntervalIcon(forward: false),
-                    ),
-                    const SizedBox(width: 4),
-                    IconButton.filled(
-                      key: const ValueKey('tv-play-pause'),
-                      tooltip: state.isPlaying ? strings.pause : strings.play,
-                      onPressed: controller.togglePlayPause,
-                      style: ButtonStyle(
-                        minimumSize: const WidgetStatePropertyAll(Size(48, 48)),
-                        backgroundColor: WidgetStatePropertyAll(colors.primary),
-                        foregroundColor: WidgetStatePropertyAll(
-                          colors.onPrimary,
-                        ),
-                        side: WidgetStateProperty.resolveWith(
-                          (states) => BorderSide(
-                            color: states.contains(WidgetState.focused)
-                                ? colors.onPrimary
-                                : colors.primary,
-                            width: states.contains(WidgetState.focused) ? 2 : 1,
-                          ),
-                        ),
-                      ),
-                      icon: AppIcon(
-                        state.isPlaying
-                            ? AppIconAssets.playerPause
-                            : AppIconAssets.playerPlay,
-                        size: 24,
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    IconButton(
-                      tooltip: strings.forward15,
-                      onPressed: () =>
-                          controller.skipBy(const Duration(seconds: 15)),
-                      icon: const SeekIntervalIcon(forward: true),
-                    ),
-                  ],
+                    icon: AppIcon(item.$2, size: 22),
+                  ),
                 ),
               ),
-            ),
-          ),
-        );
-      },
+            ],
+          ],
+        ),
+      ),
     );
   }
 }

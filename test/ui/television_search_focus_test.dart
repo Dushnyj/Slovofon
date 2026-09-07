@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:slovofon/app/localization/app_strings.dart';
 import 'package:slovofon/app/theme/app_theme.dart';
+import 'package:slovofon/app/theme/app_text_scaler.dart';
 import 'package:slovofon/app/theme/television_theme.dart';
 import 'package:slovofon/domain/models/download_task.dart';
 import 'package:slovofon/features/search/search_screen.dart';
@@ -25,6 +26,110 @@ import 'package:slovofon/ui/components/television_book_card.dart';
 import 'test_search_history_store.dart';
 
 void main() {
+  for (final brightness in Brightness.values) {
+    for (final profile in [
+      (const Size(1920, 1080), 2.0),
+      (const Size(3840, 2160), 4.0),
+    ]) {
+      for (final textScale in [1.0, 2.0]) {
+        testWidgets('TV search toolbar is compact and reflows without scaling: '
+            '$profile $brightness text=$textScale', (tester) async {
+          await _pumpSearch(
+            tester,
+            physicalSize: profile.$1,
+            dpr: profile.$2,
+            brightness: brightness,
+            textScale: textScale,
+            withRail: true,
+            initialQuery: 'White nights',
+            initialKinds: const {SearchKind.title},
+          );
+          final editor = find.byKey(const ValueKey('tv-search-editor'));
+          final kinds = find.byKey(const ValueKey('tv-search-kinds'));
+          final sort = find.byKey(const ValueKey('tv-search-sort'));
+          final editorRect = tester.getRect(editor);
+          final kindsRect = tester.getRect(kinds);
+          final submit = tester.widget<IconButton>(
+            find.byKey(const ValueKey('search-submit')),
+          );
+          expect(submit.onPressed, isNotNull);
+          expect(
+            submit.style!.backgroundColor!.resolve({}),
+            Colors.transparent,
+          );
+          expect(submit.style!.side!.resolve({}), BorderSide.none);
+          expect(submit.style!.side!.resolve({WidgetState.focused})!.width, 2);
+          expect(
+            find.byKey(
+              ValueKey(
+                textScale == 1
+                    ? 'tv-search-toolbar-inline'
+                    : 'tv-search-toolbar-stacked',
+              ),
+            ),
+            findsOneWidget,
+          );
+          if (textScale == 1) {
+            expect(kindsRect.left, greaterThan(editorRect.right));
+            expect(kindsRect.center.dy, closeTo(editorRect.center.dy, 16));
+          } else {
+            expect(kindsRect.top, greaterThanOrEqualTo(editorRect.bottom));
+          }
+          expect(sort.hitTestable(), findsOneWidget);
+          final card = find.byType(TelevisionBookCard);
+          expect(card, findsOneWidget);
+          expect(
+            tester.getRect(card).top - editorRect.top,
+            lessThanOrEqualTo(textScale == 1 ? 95 : 240),
+          );
+          final context = tester.element(editor);
+          expect(MediaQuery.devicePixelRatioOf(context), profile.$2);
+          expect(MediaQuery.textScalerOf(context).scale(14), 14 * textScale);
+          final field = tester.widget<TextField>(editor);
+          field.focusNode!.requestFocus();
+          await tester.pumpAndSettle();
+          await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+          await tester.pumpAndSettle();
+          expect(_focusedWithin(kinds), isTrue);
+          await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+          await tester.pumpAndSettle();
+          expect(_focusedWithin(card), isTrue);
+          expect(tester.takeException(), isNull);
+        });
+      }
+    }
+  }
+
+  testWidgets('scoped narrator search matches its visible chip and resubmit', (
+    tester,
+  ) async {
+    final catalog = await _pumpSearch(
+      tester,
+      scoped: true,
+      initialQuery: 'Narrator',
+      initialKinds: const {SearchKind.narrator},
+    );
+    expect(catalog.requests, hasLength(1));
+    expect(catalog.requests.single.kind, SearchKind.narrator);
+    expect(catalog.requests.single.kinds, {SearchKind.narrator});
+    final chip = tester.widget<InputChip>(
+      find.byKey(const ValueKey('tv-search-kinds')),
+    );
+    expect((chip.label as Text).data, 'Narrator');
+    await tester.enterText(find.byType(TextField), 'Another narrator');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
+    expect(catalog.requests, hasLength(2));
+    expect(catalog.requests.last.query, 'Another narrator');
+    expect(catalog.requests.last.kind, SearchKind.narrator);
+    expect(catalog.requests.last.kinds, {SearchKind.narrator});
+    expect(
+      _focusedWithin(find.byKey(const ValueKey('tv-search-kinds'))),
+      isTrue,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('TV editor keeps D-pad editing while the IME is visible', (
     tester,
   ) async {
@@ -37,6 +142,7 @@ void main() {
     for (final direction in [
       LogicalKeyboardKey.arrowDown,
       LogicalKeyboardKey.arrowUp,
+      LogicalKeyboardKey.arrowLeft,
     ]) {
       await tester.sendKeyEvent(direction);
       await tester.pumpAndSettle();
@@ -68,6 +174,30 @@ void main() {
       isTrue,
     );
     expect(field.controller!.text, 'White nights');
+    expect(catalog.requests, isEmpty);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('TV hidden IME Left exits editor to navigation rail', (
+    tester,
+  ) async {
+    final catalog = await _pumpSearch(tester, withRail: true);
+    await tester.enterText(find.byType(TextField), 'White nights');
+    tester.view.viewInsets = const FakeViewPadding(bottom: 220);
+    await tester.pumpAndSettle();
+    tester.testTextInput.hide();
+    tester.view.viewInsets = const FakeViewPadding();
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+    await tester.pumpAndSettle();
+    expect(
+      _focusedWithin(find.byKey(const ValueKey('test-tv-search-rail'))),
+      isTrue,
+    );
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).controller!.text,
+      'White nights',
+    );
     expect(catalog.requests, isEmpty);
     expect(tester.takeException(), isNull);
   });
@@ -138,9 +268,16 @@ Future<_Catalog> _pumpSearch(
   WidgetTester tester, {
   bool scoped = false,
   bool withNavigation = false,
+  bool withRail = false,
+  Size physicalSize = const Size(960, 540),
+  double dpr = 1,
+  double textScale = 1,
+  Brightness brightness = Brightness.dark,
+  String? initialQuery,
+  Set<SearchKind>? initialKinds,
 }) async {
-  tester.view.devicePixelRatio = 1;
-  tester.view.physicalSize = const Size(960, 540);
+  tester.view.devicePixelRatio = dpr;
+  tester.view.physicalSize = physicalSize;
   addTearDown(tester.view.resetDevicePixelRatio);
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetViewInsets);
@@ -148,9 +285,36 @@ Future<_Catalog> _pumpSearch(
   final route = scoped ? '/scoped-search' : '/search';
   final searchRoute = GoRoute(
     path: route,
-    builder: (context, state) => TelevisionBranchFocus(
-      child: Scaffold(body: SearchScreen(popOnResultsBack: scoped)),
-    ),
+    builder: (context, state) {
+      final search = SearchScreen(
+        popOnResultsBack: scoped,
+        initialQuery: initialQuery,
+        initialKinds: initialKinds,
+        submitInitialSearch: initialQuery != null,
+      );
+      return TelevisionBranchFocus(
+        child: Scaffold(
+          body: withRail
+              ? Row(
+                  children: [
+                    SizedBox(
+                      width: 56,
+                      child: Align(
+                        alignment: Alignment.topCenter,
+                        child: IconButton(
+                          key: const ValueKey('test-tv-search-rail'),
+                          onPressed: () {},
+                          icon: const Icon(Icons.home, size: 18),
+                        ),
+                      ),
+                    ),
+                    Expanded(child: search),
+                  ],
+                )
+              : search,
+        ),
+      );
+    },
   );
   final router = GoRouter(
     initialLocation: route,
@@ -190,16 +354,19 @@ Future<_Catalog> _pumpSearch(
           (ref) => MemorySearchHistoryStore(),
         ),
         sourceCatalogServiceProvider.overrideWith((ref) => catalog),
-        playbackControllerProvider.overrideWith(
-          (ref) => PlaybackController(engine: InMemoryAudioEngine()),
-        ),
+        playbackControllerProvider.overrideWith((ref) {
+          final controller = PlaybackController(engine: InMemoryAudioEngine());
+          ref.onDispose(controller.dispose);
+          return controller;
+        }),
         playbackProgressSnapshotsProvider.overrideWith((ref) async => []),
         downloadManagerProvider.overrideWith((ref) => _EmptyDownloads()),
       ],
       child: MaterialApp.router(
         routerConfig: router,
         theme: TelevisionTheme.from(
-          AppTheme.dark().copyWith(platform: TargetPlatform.android),
+          (brightness == Brightness.dark ? AppTheme.dark() : AppTheme.light())
+              .copyWith(platform: TargetPlatform.android),
         ),
         locale: const Locale('en'),
         supportedLocales: AppStrings.supportedLocales,
@@ -208,9 +375,17 @@ Future<_Catalog> _pumpSearch(
           GlobalCupertinoLocalizations.delegate,
           GlobalWidgetsLocalizations.delegate,
         ],
-        builder: (context, child) => TelevisionLayout(
-          enabled: true,
-          child: TelevisionViewport(child: child!),
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context).copyWith(
+            textScaler: AppTextScaler(
+              MediaQuery.textScalerOf(context),
+              textScale,
+            ),
+          ),
+          child: TelevisionLayout(
+            enabled: true,
+            child: TelevisionViewport(child: child!),
+          ),
         ),
       ),
     ),

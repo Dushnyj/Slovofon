@@ -33,6 +33,7 @@ import 'package:slovofon/services/sources/source_catalog_service.dart';
 import 'package:slovofon/sources/izib/izib_graphql_client.dart';
 import 'package:slovofon/sources/sources.dart';
 import 'package:slovofon/ui/components/download_action_button.dart';
+import 'package:slovofon/ui/components/chapter_tile.dart';
 
 import 'test_search_history_store.dart';
 
@@ -154,10 +155,13 @@ void main() {
     final playbackController = PlaybackController(
       engine: InMemoryAudioEngine(),
     );
+    final ordinalFixture = _fixtureText('izib_book_response.json')
+        .replaceAll('"index": 1', '"index": 0')
+        .replaceAll('"index": 2', '"index": 8');
     final transport = QueueIzibTransport([
       _fixtureText('izib_search_response.json'),
-      _fixtureText('izib_book_response.json'),
-      _fixtureText('izib_book_response.json'),
+      ordinalFixture,
+      ordinalFixture,
     ]);
     final sourceRegistry = SourceRegistry([
       IzibSourceConnector(client: IzibGraphQlClient(transport: transport)),
@@ -205,6 +209,10 @@ void main() {
     expect(find.text('Фантастика'), findsOneWidget);
     expect(find.text('Глава 01. Артем'), findsOneWidget);
     expect(find.text('002'), findsOneWidget);
+    for (var index = 0; index < 2; index++) {
+      final tile = find.byKey(ValueKey('source-details-chapter-$index'));
+      expect(tester.widget<ChapterTile>(tile).index, index + 1);
+    }
 
     await tester.tap(find.byKey(const ValueKey('source-details-play')));
     await _pumpFrames(tester, frames: 40);
@@ -213,6 +221,10 @@ void main() {
     expect(playbackController.state.book?.sourceId, 'izib');
     expect(playbackController.state.book?.sourceBookId, '2033');
     expect(playbackController.state.book?.chapters.length, 2);
+    expect(
+      playbackController.state.book!.chapters.map((chapter) => chapter.index),
+      [0, 8],
+    );
     expect(
       playbackController.state.currentChapter?.mediaSource?.uri.toString(),
       'https://audio.izib.uk/books/2033/001.mp3',

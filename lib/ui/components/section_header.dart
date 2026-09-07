@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../adaptive/television_layout.dart';
+
 class SectionHeader extends StatelessWidget {
   const SectionHeader({
     required this.title,
@@ -15,9 +17,10 @@ class SectionHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final television = TelevisionLayout.isActive(context);
 
     return Padding(
-      padding: const EdgeInsets.only(top: 8, bottom: 8),
+      padding: EdgeInsets.symmetric(vertical: television ? 4 : 8),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -25,7 +28,12 @@ class SectionHeader extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: Theme.of(context).textTheme.titleLarge),
+                Text(
+                  title,
+                  style: television
+                      ? Theme.of(context).textTheme.titleMedium
+                      : Theme.of(context).textTheme.titleLarge,
+                ),
                 if (subtitle != null) ...[
                   const SizedBox(height: 2),
                   Text(

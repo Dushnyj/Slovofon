@@ -110,7 +110,7 @@ class AppIconActionButton extends StatelessWidget {
         key: buttonKey,
         tooltip: tooltip,
         onPressed: onPressed,
-        icon: AppIcon(iconAsset, size: iconSize < 24 ? 24 : iconSize),
+        icon: AppIcon(iconAsset, size: iconSize < 20 ? 20 : iconSize),
       );
     }
     final colorScheme = Theme.of(context).colorScheme;

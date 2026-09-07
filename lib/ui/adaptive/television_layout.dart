@@ -83,10 +83,12 @@ class TelevisionFocusFrame extends StatefulWidget {
   const TelevisionFocusFrame({
     required this.child,
     this.radius = 16,
+    this.showRestingOutline = true,
     super.key,
   });
   final Widget child;
   final double radius;
+  final bool showRestingOutline;
   @override
   State<TelevisionFocusFrame> createState() => _TelevisionFocusFrameState();
 }
@@ -114,10 +116,12 @@ class _TelevisionFocusFrameState extends State<TelevisionFocusFrame> {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(widget.radius),
         border: Border.all(
-          width: _focused ? 2 : 1,
+          width: _focused ? 2 : (widget.showRestingOutline ? 1 : 0),
           color: _focused
               ? Theme.of(context).colorScheme.primary
-              : Theme.of(context).colorScheme.outlineVariant,
+              : Theme.of(context).colorScheme.outlineVariant.withValues(
+                  alpha: widget.showRestingOutline ? 1 : 0,
+                ),
         ),
       ),
       child: Padding(padding: const EdgeInsets.all(2), child: widget.child),

@@ -858,9 +858,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 }
 
-/// TV is a ten-foot layout, not the mobile list enlarged by pixel density.
-/// Reflow groups only when the actual text scale leaves too little line width.
-class _TelevisionSettingsContent extends StatelessWidget {
+/// Compact category/detail workspace, independent of the app navigation rail.
+/// Categories select on focus so a remote can browse without extra dialogs.
+class _TelevisionSettingsContent extends StatefulWidget {
   const _TelevisionSettingsContent({
     required this.personalizationTiles,
     required this.contentTiles,
@@ -872,66 +872,148 @@ class _TelevisionSettingsContent extends StatelessWidget {
   final List<Widget> applicationTiles;
 
   @override
+  State<_TelevisionSettingsContent> createState() =>
+      _TelevisionSettingsContentState();
+}
+
+class _TelevisionSettingsContentState
+    extends State<_TelevisionSettingsContent> {
+  int _selected = 0;
+
+  @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
       final strings = context.strings;
+      final theme = Theme.of(context);
+      final colors = theme.colorScheme;
       final scale = MediaQuery.textScalerOf(context).scale(16) / 16;
       final columns = constraints.maxWidth >= 720 * scale ? 2 : 1;
-      final width = (constraints.maxWidth - 32 - (columns - 1) * 16) / columns;
-      Widget group(
-        String title,
-        List<Widget> tiles, {
-        bool horizontal = false,
-      }) => Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: Text(title, style: Theme.of(context).textTheme.titleMedium),
-          ),
-          if (horizontal)
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(child: tiles.first),
-                const SizedBox(width: 16),
-                Expanded(child: tiles.last),
-              ],
-            )
-          else
-            for (final tile in tiles) ...[tile, const SizedBox(height: 6)],
-        ],
-      );
-
-      return ListView(
-        key: const ValueKey('settings-television-content'),
-        padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
-        children: [
-          Wrap(
-            key: ValueKey('settings-television-columns-$columns'),
-            spacing: 16,
-            runSpacing: 14,
-            children: [
-              SizedBox(
-                width: width,
-                child: group(
-                  strings.settingsPersonalization,
-                  personalizationTiles,
+      final categories = [
+        (
+          strings.settingsPersonalization,
+          AppIconAssets.systemTheme,
+          widget.personalizationTiles,
+        ),
+        (
+          strings.settingsContent,
+          AppIconAssets.systemCache,
+          widget.contentTiles,
+        ),
+        (
+          strings.settingsApplication,
+          AppIconAssets.systemInfo,
+          widget.applicationTiles,
+        ),
+      ];
+      final menu = [
+        for (final (index, category) in categories.indexed)
+          Semantics(
+            selected: _selected == index,
+            child: TextButton(
+              key: ValueKey('tv-settings-category-$index'),
+              onPressed: () => setState(() => _selected = index),
+              onFocusChange: (focused) {
+                if (focused && _selected != index) {
+                  setState(() => _selected = index);
+                }
+              },
+              style: ButtonStyle(
+                alignment: AlignmentDirectional.centerStart,
+                padding: const WidgetStatePropertyAll(
+                  EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                ),
+                foregroundColor: WidgetStateProperty.resolveWith(
+                  (states) => states.contains(WidgetState.focused)
+                      ? colors.onPrimary
+                      : _selected == index
+                      ? colors.onSecondaryContainer
+                      : colors.onSurfaceVariant,
+                ),
+                backgroundColor: WidgetStateProperty.resolveWith(
+                  (states) => states.contains(WidgetState.focused)
+                      ? colors.primary
+                      : _selected == index
+                      ? colors.secondaryContainer
+                      : Colors.transparent,
                 ),
               ),
-              SizedBox(
-                width: width,
-                child: group(strings.settingsContent, contentTiles),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  AppIcon(category.$2, size: 18),
+                  const SizedBox(width: 8),
+                  Flexible(child: Text(category.$1)),
+                ],
               ),
-            ],
+            ),
           ),
-          const SizedBox(height: 14),
-          group(
-            strings.settingsApplication,
-            applicationTiles,
-            horizontal: columns == 2,
+      ];
+      final detail = Column(
+        key: ValueKey('tv-settings-detail-$_selected'),
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Semantics(
+            header: true,
+            child: Text(
+              categories[_selected].$1,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
           ),
+          const SizedBox(height: 10),
+          for (final tile in categories[_selected].$3) ...[
+            tile,
+            const SizedBox(height: 6),
+          ],
         ],
+      );
+      return Padding(
+        key: const ValueKey('settings-television-content'),
+        padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
+        child: columns == 2
+            ? Row(
+                key: const ValueKey('settings-television-columns-2'),
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(
+                    width: 190 * scale,
+                    child: SingleChildScrollView(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          for (final item in menu) ...[
+                            item,
+                            const SizedBox(height: 4),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(child: SingleChildScrollView(child: detail)),
+                ],
+              )
+            : ListView(
+                key: const ValueKey('settings-television-columns-1'),
+                children: [
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    children: [
+                      for (final item in menu)
+                        ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxWidth: constraints.maxWidth - 16,
+                          ),
+                          child: item,
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  detail,
+                ],
+              ),
       );
     },
   );
@@ -1345,12 +1427,16 @@ class _SettingsActionTile extends StatelessWidget {
     return _settingsFocusFrame(
       context,
       ListTile(
-        minTileHeight: television ? 56 : null,
+        minTileHeight: television ? 44 : null,
         visualDensity: television ? VisualDensity.compact : null,
         contentPadding: television
             ? const EdgeInsets.symmetric(horizontal: 12)
             : null,
-        leading: AppIcon(iconAsset, color: colorScheme.primary),
+        leading: AppIcon(
+          iconAsset,
+          color: colorScheme.primary,
+          size: television ? 18 : null,
+        ),
         title: Text(title),
         subtitle: subtitleBuilder?.call(context) ?? Text(subtitle),
         subtitleTextStyle: television

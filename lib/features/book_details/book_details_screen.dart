@@ -98,14 +98,14 @@ class BookDetailsScreen extends ConsumerWidget {
       ),
       const SizedBox(height: 20),
       SectionHeader(title: strings.chapters),
-      for (final chapter in book.chapters)
+      for (final (index, chapter) in book.chapters.indexed)
         Builder(
           builder: (context) {
             final audioChapter = playbackBook.chapters.firstWhere(
               (audioChapter) => audioChapter.index == chapter.index,
             );
             return ChapterTile(
-              index: chapter.index,
+              index: index + 1,
               title: chapter.title,
               durationLabel: chapter.durationLabel,
               progress: chapter.progress,

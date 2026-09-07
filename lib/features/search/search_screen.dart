@@ -114,6 +114,12 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         node.focusInDirection(TraversalDirection.up);
         return KeyEventResult.handled;
       }
+      if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+        // With the IME hidden, Left leaves the editor for the TV navigation
+        // rail. While editing with an open IME it remains a caret movement.
+        node.focusInDirection(TraversalDirection.left);
+        return KeyEventResult.handled;
+      }
     }
     return KeyEventResult.ignored;
   }
@@ -273,46 +279,86 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       },
       child: ListView(
         key: const ValueKey('tv-search-workspace'),
-        padding: const EdgeInsets.fromLTRB(12, 4, 12, 16),
+        padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
         children: [
-          TextField(
-            key: const ValueKey('tv-search-editor'),
-            controller: _controller,
-            focusNode: _televisionEditorFocus,
-            textInputAction: TextInputAction.search,
-            onSubmitted: _submitTelevisionSearch,
-            decoration: InputDecoration(
-              prefixIcon: const Padding(
-                padding: EdgeInsets.all(10),
-                child: AppIcon(AppIconAssets.navSearch, size: 20),
+          _TelevisionSearchToolbar(
+            editor: TextField(
+              key: const ValueKey('tv-search-editor'),
+              controller: _controller,
+              focusNode: _televisionEditorFocus,
+              textInputAction: TextInputAction.search,
+              onSubmitted: _submitTelevisionSearch,
+              decoration: InputDecoration(
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 8,
+                ),
+                prefixIconConstraints: const BoxConstraints(
+                  minWidth: 36,
+                  minHeight: 36,
+                ),
+                suffixIconConstraints: const BoxConstraints(
+                  minWidth: 36,
+                  minHeight: 36,
+                ),
+                prefixIcon: const Padding(
+                  padding: EdgeInsets.all(8),
+                  child: AppIcon(AppIconAssets.navSearch, size: 18),
+                ),
+                suffixIcon: IconButton(
+                  key: const ValueKey('search-submit'),
+                  tooltip: strings.search,
+                  // This is part of the input, not a separate dark TV card.
+                  // Keep the remote target and its focus outline without an
+                  // idle fill/border contrasting with the field's own surface.
+                  style: ButtonStyle(
+                    backgroundColor: const WidgetStatePropertyAll(
+                      Colors.transparent,
+                    ),
+                    foregroundColor: WidgetStatePropertyAll(
+                      Theme.of(context).colorScheme.onSurface,
+                    ),
+                    side: WidgetStateProperty.resolveWith(
+                      (states) => states.contains(WidgetState.focused)
+                          ? BorderSide(
+                              color: Theme.of(context).colorScheme.primary,
+                              width: 2,
+                            )
+                          : BorderSide.none,
+                    ),
+                  ),
+                  constraints: const BoxConstraints(
+                    minWidth: 36,
+                    minHeight: 36,
+                  ),
+                  padding: const EdgeInsets.all(8),
+                  onPressed: _submitTelevisionSearch,
+                  icon: const AppIcon(AppIconAssets.navSearch, size: 18),
+                ),
+                hintText: strings.searchHint,
               ),
-              suffixIcon: IconButton(
-                key: const ValueKey('search-submit'),
-                tooltip: strings.search,
-                onPressed: _submitTelevisionSearch,
-                icon: const AppIcon(AppIconAssets.navSearch),
-              ),
-              hintText: strings.searchHint,
             ),
-          ),
-          const SizedBox(height: 8),
-          _SearchFilters(
-            scopeFocusNode: _televisionFiltersFocus,
-            selectedKinds: _selectedKinds,
-            selectedSort: _selectedSort,
-            onKindsChanged: (kinds) => setState(() => _selectedKinds = kinds),
-            onSortChanged: (sort) => setState(() => _selectedSort = sort),
+            filters: _SearchFilters(
+              compactLabels: true,
+              scopeFocusNode: _televisionFiltersFocus,
+              selectedKinds: _selectedKinds,
+              selectedSort: _selectedSort,
+              onKindsChanged: (kinds) => setState(() => _selectedKinds = kinds),
+              onSortChanged: (sort) => setState(() => _selectedSort = sort),
+            ),
           ),
           if (_showResultsPage)
             Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
+              key: const ValueKey('tv-search-result-count'),
+              padding: const EdgeInsets.symmetric(vertical: 4),
               child: DefaultTextStyle.merge(
                 style: Theme.of(context).textTheme.bodySmall,
                 child: _SearchResultsTitle(searchFuture: _searchFuture),
               ),
             )
           else
-            const SizedBox(height: 8),
+            const SizedBox(height: 4),
           _SearchResults(
             query: _activeQuery,
             searchFuture: _searchFuture,
@@ -553,6 +599,16 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     _searchRequestGeneration++;
 
     void apply() {
+      if (initialKinds != null && initialKinds.isNotEmpty) {
+        // A scoped author/narrator link must update both the submitted query
+        // and its visible filters. Otherwise the next submit silently searches
+        // titles even though the initial request searched the selected entity.
+        _selectedKinds = Set<SearchKind>.unmodifiable(
+          initialKinds.contains(SearchKind.all)
+              ? _searchKindOptions
+              : initialKinds,
+        );
+      }
       if ((widget.resetToken ?? '').isNotEmpty && query.isEmpty) {
         _controller.clear();
         _activeQuery = '';
@@ -916,6 +972,38 @@ class _SearchContextHeading extends StatelessWidget {
   );
 }
 
+/// TV controls use the same logical viewport as the catalog. Wide screens put
+/// the editor and short filter labels side by side; large accessible text gets
+/// its own row instead of being scaled down to fit a fixed-height toolbar.
+class _TelevisionSearchToolbar extends StatelessWidget {
+  const _TelevisionSearchToolbar({required this.editor, required this.filters});
+
+  final Widget editor;
+  final Widget filters;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final textScale = MediaQuery.textScalerOf(context).scale(14) / 14;
+      if (constraints.maxWidth >= 740 * textScale) {
+        return Row(
+          key: const ValueKey('tv-search-toolbar-inline'),
+          children: [
+            Expanded(child: editor),
+            const SizedBox(width: 8),
+            Flexible(child: filters),
+          ],
+        );
+      }
+      return Column(
+        key: const ValueKey('tv-search-toolbar-stacked'),
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [editor, const SizedBox(height: 4), filters],
+      );
+    },
+  );
+}
+
 class _SearchFilters extends StatelessWidget {
   const _SearchFilters({
     required this.selectedKinds,
@@ -923,6 +1011,7 @@ class _SearchFilters extends StatelessWidget {
     required this.onKindsChanged,
     required this.onSortChanged,
     this.scopeFocusNode,
+    this.compactLabels = false,
   });
 
   final Set<SearchKind> selectedKinds;
@@ -930,6 +1019,7 @@ class _SearchFilters extends StatelessWidget {
   final ValueChanged<Set<SearchKind>> onKindsChanged;
   final ValueChanged<SearchSort> onSortChanged;
   final FocusNode? scopeFocusNode;
+  final bool compactLabels;
 
   @override
   Widget build(BuildContext context) {
@@ -937,7 +1027,7 @@ class _SearchFilters extends StatelessWidget {
 
     return Wrap(
       spacing: 8,
-      runSpacing: 8,
+      runSpacing: compactLabels ? 4 : 8,
       children: [
         InputChip(
           key: scopeFocusNode == null
@@ -945,14 +1035,23 @@ class _SearchFilters extends StatelessWidget {
               : const ValueKey('tv-search-kinds'),
           focusNode: scopeFocusNode,
           avatar: const AppIcon(AppIconAssets.systemFilter, size: 16),
+          tooltip: compactLabels ? strings.searchScope : null,
           label: Text(
-            '${strings.searchScope}: ${_kindsLabel(context, selectedKinds)}',
+            compactLabels
+                ? _kindsLabel(context, selectedKinds)
+                : '${strings.searchScope}: ${_kindsLabel(context, selectedKinds)}',
           ),
           onPressed: () => _pickKinds(context),
         ),
         InputChip(
+          key: compactLabels ? const ValueKey('tv-search-sort') : null,
           avatar: const AppIcon(AppIconAssets.systemSort, size: 16),
-          label: Text('${strings.sort}: ${_sortLabel(context, selectedSort)}'),
+          tooltip: compactLabels ? strings.sort : null,
+          label: Text(
+            compactLabels
+                ? _sortLabel(context, selectedSort)
+                : '${strings.sort}: ${_sortLabel(context, selectedSort)}',
+          ),
           onPressed: () => _pickSort(context),
         ),
       ],

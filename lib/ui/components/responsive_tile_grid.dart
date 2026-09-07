@@ -16,15 +16,24 @@ class ResponsiveTileGrid extends StatelessWidget {
     this.runSpacing = 12,
     this.minTileWidth = 300,
     this.maxColumns = 5,
+    this.televisionMinTileWidth = televisionBookMinWidth,
+    this.televisionMaxColumns,
     this.stretchDesktopColumns = false,
     super.key,
   });
+
+  static const televisionBookMinWidth = 360.0;
 
   final List<Widget> children;
   final double spacing;
   final double runSpacing;
   final double minTileWidth;
   final int maxColumns;
+
+  /// Horizontal TV audiobook cards keep full metadata and a small cover.
+  /// Actual text scaling reduces columns without changing the system scaler.
+  final double televisionMinTileWidth;
+  final int? televisionMaxColumns;
 
   /// Fill complete Windows rows while retaining the readable minimum width.
   /// Other consumers keep stable card widths unless they explicitly opt in.
@@ -39,13 +48,17 @@ class ResponsiveTileGrid extends StatelessWidget {
           // 4K at DPR 4 have the same number and size of readable columns.
           final textScale = MediaQuery.textScalerOf(context).scale(14) / 14;
           final minimum =
-              math.max(400.0, minTileWidth) * math.max(1.0, textScale);
+              math.max(1.0, televisionMinTileWidth) * math.max(1.0, textScale);
           final width = constraints.maxWidth;
+          final availableColumns = math.max(
+            1,
+            ((width + spacing) / (minimum + spacing)).floor(),
+          );
           final columns = math.max(
             1,
             math.min(
-              math.max(1, maxColumns),
-              ((width + spacing) / (minimum + spacing)).floor(),
+              televisionMaxColumns ?? availableColumns,
+              availableColumns,
             ),
           );
           // Use the available column width, not the number of books: one

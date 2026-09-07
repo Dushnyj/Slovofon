@@ -56,11 +56,11 @@ void main() {
       expect(insets.horizontal, 128);
       expect(insets.vertical, 80);
       final theme = TelevisionTheme.from(AppTheme.dark());
-      expect(theme.textTheme.bodyMedium!.fontSize, 16);
-      expect(theme.textTheme.titleLarge!.fontSize, 22);
+      expect(theme.textTheme.bodyMedium!.fontSize, 14);
+      expect(theme.textTheme.titleLarge!.fontSize, 20);
       expect(
         theme.filledButtonTheme.style!.minimumSize!.resolve({}),
-        const Size(40, 40),
+        const Size(36, 36),
       );
       expect(theme.outlinedButtonTheme.style!.side!.resolve({})!.width, 1);
       expect(

@@ -91,7 +91,7 @@ class MiniPlayerBar extends ConsumerWidget {
                                         ),
                                   ),
                                   Text(
-                                    _miniPlayerChapterLabel(chapter),
+                                    _miniPlayerChapterLabel(book, chapter),
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: Theme.of(context).textTheme.bodySmall
@@ -719,7 +719,7 @@ class _DesktopMiniPlayerMetadata extends StatelessWidget {
               ),
               const SizedBox(height: 4),
               Text(
-                _miniPlayerChapterLabel(chapter),
+                _miniPlayerChapterLabel(book, chapter),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -940,9 +940,8 @@ class _DesktopMiniIconButton extends StatelessWidget {
                 : null,
           ),
       icon:
-          desktop &&
-              (iconAsset == AppIconAssets.playerRewind15 ||
-                  iconAsset == AppIconAssets.playerForward15)
+          (iconAsset == AppIconAssets.playerRewind15 ||
+              iconAsset == AppIconAssets.playerForward15)
           ? SeekIntervalIcon(
               forward: iconAsset == AppIconAssets.playerForward15,
               color: color,
@@ -1086,8 +1085,13 @@ class MiniPlayerControlsBar extends ConsumerWidget {
   }
 }
 
-String _miniPlayerChapterLabel(AudioPlaybackChapter chapter) {
-  return 'Глава ${chapter.index.toString().padLeft(2, '0')}. ${chapter.title}';
+String _miniPlayerChapterLabel(
+  AudioPlaybackBook book,
+  AudioPlaybackChapter chapter,
+) {
+  final position = book.chapters.indexWhere((item) => item.id == chapter.id);
+  if (position < 0) return chapter.title;
+  return 'Глава ${(position + 1).toString().padLeft(2, '0')}. ${chapter.title}';
 }
 
 String _formatMiniPlayerDuration(Duration duration) {
@@ -1130,7 +1134,14 @@ class _MiniPlayerIconButton extends StatelessWidget {
         foregroundColor: color,
         disabledForegroundColor: disabledColor,
       ),
-      icon: AppIcon(iconAsset, color: color, size: 23),
+      icon:
+          (iconAsset == AppIconAssets.playerRewind15 ||
+              iconAsset == AppIconAssets.playerForward15)
+          ? SeekIntervalIcon(
+              forward: iconAsset == AppIconAssets.playerForward15,
+              color: color,
+            )
+          : AppIcon(iconAsset, color: color, size: 23),
     );
   }
 }

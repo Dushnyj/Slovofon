@@ -1434,7 +1434,7 @@ class _WindowsNowPlayingDetails extends StatelessWidget {
                     key: ValueKey(
                       'windows-nearby-chapter-${book.chapters[index].id}',
                     ),
-                    index: book.chapters[index].index,
+                    index: index + 1,
                     title: book.chapters[index].title,
                     durationLabel: _formatShortDuration(
                       context,
@@ -2001,7 +2001,7 @@ class _ChaptersPageState extends State<_ChaptersPage> {
                           padding: const EdgeInsets.only(bottom: 10),
                           child: ChapterTile(
                             key: ValueKey('full-player-chapter-${chapter.id}'),
-                            index: chapter.index,
+                            index: index + 1,
                             title: chapter.title,
                             durationLabel: _formatShortDuration(
                               context,
@@ -2624,7 +2624,7 @@ class _PlayerChromeState extends State<_PlayerChrome> {
           tooltip: state.isPlaying ? strings.pause : strings.play,
           style:
               IconButton.styleFrom(
-                fixedSize: Size.square(television ? 48 : 52),
+                fixedSize: Size.square(television ? 40 : 52),
                 backgroundColor: colorScheme.primary,
                 foregroundColor: colorScheme.onPrimary,
                 shape: RoundedRectangleBorder(
@@ -2650,7 +2650,7 @@ class _PlayerChromeState extends State<_PlayerChrome> {
             state.isPlaying
                 ? AppIconAssets.playerPause
                 : AppIconAssets.playerPlay,
-            size: 30,
+            size: television ? 24 : 30,
           ),
         ),
         const SizedBox(width: 16),
@@ -3280,9 +3280,8 @@ class _ControlIcon extends StatelessWidget {
             )
           : null,
       icon:
-          _usesLargeScreenPlayer(context) &&
-              (iconAsset == AppIconAssets.playerRewind15 ||
-                  iconAsset == AppIconAssets.playerForward15)
+          (iconAsset == AppIconAssets.playerRewind15 ||
+              iconAsset == AppIconAssets.playerForward15)
           ? SeekIntervalIcon(
               forward: iconAsset == AppIconAssets.playerForward15,
             )
