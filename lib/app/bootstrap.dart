@@ -28,6 +28,7 @@ import '../services/sources/source_settings_store.dart';
 import '../services/sources/source_access_policy.dart';
 import '../sources/sources.dart';
 import 'app.dart';
+import 'windows_app_exit_listener.dart';
 
 Future<void> bootstrap() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -72,16 +73,16 @@ Future<void> bootstrap() async {
       unawaited(playbackController.tick(const Duration(seconds: 1)));
     }
   });
-  var databaseClosed = false;
+  Future<void>? databaseClose;
 
-  Future<void> closeDatabase() async {
-    if (databaseClosed) {
-      return;
-    }
-    databaseClosed = true;
-    await playbackController.flushPlayback();
+  Future<void> finishDatabaseClose() async {
+    // Provider disposal is synchronous. Do not race its final playback writes
+    // or native cleanup by closing Drift from a different provider first.
+    await playbackController.shutdown();
     await appDatabase.close();
   }
+
+  Future<void> closeDatabase() => databaseClose ??= finishDatabaseClose();
 
   runApp(
     ProviderScope(
@@ -129,7 +130,15 @@ Future<void> bootstrap() async {
           return sourceSettings;
         }),
       ],
-      child: SlovofonApp(deepLinks: PluginAppDeepLinkSource()),
+      child: WindowsAppExitListener(
+        onExitRequested: () async {
+          await playbackController.shutdown();
+          sleepTimerTicker.cancel();
+          // Other stores/downloads still own this database while widgets live.
+          // Keep it open until process exit or ProviderScope disposal.
+        },
+        child: SlovofonApp(deepLinks: PluginAppDeepLinkSource()),
+      ),
     ),
   );
 

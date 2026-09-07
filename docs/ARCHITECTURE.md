@@ -23,6 +23,24 @@ Windows mini-player                     — отдельная компактн�
 DIPs), по умолчанию не ограничивая будущие отдельные окна. Правила client/outer,
 DPI и work-area вынесены в чистую геометрию `windows/runner/window_size_policy.h`.
 
+Обычное закрытие Windows (крестик/Alt+F4) использует штатный Flutter handshake
+`System.requestAppExit` через `WindowsAppExitListener`. Он ждёт идемпотентный
+`PlaybackController.shutdown`: завершение текущей native-операции и metadata,
+паузу, обязательное сохранение прогресса, затем освобождение нативного плеера.
+До ответа `AppExitResponse.exit` Flutter messenger и COM остаются доступны.
+Ошибка checkpoint отменяет выход и допускает повтор; Android/TV этот listener
+не регистрируют и сохраняют фоновое воспроизведение. БД не закрывается этим
+callback, пока её используют другие store; fallback ProviderScope закрывает
+её только после завершения playback shutdown.
+
+Это не перехват принудительного завершения процесса и не гарантия для
+`WM_QUERYENDSESSION`/`WM_ENDSESSION`: Windows Restart Manager, выход из сеанса
+или установщик могут завершать приложение другим путём. Inno
+`CloseApplications=yes` не гарантирует именно cancelable `WM_CLOSE`.
+Перед передачей управления установщику отдельно сохраняется checkpoint;
+безопасное завершение обычного окна не следует выдавать за проверку всех
+сценариев перезагрузки ОС/обновления.
+
 Нельзя делать три разных приложения с разной бизнес-логикой. Android, Android TV и Windows должны использовать одни и те же модели, репозитории, источники, плеер, загрузки, прогресс и настройки.
 
 Статус реализации Android TV (2026-09-06): общий APK сохраняет телефонный launcher

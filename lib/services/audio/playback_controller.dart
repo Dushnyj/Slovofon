@@ -66,8 +66,12 @@ class PlaybackController extends ChangeNotifier {
   String? _loadedChapterIdentity;
   int _operationGeneration = 0;
   bool _disposed = false;
+  bool _shuttingDown = false;
+  bool _notifierDisposed = false;
+  Future<void>? _shutdownOperation;
   Future<void> _engineOperations = Future<void>.value();
   Future<void> _persistenceOperations = Future<void>.value();
+  final _metadataWrites = <Future<void>>{};
   AudioEngineSnapshot? _snapshotDuringLoad;
   final _progressChanges = StreamController<int>.broadcast();
   int _progressRevision = 0;
@@ -78,8 +82,10 @@ class PlaybackController extends ChangeNotifier {
   Stream<int> get progressChanges => _progressChanges.stream;
   int get progressRevision => _progressRevision;
 
+  bool get _unavailable => _disposed || _shuttingDown || _notifierDisposed;
+
   bool _isCurrent(int generation) =>
-      !_disposed && generation == _operationGeneration;
+      !_unavailable && generation == _operationGeneration;
 
   Future<bool> loadSavedSession(AudioPlaybackBook book) async {
     final generation = _operationGeneration;
@@ -118,7 +124,7 @@ class PlaybackController extends ChangeNotifier {
     Duration position = Duration.zero,
     bool autoPlay = false,
   }) async {
-    if (_disposed) return;
+    if (_unavailable) return;
     final generation = ++_operationGeneration;
     unawaited(_persistPlayback(force: true));
     _pendingPlayRequest = false;
@@ -183,7 +189,7 @@ class PlaybackController extends ChangeNotifier {
     AudioPlaybackBook book,
     PlaybackSession session,
   ) async {
-    if (_disposed) return;
+    if (_unavailable) return;
     final generation = ++_operationGeneration;
     unawaited(_persistPlayback(force: true));
     _pendingPlayRequest = false;
@@ -284,7 +290,7 @@ class PlaybackController extends ChangeNotifier {
   }
 
   Future<void> play() async {
-    if (_disposed || !_state.hasBook) return;
+    if (_unavailable || !_state.hasBook) return;
     final generation = ++_operationGeneration;
     if (!await _preparePositionForPlayback(generation)) return;
     if (!_isCurrent(generation)) return;
@@ -302,7 +308,7 @@ class PlaybackController extends ChangeNotifier {
   }
 
   Future<void> pause() async {
-    if (_disposed || !_state.hasBook) return;
+    if (_unavailable || !_state.hasBook) return;
     final generation = ++_operationGeneration;
     _pendingPlayRequest = false;
     _state = _state.copyWith(status: AudioPlaybackStatus.paused);
@@ -323,7 +329,7 @@ class PlaybackController extends ChangeNotifier {
 
   Future<void> seek(Duration position) async {
     final chapter = _state.currentChapter;
-    if (_disposed || chapter == null) return;
+    if (_unavailable || chapter == null) return;
     final generation = ++_operationGeneration;
     final normalized = _clampPosition(position, chapter);
     if (!await _runEngineOperation(generation, () async {
@@ -346,7 +352,7 @@ class PlaybackController extends ChangeNotifier {
   Future<void> skipBy(Duration delta) => seek(_state.position + delta);
 
   Future<void> setSpeed(double speed) async {
-    if (_disposed || !_state.hasBook) return;
+    if (_unavailable || !_state.hasBook) return;
     final generation = _operationGeneration;
     final normalized = _normalizeSpeed(speed);
     _state = _state.copyWith(speed: normalized);
@@ -361,7 +367,7 @@ class PlaybackController extends ChangeNotifier {
   }
 
   Future<void> setVolume(double volume) async {
-    if (_disposed) return;
+    if (_unavailable) return;
     final generation = _operationGeneration;
     final normalized = _normalizeVolume(volume);
     _state = _state.copyWith(
@@ -390,7 +396,7 @@ class PlaybackController extends ChangeNotifier {
 
   Future<void> nextChapter() async {
     final book = _state.book;
-    if (_disposed || book == null) return;
+    if (_unavailable || book == null) return;
     final generation = ++_operationGeneration;
     final index = _state.chapterIndex + 1;
     if (index >= book.chapters.length) {
@@ -406,7 +412,7 @@ class PlaybackController extends ChangeNotifier {
 
   Future<void> previousChapter() async {
     final book = _state.book;
-    if (_disposed || book == null) return;
+    if (_unavailable || book == null) return;
     final generation = ++_operationGeneration;
     final index = (_state.chapterIndex - 1).clamp(0, book.chapters.length - 1);
     await _loadChapterAt(
@@ -418,7 +424,7 @@ class PlaybackController extends ChangeNotifier {
 
   Future<void> playChapterAt(int index) async {
     final book = _state.book;
-    if (_disposed || book == null) return;
+    if (_unavailable || book == null) return;
     final normalized = _clampChapterIndex(book, index);
     if (normalized == _state.chapterIndex) {
       await play();
@@ -442,7 +448,7 @@ class PlaybackController extends ChangeNotifier {
     bool play = true,
   }) async {
     final book = _state.book;
-    if (_disposed || book == null || book.chapters.isEmpty) return;
+    if (_unavailable || book == null || book.chapters.isEmpty) return;
     final generation = ++_operationGeneration;
     await _loadChapterAt(
       _clampChapterIndex(book, index),
@@ -453,7 +459,7 @@ class PlaybackController extends ChangeNotifier {
   }
 
   void setSleepTimer(Duration duration) {
-    if (_disposed) return;
+    if (_unavailable) return;
     _state = _state.copyWith(
       sleepTimerRemaining: _nonNegative(duration),
       sleepTimerMode: SleepTimerMode.stopAfterDuration,
@@ -463,7 +469,7 @@ class PlaybackController extends ChangeNotifier {
   }
 
   void setSleepTimerToChapterEnd() {
-    if (_disposed) return;
+    if (_unavailable) return;
     final remaining = _remainingCurrentChapterDuration();
     if (remaining == null) return;
     _state = _state.copyWith(
@@ -475,7 +481,7 @@ class PlaybackController extends ChangeNotifier {
   }
 
   void clearSleepTimer() {
-    if (_disposed) return;
+    if (_unavailable) return;
     _state = _state.copyWith(clearSleepTimer: true);
     notifyListeners();
     unawaited(_persistPlayback(force: true));
@@ -510,7 +516,7 @@ class PlaybackController extends ChangeNotifier {
   }
 
   Future<void> tick(Duration elapsed) async {
-    if (_disposed ||
+    if (_unavailable ||
         elapsed <= Duration.zero ||
         !_state.isPlaying ||
         _state.sleepTimerMode == SleepTimerMode.stopAtChapterEnd) {
@@ -535,20 +541,82 @@ class PlaybackController extends ChangeNotifier {
   Future<void> flushPlayback({bool requireSuccess = false}) =>
       _persistPlayback(force: true, requireSuccess: requireSuccess);
 
+  /// Completes while the platform engine and its messenger are still alive.
+  /// Windows must await this before acknowledging a cancelable close request:
+  /// ChangeNotifier.dispose alone cannot await native disposePlayer.
+  ///
+  /// A failed pause/checkpoint leaves the player available for retry. Once
+  /// native teardown starts, its result is retained: a failure must not be
+  /// mistaken for successful teardown by a second close request.
+  Future<void> shutdown() {
+    final pending = _shutdownOperation;
+    if (pending != null) return pending;
+    _shuttingDown = true;
+    _operationGeneration++;
+    _pendingPlayRequest = false;
+    return _shutdownOperation = _shutdown();
+  }
+
+  Future<void> _shutdown() async {
+    try {
+      // Invalidate queued/stale work, but allow the currently running finite
+      // load/seek to finish before disposing the same native player.
+      await _engineOperations;
+      await Future.wait(_metadataWrites.toList());
+      if (_state.hasBook) {
+        await _engine.pause();
+        if (_state.status != AudioPlaybackStatus.completed) {
+          _state = _state.copyWith(status: AudioPlaybackStatus.paused);
+          if (!_notifierDisposed) notifyListeners();
+        }
+      }
+      await _persistPlayback(force: true, requireSuccess: !_notifierDisposed);
+    } catch (error, stack) {
+      if (!_notifierDisposed) {
+        _shuttingDown = false;
+        _shutdownOperation = null;
+        rethrow;
+      }
+      // Synchronous owner disposal is not cancelable. Still release native
+      // resources if a checkpoint or pause failed, and report the failure.
+      _reportShutdownError(error, stack);
+    }
+
+    _disposed = true;
+    try {
+      await _engineSubscription.cancel();
+    } finally {
+      try {
+        await _engine.dispose();
+      } finally {
+        // A paused/offscreen UI subscriber can defer delivery of stream done.
+        // Native teardown and exit must not wait for that UI-only notification.
+        unawaited(_progressChanges.close());
+      }
+    }
+  }
+
   @override
   void dispose() {
-    if (_disposed) return;
-    unawaited(_persistPlayback(force: true));
-    _disposed = true;
-    _operationGeneration++;
-    unawaited(_engineSubscription.cancel());
-    unawaited(_engine.dispose());
-    unawaited(_progressChanges.close());
+    if (_notifierDisposed) return;
+    _notifierDisposed = true;
+    unawaited(shutdown().catchError(_reportShutdownError));
     super.dispose();
   }
 
+  void _reportShutdownError(Object error, StackTrace stack) {
+    FlutterError.reportError(
+      FlutterErrorDetails(
+        exception: error,
+        stack: stack,
+        library: 'slovofon playback',
+        context: ErrorDescription('while shutting down the audio player'),
+      ),
+    );
+  }
+
   void _handleEngineSnapshot(AudioEngineSnapshot snapshot) {
-    if (_disposed) return;
+    if (_unavailable) return;
     if (_engineLoadDepth > 0) {
       _snapshotDuringLoad = snapshot;
       return;
@@ -644,7 +712,7 @@ class PlaybackController extends ChangeNotifier {
   }
 
   Future<void> _completeEngineChapter({required bool continuePlayback}) async {
-    if (_disposed || _handlingEngineCompletion) return;
+    if (_unavailable || _handlingEngineCompletion) return;
     final generation = ++_operationGeneration;
     _handlingEngineCompletion = true;
     try {
@@ -956,7 +1024,13 @@ class PlaybackController extends ChangeNotifier {
     unawaited(_persistMetadata(book));
   }
 
-  Future<void> _persistMetadata(AudioPlaybackBook book) async {
+  Future<void> _persistMetadata(AudioPlaybackBook book) {
+    final pending = _writeMetadata(book);
+    _metadataWrites.add(pending);
+    return pending.whenComplete(() => _metadataWrites.remove(pending));
+  }
+
+  Future<void> _writeMetadata(AudioPlaybackBook book) async {
     try {
       await _bookMetadataStore?.saveBook(book);
     } catch (error, stack) {
