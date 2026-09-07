@@ -1,266 +1,218 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:slovofon/app/theme/app_theme.dart';
-import 'package:slovofon/app/theme/windows_theme.dart';
 import 'package:slovofon/ui/components/seek_interval_icon.dart';
 import 'package:slovofon/ui/icons/app_icons.dart';
 
 void main() {
-  setUpAll(() async {
-    // Use the same real numeral metrics on Windows and Linux. Without an
-    // explicit font Flutter tests use Ahem blocks: their wide "15" overlaps
-    // the arrow-only inspection regions, causing false geometry failures.
-    // This Apache-2.0 fixture is test-only, not an application asset. Keeping
-    // it in the repository avoids depending on host fonts or SDK cache state.
-    final file = File('test/fixtures/fonts/Roboto-Medium.ttf');
-    final loader = FontLoader('Segoe UI');
-    loader.addFont(file.readAsBytes().then(ByteData.sublistView));
-    await loader.load();
-  });
-
+  // Deliberately load no fonts: interval digits must be identical on every host,
+  // including Flutter's Ahem test environment, RTL and enlarged user text.
   for (final dark in [true, false]) {
     for (final dpr in [1.0, 1.5, 2.0]) {
-      testWidgets('seek artwork dark=$dark dpr=$dpr', (tester) async {
-        final theme = WindowsTheme.from(
-          dark
-              ? AppTheme.dark(accent: const Color(0xff9c27b0))
-              : AppTheme.light(accent: const Color(0xff9c27b0)),
-        ).copyWith(platform: TargetPlatform.windows);
-        final schemes = theme.colorScheme;
-        final baseline = <bool, List<int>>{};
-        for (final scale in [.75, 1.0, 2.0, 3.0]) {
-          final bitmaps = <ByteData>[];
-          for (final forward in [false, true]) {
-            await tester.pumpWidget(
-              MaterialApp(
-                theme: theme,
-                home: MediaQuery(
-                  data: MediaQueryData(textScaler: TextScaler.linear(scale)),
-                  child: IconTheme(
-                    data: IconThemeData(color: schemes.onSurfaceVariant),
+      testWidgets('seek vector raster dark=$dark dpr=$dpr', (tester) async {
+        final theme = dark ? AppTheme.dark() : AppTheme.light();
+        for (final size in [24.0, 28.0, 32.0]) {
+          final baseline = <bool, Uint8List>{};
+          for (final textScale in [1.0, 3.0]) {
+            final pair = <Uint8List>[];
+            for (final forward in [false, true]) {
+              await tester.pumpWidget(
+                MaterialApp(
+                  theme: theme,
+                  home: MediaQuery(
+                    data: MediaQueryData(
+                      textScaler: TextScaler.linear(textScale),
+                    ),
                     child: Center(
                       child: RepaintBoundary(
-                        key: const ValueKey('artwork'),
-                        child: SeekIntervalIcon(forward: forward),
+                        key: const ValueKey('seek-raster'),
+                        child: SeekIntervalIcon(
+                          forward: forward,
+                          size: size,
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
-            );
-            await tester.pumpAndSettle();
-            expect(
-              tester.getSize(find.byType(SeekIntervalIcon)),
-              const Size(24, 24),
-            );
-            final boundary = tester.renderObject<RenderRepaintBoundary>(
-              find.byKey(const ValueKey('artwork')),
-            );
-            await tester.runAsync(() async {
-              final rendered = await boundary.toImage(pixelRatio: dpr);
-              bitmaps.add(
-                (await rendered.toByteData(
+              );
+              await tester.pumpAndSettle();
+              final boundary = tester.renderObject<RenderRepaintBoundary>(
+                find.byKey(const ValueKey('seek-raster')),
+              );
+              late Uint8List pixels;
+              await tester.runAsync(() async {
+                final image = await boundary.toImage(pixelRatio: dpr);
+                pixels = (await image.toByteData(
                   format: ui.ImageByteFormat.rawRgba,
-                ))!,
-              );
-              rendered.dispose();
-            });
-            final pixels = bitmaps.last.buffer.asUint8List();
-            if (baseline.containsKey(forward)) {
-              expect(pixels, orderedEquals(baseline[forward]!));
-            } else {
-              baseline[forward] = pixels.toList();
+                ))!.buffer.asUint8List();
+                image.dispose();
+              });
+              if (baseline.containsKey(forward)) {
+                expect(pixels, orderedEquals(baseline[forward]!));
+              } else {
+                baseline[forward] = pixels;
+              }
+              pair.add(pixels);
+              expect(tester.takeException(), isNull);
             }
-            expect(tester.takeException(), isNull);
-          }
-          // Only the arrow changes direction. The numeral area stays identical,
-          // contains actual ink, and is not mirrored or crossed by the arrow.
-          var ink = 0;
-          final width = (24 * dpr).ceil();
-          for (var y = (10 * dpr).ceil(); y < (17 * dpr).floor(); y++) {
-            for (var x = (7 * dpr).ceil(); x < (17 * dpr).floor(); x++) {
-              final offset = (y * width + x) * 4;
-              expect(
-                bitmaps[0].getUint32(offset),
-                bitmaps[1].getUint32(offset),
-              );
-              if (bitmaps[0].getUint8(offset + 3) > 0) ink++;
-            }
-          }
-          expect(ink, greaterThan(10));
-          // The rewind body must approach its left-pointing head from the
-          // RIGHT. Reversing this arc puts the body in front of the tip and
-          // makes the head look detached / point back into its own curve.
-          int regionInk(
-            ByteData bitmap,
-            int left,
-            int top,
-            int right,
-            int bottom,
-          ) {
-            var alpha = 0;
-            for (var y = (top * dpr).ceil(); y < (bottom * dpr).floor(); y++) {
+            final width = (size * dpr).ceil();
+            final factor = size / 24 * dpr;
+            int regionInk(Uint8List bytes, Rect bounds) {
+              var ink = 0;
               for (
-                var x = (left * dpr).ceil();
-                x < (right * dpr).floor();
-                x++
+                var y = (bounds.top * factor).ceil();
+                y < (bounds.bottom * factor).floor();
+                y++
               ) {
-                alpha += bitmap.getUint8((y * width + x) * 4 + 3);
+                for (
+                  var x = (bounds.left * factor).ceil();
+                  x < (bounds.right * factor).floor();
+                  x++
+                ) {
+                  ink += bytes[(y * width + x) * 4 + 3];
+                }
+              }
+              return ink;
+            }
+
+            // Top wings are distinct from the circular body. The left/right
+            // openings remain blank instead of becoming a closed reload ring.
+            const leftHead = Rect.fromLTRB(5.5, .5, 7.5, 2.8);
+            const rightHead = Rect.fromLTRB(16.5, .5, 18.5, 2.8);
+            expect(regionInk(pair[0], leftHead), greaterThan(64));
+            expect(regionInk(pair[0], rightHead), 0);
+            expect(regionInk(pair[1], leftHead), 0);
+            expect(regionInk(pair[1], rightHead), greaterThan(64));
+            const leftGap = Rect.fromLTRB(1, 9, 5, 12);
+            const rightGap = Rect.fromLTRB(19, 9, 23, 12);
+            expect(regionInk(pair[0], leftGap), 0);
+            expect(regionInk(pair[1], rightGap), 0);
+            expect(regionInk(pair[0], rightGap), greaterThan(255));
+            expect(regionInk(pair[1], leftGap), greaterThan(255));
+            // The inner disk contains every numeral pixel, including its
+            // antialias fringe; its upper cut excludes the arrowhead. Digits
+            // are identical between directions, not mirrored with the arrow.
+            for (var y = (8 * factor).ceil(); y < width; y++) {
+              for (var x = 0; x < width; x++) {
+                final point = Offset((x + .5) / factor, (y + .5) / factor);
+                if ((point - const Offset(12, 12)).distance > 7.2) continue;
+                final offset = (y * width + x) * 4;
+                expect(
+                  pair[0].sublist(offset, offset + 4),
+                  pair[1].sublist(offset, offset + 4),
+                  reason: 'entire interval size=$size dpr=$dpr x=$x y=$y',
+                );
               }
             }
-            return alpha;
+            expect(
+              regionInk(pair[0], const Rect.fromLTRB(8, 10, 11, 17)),
+              greaterThan(255),
+            );
+            expect(
+              regionInk(pair[0], const Rect.fromLTRB(13, 10, 17, 17)),
+              greaterThan(255),
+            );
           }
-
-          // FreeType and DirectWrite can differ at a numeral's anti-aliased
-          // edge by less than 1/8 of an opaque logical pixel across the whole
-          // region. This is not arrow ink: a present body must cover more
-          // than one full logical pixel. Exact arc/head/transform geometry
-          // is additionally checked in seek_interval_geometry_test.dart.
-          final opaquePixel = 255 * dpr * dpr;
-          final visuallyEmpty = lessThanOrEqualTo(opaquePixel / 8);
-          final bodyPresent = greaterThan(opaquePixel);
-          expect(regionInk(bitmaps[0], 4, 7, 7, 10), visuallyEmpty);
-          expect(regionInk(bitmaps[0], 17, 7, 20, 10), bodyPresent);
-          expect(regionInk(bitmaps[1], 4, 7, 7, 10), bodyPresent);
-          expect(regionInk(bitmaps[1], 17, 7, 20, 10), visuallyEmpty);
-          // The head faces along the endpoint tangent: left for rewind,
-          // right for forward, not merely a reflected curved body.
-          expect(regionInk(bitmaps[0], 14, 2, 16, 4), greaterThan(0));
-          expect(regionInk(bitmaps[0], 8, 2, 10, 4), 0);
-          expect(regionInk(bitmaps[1], 14, 2, 16, 4), 0);
-          expect(regionInk(bitmaps[1], 8, 2, 10, 4), greaterThan(0));
         }
-
-        final output = Platform.environment['SLOVOFON_SEEK_VISUAL_DIR'];
-        if (output == null || output.isEmpty) return;
-        expect(Directory(output).isAbsolute, isTrue);
-        await tester.runAsync(() => Directory(output).create(recursive: true));
-        await tester.pumpWidget(
-          MaterialApp(
-            theme: theme,
-            home: Center(
-              child: RepaintBoundary(
-                key: const ValueKey('strip'),
-                child: ColoredBox(
-                  color: schemes.surfaceContainerLow,
-                  child: SizedBox(
-                    width: 240,
-                    height: 72,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        SizedBox(
-                          width: 40,
-                          child: AppIcon(
-                            AppIconAssets.playerPreviousChapter,
-                            size: 21,
-                            color: schemes.onSurfaceVariant,
-                          ),
-                        ),
-                        SizedBox(
-                          width: 40,
-                          child: Center(
-                            child: SeekIntervalIcon(
-                              forward: false,
-                              color: schemes.onSurfaceVariant,
-                            ),
-                          ),
-                        ),
-                        SizedBox.square(
-                          dimension: 46,
-                          child: DecoratedBox(
-                            decoration: BoxDecoration(
-                              color: schemes.primary,
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                            child: Center(
-                              child: AppIcon(
-                                AppIconAssets.playerPlay,
-                                size: 28,
-                                color: schemes.onPrimary,
-                              ),
-                            ),
-                          ),
-                        ),
-                        SizedBox(
-                          width: 40,
-                          child: Center(
-                            child: SeekIntervalIcon(
-                              forward: true,
-                              color: schemes.onSurfaceVariant,
-                            ),
-                          ),
-                        ),
-                        SizedBox(
-                          width: 40,
-                          child: AppIcon(
-                            AppIconAssets.playerNextChapter,
-                            size: 21,
-                            color: schemes.onSurfaceVariant,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        );
-        await tester.pumpAndSettle();
-        final boundary = tester.renderObject<RenderRepaintBoundary>(
-          find.byKey(const ValueKey('strip')),
-        );
-        await tester.runAsync(() async {
-          for (final ratio in [dpr, if (dpr == 1) 4.0]) {
-            final rendered = await boundary.toImage(pixelRatio: ratio);
-            final bytes = (await rendered.toByteData(
-              format: ui.ImageByteFormat.png,
-            ))!;
-            await File(
-              '$output/seek-${dark ? 'dark' : 'light'}-${ratio}x.png',
-            ).writeAsBytes(bytes.buffer.asUint8List());
-            rendered.dispose();
-          }
-        });
+        await _renderProof(tester, theme, dark: dark, dpr: dpr);
       });
     }
   }
+}
 
-  testWidgets('seek painter repaints direction and color only', (tester) async {
-    Future<CustomPainter> painter(bool forward, Color color) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Center(
-            child: SeekIntervalIcon(forward: forward, color: color),
+Future<void> _renderProof(
+  WidgetTester tester,
+  ThemeData theme, {
+  required bool dark,
+  required double dpr,
+}) async {
+  final output = Platform.environment['SLOVOFON_SEEK_VISUAL_DIR'];
+  if (output == null || output.isEmpty) return;
+  expect(Directory(output).isAbsolute, isTrue);
+  final colors = theme.colorScheme;
+  await tester.pumpWidget(
+    MaterialApp(
+      theme: theme,
+      home: Center(
+        child: RepaintBoundary(
+          key: const ValueKey('seek-proof'),
+          child: ColoredBox(
+            color: colors.surfaceContainerLow,
+            child: SizedBox(
+              width: 304,
+              height: 240,
+              child: Column(
+                children: [
+                  for (final size in [24.0, 28.0, 32.0])
+                    SizedBox(
+                      height: 80,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          AppIcon(
+                            AppIconAssets.playerPreviousChapter,
+                            size: 21,
+                            color: colors.onSurfaceVariant,
+                          ),
+                          SeekIntervalIcon(
+                            forward: false,
+                            size: size,
+                            color: colors.onSurfaceVariant,
+                          ),
+                          SizedBox.square(
+                            dimension: 46,
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                color: colors.primary,
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: Center(
+                                child: AppIcon(
+                                  AppIconAssets.playerPlay,
+                                  size: 28,
+                                  color: colors.onPrimary,
+                                ),
+                              ),
+                            ),
+                          ),
+                          SeekIntervalIcon(
+                            forward: true,
+                            size: size,
+                            color: colors.onSurfaceVariant,
+                          ),
+                          AppIcon(
+                            AppIconAssets.playerNextChapter,
+                            size: 21,
+                            color: colors.onSurfaceVariant,
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ),
           ),
         ),
-      );
-      return tester
-          .widget<CustomPaint>(
-            find.descendant(
-              of: find.byType(SeekIntervalIcon),
-              matching: find.byType(CustomPaint),
-            ),
-          )
-          .painter!;
-    }
-
-    final first = await painter(false, const Color(0xff112233));
-    final same = await painter(false, const Color(0xff112233));
-    expect(same.shouldRepaint(first), isFalse);
-    expect(
-      (await painter(true, const Color(0xff112233))).shouldRepaint(first),
-      isTrue,
-    );
-    expect(
-      (await painter(false, const Color(0xffaabbcc))).shouldRepaint(first),
-      isTrue,
-    );
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+  final boundary = tester.renderObject<RenderRepaintBoundary>(
+    find.byKey(const ValueKey('seek-proof')),
+  );
+  await tester.runAsync(() async {
+    await Directory(output).create(recursive: true);
+    final image = await boundary.toImage(pixelRatio: dpr);
+    final data = await image.toByteData(format: ui.ImageByteFormat.png);
+    await File(
+      '$output/seek-${dark ? 'dark' : 'light'}-${dpr}x.png',
+    ).writeAsBytes(data!.buffer.asUint8List());
+    image.dispose();
   });
 }

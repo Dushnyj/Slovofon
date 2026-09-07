@@ -180,7 +180,17 @@ Files:
 Except:
 - assets/icons/system/github.svg
 - assets/icons/system/telegram.svg
+- assets/icons/player/rewind_15.svg
+- assets/icons/player/forward_15.svg
 Purpose: Checked-in SVG UI icons for navigation, book metadata, player controls, download states, and system actions.
+
+Icon artwork: Slovofon 15-second seek controls
+Author: Slovofon Team
+License: Apache-2.0 (project license)
+Files:
+- assets/icons/player/rewind_15.svg
+- assets/icons/player/forward_15.svg
+Purpose: Original interrupted circular arrows with tangential heads and inset font-independent outlined interval digits, shared by Android, Android TV and Windows in-app players. These two SVGs are not Lucide artwork.
 
 Brand mark: GitHub
 License/terms: GitHub Logos and Usage

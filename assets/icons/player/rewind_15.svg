@@ -1,17 +1,6 @@
-<!-- Source: Lucide v1.16.0 icon: rotate-ccw; License: ISC -->
-<!-- @license lucide-static v1.16.0 - ISC -->
-<svg
-  class="lucide lucide-rotate-ccw"
-  xmlns="http://www.w3.org/2000/svg"
-  width="24"
-  height="24"
-  viewBox="0 0 24 24"
-  fill="none"
-  stroke="currentColor"
-  stroke-width="2"
-  stroke-linecap="round"
-  stroke-linejoin="round"
->
-  <path stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-  <path stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M3 3v5h5" />
+<!-- Source: Slovofon original seek artwork; License: Apache-2.0 -->
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+  <title>Back 15 seconds</title>
+  <path id="arrow" stroke-width="1.8" d="M3.1135 14.3811A9.2 9.2 0 1 0 5.4946 5.4946M6.2 2L5.4946 5.4946L9 4.8"/>
+  <path id="interval" stroke-width="1.4" d="M8.5 11L9.8 9.5V16.5M8.7 16.5H10.9M16.2 9.5H12.8V12.5H14.2C17.4 12.5 17.4 16.5 14.2 16.5H12.8"/>
 </svg>

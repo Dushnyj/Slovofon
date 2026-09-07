@@ -48,6 +48,22 @@ void main() {
     }
   });
 
+  test('seek-15 assets are original font-independent Slovofon vectors', () {
+    for (final direction in ['rewind', 'forward']) {
+      final source = File(
+        'assets/icons/player/${direction}_15.svg',
+      ).readAsStringSync();
+      expect(source, contains('Source: Slovofon original seek artwork'));
+      expect(source, contains('License: Apache-2.0'));
+      expect(source, contains('viewBox="0 0 24 24"'));
+      expect(source, contains('stroke="currentColor"'));
+      expect(source, contains('id="interval"'));
+      expect(source, isNot(contains('<text')));
+      expect(source, isNot(contains('<image')));
+      expect(source, isNot(contains('font-')));
+    }
+  });
+
   test('Stage 2 download-state icons are visually distinct', () {
     const stateIcons = [
       'assets/icons/downloads/download.svg',
@@ -128,10 +144,8 @@ const _expectedLucideIcons = {
   'assets/icons/player/previous_chapter.svg': 'skip-back',
   'assets/icons/player/next_chapter.svg': 'skip-forward',
   'assets/icons/player/rewind_10.svg': 'rotate-ccw',
-  'assets/icons/player/rewind_15.svg': 'rotate-ccw',
   'assets/icons/player/rewind_30.svg': 'history',
   'assets/icons/player/forward_10.svg': 'rotate-cw',
-  'assets/icons/player/forward_15.svg': 'rotate-cw',
   'assets/icons/player/forward_30.svg': 'refresh-cw',
   'assets/icons/player/speed.svg': 'gauge',
   'assets/icons/player/sleep_timer.svg': 'timer',

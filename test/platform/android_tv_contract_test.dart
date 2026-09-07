@@ -21,13 +21,22 @@ void main() {
     expect(manifest, contains('android.intent.category.LEANBACK_LAUNCHER'));
     expect(manifest, contains('android:banner="@drawable/tv_banner"'));
     expect(manifest, contains('android:icon="@mipmap/ic_launcher"'));
+    final launcherActivity = RegExp(
+      r'<activity\b[^>]*android:name="\.MainActivity"[^>]*>',
+    ).firstMatch(manifest)?.group(0);
+    expect(launcherActivity, isNotNull);
+    expect(launcherActivity, contains('android:label="@string/app_name"'));
+    expect(launcherActivity, contains('android:icon="@mipmap/ic_launcher"'));
+    expect(launcherActivity, contains('android:banner="@drawable/tv_banner"'));
     expect(manifest, isNot(contains('android:screenOrientation=')));
   });
 
-  test('native banners preserve product names and existing book artwork', () {
+  test('native banners preserve approved emblem and localized wordmarks', () {
     for (final variant in [
       ('drawable', 'Slovofon'),
       ('drawable-ru', 'Словофон'),
+      ('drawable-v26', 'Slovofon'),
+      ('drawable-ru-v26', 'Словофон'),
     ]) {
       final banner = File(
         'android/app/src/main/res/${variant.$1}/tv_banner.xml',
@@ -35,10 +44,25 @@ void main() {
       expect(banner, contains('Product name: ${variant.$2}.'));
       expect(banner, contains('android:viewportWidth="320"'));
       expect(banner, contains('android:viewportHeight="180"'));
-      expect(banner, contains('android_adaptive_icon_foreground.svg'));
-      expect(banner, contains('<group'));
+      // 160x90 dp = 320x180 px at xhdpi, not the previous oversized 320x180 dp.
+      expect(banner, contains('android:width="160dp"'));
+      expect(banner, contains('android:height="90dp"'));
+      expect(banner, contains('assets/app/slovofon_icon.png'));
+      expect(banner, contains('android:src="@drawable/ic_launcher_emblem"'));
+      expect(banner, contains('android:fillColor="#071F32"'));
+      expect(banner, isNot(contains('android_adaptive_icon_foreground.svg')));
+      expect(banner, isNot(contains('M84,132')));
+      expect(banner, isNot(contains('android:width="320dp"')));
+      if (variant.$1.endsWith('-v26')) {
+        expect(banner, contains('android:insetLeft="2.5%"'));
+        expect(banner, contains('android:insetRight="57.5%"'));
+      } else {
+        // API 24-25 InsetDrawable cannot inflate fractional values.
+        expect(banner, isNot(contains('<inset')));
+        expect(banner, contains('android:width="64dp"'));
+      }
       // Outlined localized wordmark: no dynamic/system-font dependency at runtime.
-      expect(RegExp('<path\\b').allMatches(banner).length, 6);
+      expect(RegExp('<path\\b').allMatches(banner).length, 2);
       expect(banner, isNot(contains('android:src="http')));
     }
   });
