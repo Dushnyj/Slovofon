@@ -20,6 +20,7 @@ import 'package:slovofon/services/updates/update_prompt.dart';
 import 'package:slovofon/services/updates/update_service.dart';
 import 'package:slovofon/services/updates/windows_update_installation.dart';
 import 'package:slovofon/ui/adaptive/television_layout.dart';
+import 'package:slovofon/ui/components/release_notes.dart';
 
 void main() {
   setUpAll(() async {
@@ -40,6 +41,13 @@ void main() {
       }
       await loader.load();
     }
+    final codeFont = FontLoader('monospace');
+    codeFont.addFont(
+      File(
+        r'C:\Windows\Fonts\consola.ttf',
+      ).readAsBytes().then((bytes) => ByteData.sublistView(bytes)),
+    );
+    await codeFont.load();
   });
 
   testWidgets('startup above Router presents the root navigator dialog', (
@@ -443,6 +451,141 @@ void main() {
     );
   }
 
+  testWidgets('Markdown links open externally without starting an update', (
+    tester,
+  ) async {
+    final service = _FakeUpdates()
+      ..info = _info(notes: '[Documentation](https://example.com/docs)');
+    final harness = await _pump(tester, service, startup: true);
+    await tester.tap(find.text('Documentation', findRichText: true));
+    await _frames(tester);
+    expect(harness.openedUri, Uri.parse('https://example.com/docs'));
+    expect(service.downloads, 0);
+    expect(find.byType(AlertDialog), findsOneWidget);
+  });
+
+  for (final throws in [false, true]) {
+    testWidgets(
+      'Markdown browser ${throws ? 'exception' : 'unavailable'} keeps actions usable',
+      (tester) async {
+        final service = _FakeUpdates()
+          ..info = _info(notes: '[Documentation](https://example.com/docs)');
+        final harness = await _pump(tester, service, startup: true);
+        harness.launchResult = false;
+        harness.launchThrows = throws;
+        await tester.tap(find.text('Documentation', findRichText: true));
+        await _frames(tester);
+        expect(
+          find.textContaining('Не удалось открыть ссылку'),
+          findsOneWidget,
+        );
+        expect(find.text('Обновить').hitTestable(), findsOneWidget);
+        expect(service.downloads, 0);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  testWidgets(
+    'TV remote enters Markdown links and Select opens the focused link',
+    (tester) async {
+      final service = _FakeUpdates()
+        ..info = _info(
+          notes: File('test/fixtures/updates/v0.0.8.md').readAsStringSync(),
+        );
+      final harness = await _pump(
+        tester,
+        service,
+        startup: true,
+        skin: 'tv',
+        dark: true,
+      );
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
+      await _frames(tester);
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await _frames(tester);
+      expect(
+        find.text('CHANGELOG', findRichText: true).hitTestable(),
+        findsOneWidget,
+      );
+      await tester.sendKeyEvent(LogicalKeyboardKey.select);
+      await _frames(tester);
+      expect(
+        harness.openedUri,
+        Uri.parse(
+          'https://github.com/Dushnyj/Slovofon/blob/v0.0.8/CHANGELOG.md',
+        ),
+      );
+      expect(service.downloads, 0);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  for (final skin in ['phone', 'desktop', 'tv']) {
+    for (final dark in [false, true]) {
+      for (final scale in [1.0, 2.0]) {
+        testWidgets(
+          'actual release Markdown $skin dark=$dark scale=$scale fits and scrolls',
+          (tester) async {
+            final service = _FakeUpdates()
+              ..info = _info(
+                notes: File(
+                  'test/fixtures/updates/v0.0.8.md',
+                ).readAsStringSync(),
+              );
+            await _pump(
+              tester,
+              service,
+              startup: true,
+              skin: skin,
+              dark: dark,
+              scale: scale,
+            );
+            final compactActions = find.byKey(
+              const ValueKey('update-compact-actions'),
+            );
+            expect(
+              compactActions,
+              skin == 'phone' ? findsOneWidget : findsNothing,
+            );
+            if (skin == 'phone') {
+              expect(
+                find.descendant(
+                  of: compactActions,
+                  matching: find.byType(Wrap),
+                ),
+                findsOneWidget,
+              );
+            }
+            expect(find.byType(ReleaseNotes), findsOneWidget);
+            expect(
+              find.text('Slovofon v0.0.8', findRichText: true),
+              findsOneWidget,
+            );
+            expect(tester.takeException(), isNull);
+            await _capture(
+              tester,
+              'markdown-$skin-${dark ? 'dark' : 'light'}-${scale.toInt()}x-top',
+            );
+            await tester.ensureVisible(
+              find.byKey(const ValueKey('release-note-alert-CAUTION')),
+            );
+            await _frames(tester);
+            expect(find.text('Внимание').hitTestable(), findsOneWidget);
+            for (final label in ['Позже', 'Пропустить версию', 'Обновить']) {
+              expect(find.text(label).hitTestable(), findsOneWidget);
+            }
+            expect(tester.takeException(), isNull);
+            await _capture(
+              tester,
+              'markdown-$skin-${dark ? 'dark' : 'light'}-${scale.toInt()}x-alerts',
+            );
+          },
+        );
+      }
+    }
+  }
+
   for (final skin in ['phone', 'desktop', 'tv']) {
     for (final dark in [false, true]) {
       testWidgets('$skin dark=$dark notes and actions fit with 200% text', (
@@ -530,6 +673,8 @@ class _Harness {
   late GoRouter router;
   late ThemeData theme;
   Uri? openedUri;
+  bool launchResult = true;
+  bool launchThrows = false;
 }
 
 Future<_Harness> _pump(
@@ -549,7 +694,9 @@ Future<_Harness> _pump(
   };
   final harness = _Harness();
   final navigatorKey = GlobalKey<NavigatorState>();
-  final baseTheme = dark ? AppTheme.dark() : AppTheme.light();
+  final baseTheme = dark
+      ? AppTheme.dark(accent: const Color(0xff7c3aed))
+      : AppTheme.light(accent: const Color(0xff7c3aed));
   harness.theme = switch (skin) {
     'desktop' => WindowsTheme.from(baseTheme),
     'tv' => TelevisionTheme.from(baseTheme),
@@ -586,7 +733,10 @@ Future<_Harness> _pump(
         updateServiceProvider.overrideWithValue(service),
         updateReleasePageLauncherProvider.overrideWithValue((uri) async {
           harness.openedUri = uri;
-          return true;
+          if (harness.launchThrows) {
+            throw StateError('Fixture browser unavailable');
+          }
+          return harness.launchResult;
         }),
       ],
       child: MaterialApp.router(

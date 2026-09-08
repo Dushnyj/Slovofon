@@ -3,7 +3,7 @@ description: A cross-platform audiobook app for Android, Android TV, and Windows
 publish_to: "none"
 repository: https://github.com/Dushnyj/Slovofon
 issue_tracker: https://github.com/Dushnyj/Slovofon/issues
-version: 0.0.8+8
+version: 0.0.9+9
 
 environment:
   sdk: ">=3.8.0 <4.0.0"
@@ -24,6 +24,7 @@ dependencies:
   intl: ^0.20.2
   just_audio: ^0.10.5
   just_audio_windows: ^0.2.3
+  markdown: 7.3.1
   path: ^1.9.1
   path_provider: ^2.1.5
   pointycastle: ^4.0.0

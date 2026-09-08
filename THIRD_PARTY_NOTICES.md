@@ -130,6 +130,12 @@ License: BSD-3-Clause
 URL: https://pub.dev/packages/html
 Purpose: HTML parsing for source connectors such as Akniga search/details pages.
 
+Package: markdown
+Version: 7.3.1
+License: BSD-3-Clause
+URL: https://pub.dev/packages/markdown
+Purpose: Parse GitHub-flavoured release notes into a read-only native Flutter document; no HTML execution or remote image loading.
+
 Package: pointycastle
 Version: 4.0.0
 License: MIT

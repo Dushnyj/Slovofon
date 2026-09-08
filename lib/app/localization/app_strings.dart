@@ -516,6 +516,22 @@ class AppStrings {
   String get skipUpdate => _isRu ? 'Пропустить версию' : 'Skip this version';
   String get updateLater => _isRu ? 'Позже' : 'Later';
   String get updateReleaseNotes => _isRu ? 'Что нового' : 'What is new';
+  String get updateNotesLinkFailed => _isRu
+      ? 'Не удалось открыть ссылку. Проверьте, установлен ли браузер.'
+      : 'Could not open the link. Check that a browser is installed.';
+  String get updateNotesTruncated => _isRu
+      ? 'Показана часть описания. Полный текст доступен на странице релиза.'
+      : 'Part of the description is shown. Read the full text on the release page.';
+  String get updateNotesRemoteHint => _isRu
+      ? 'Вверх и вниз — прокрутка. Вправо — переход к ссылкам.'
+      : 'Up and down to scroll. Right to focus links.';
+  String updateNotesAlert(String kind) => switch (kind) {
+    'TIP' => _isRu ? 'Совет' : 'Tip',
+    'IMPORTANT' => _isRu ? 'Важно' : 'Important',
+    'WARNING' => _isRu ? 'Предупреждение' : 'Warning',
+    'CAUTION' => _isRu ? 'Внимание' : 'Caution',
+    _ => _isRu ? 'Примечание' : 'Note',
+  };
   String get updateDownloadZip => _isRu ? 'Скачать ZIP' : 'Download ZIP';
   String get updateOpenReleases =>
       _isRu ? 'Открыть страницу релизов' : 'Open releases page';

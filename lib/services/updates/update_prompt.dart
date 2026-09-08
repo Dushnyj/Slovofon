@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -8,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../app/localization/app_strings.dart';
 import '../../app/project_links.dart';
 import '../../ui/adaptive/television_layout.dart';
+import '../../ui/components/release_notes.dart';
 import '../../ui/icons/app_icons.dart';
 import 'update_error_text.dart';
 import 'update_installer.dart';
@@ -265,6 +267,13 @@ class _UpdatePromptDialogState extends State<_UpdatePromptDialog> {
     if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
       return KeyEventResult.ignored;
     }
+    if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+      // Links are real focusable controls in reading order, including links
+      // below the viewport. Their focus handler scrolls the destination in.
+      return _notesFocus.nextFocus()
+          ? KeyEventResult.handled
+          : KeyEventResult.ignored;
+    }
     final direction = switch (event.logicalKey) {
       LogicalKeyboardKey.arrowDown || LogicalKeyboardKey.pageDown => 1,
       LogicalKeyboardKey.arrowUp || LogicalKeyboardKey.pageUp => -1,
@@ -305,6 +314,20 @@ class _UpdatePromptDialogState extends State<_UpdatePromptDialog> {
         _message = context.strings.updateSkipFailed;
       });
     }
+  }
+
+  Future<void> _openNotesLink(Uri uri) async {
+    // Recheck at the launcher boundary; notes never select an installer or
+    // replace the fixed release-page fallback used by the update action.
+    if (releaseNotesWebUri(uri.toString()) == null || !_canClose) return;
+    var opened = false;
+    try {
+      opened = await widget.launchReleasePage(uri);
+    } on Object {
+      // Missing browsers (including TV devices) keep the dialog usable.
+    }
+    if (!mounted || opened) return;
+    setState(() => _message = context.strings.updateNotesLinkFailed);
   }
 
   Future<void> _startDownload() async {
@@ -391,125 +414,173 @@ class _UpdatePromptDialogState extends State<_UpdatePromptDialog> {
         : (_downloadedBytes / _totalBytes!).clamp(0.0, 1.0);
     final expectedBytes = _totalBytes ?? info.asset.size;
     final notes = info.manifest.releaseNotes?.trim();
+    final contentWidth = math.max(
+      120.0,
+      math.min(600.0, MediaQuery.sizeOf(context).width - 96),
+    );
     final actionLabel = info.requiresManualDownload
         ? strings.updateOpenReleases
         : info.isPortableUpdate
         ? strings.updateDownloadZip
         : strings.updateNow;
+    final compactActions =
+        MediaQuery.sizeOf(context).width < 600 &&
+        !TelevisionLayout.isActive(context);
+    final secondaryActions = <Widget>[
+      _remoteAction(
+        TextButton(
+          onPressed: _canClose ? widget.onClose : null,
+          child: Text(strings.updateLater),
+        ),
+        notesAvailable: notes != null && notes.isNotEmpty,
+      ),
+      if (!info.manifest.mandatory)
+        _remoteAction(
+          TextButton(
+            onPressed: _canClose ? _skip : null,
+            child: Text(strings.skipUpdate),
+          ),
+          notesAvailable: notes != null && notes.isNotEmpty,
+        ),
+    ];
+    final primaryAction = _remoteAction(
+      FilledButton(
+        autofocus: true,
+        onPressed: _canClose ? _startDownload : null,
+        child: Text(_retryAction ? strings.retry : actionLabel),
+      ),
+      notesAvailable: notes != null && notes.isNotEmpty,
+    );
     return PopScope(
       canPop: _canClose,
-      child: AlertDialog(
-        scrollable: true,
-        icon: const AppIcon(AppIconAssets.systemRefresh),
-        title: Text(
-          !_isBusy
-              ? strings.updateAvailableTitle
-              : progress != null && progress >= 1
-              ? strings.updatePreparingTitle
-              : strings.updateDownloading,
-        ),
-        content: SizedBox(
-          width: 480,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                strings.updateAvailableMessage(
-                  info.version,
-                  _formatBytes(info.asset.size, strings.locale),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                info.requiresManualDownload
-                    ? strings.updateManualDownloadHint
-                    : info.isPortableUpdate
-                    ? strings.updatePortableHint
-                    : strings.updateInstallerHint,
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-              if (!_isBusy && notes != null && notes.isNotEmpty) ...[
-                const SizedBox(height: 16),
-                if (TelevisionLayout.isActive(context))
-                  Focus(
-                    canRequestFocus: false,
-                    onKeyEvent: _scrollNotesWithRemote,
-                    child: Builder(
-                      builder: (notesContext) => TextButton(
-                        key: const ValueKey('update-notes-remote-focus'),
-                        focusNode: _notesFocus,
-                        onPressed: () {
-                          final position = Scrollable.maybeOf(
-                            notesContext,
-                          )?.position;
-                          if (position != null) _scrollNotes(position, 1);
-                        },
-                        child: Text(strings.updateReleaseNotes),
-                      ),
-                    ),
-                  )
-                else
-                  Text(
-                    strings.updateReleaseNotes,
-                    style: Theme.of(context).textTheme.titleSmall,
-                  ),
-                const SizedBox(height: 8),
-                // Release notes are untrusted plain text, not executable HTML.
-                Text(notes),
-              ],
-              if (_isBusy) ...[
-                const SizedBox(height: 16),
-                LinearProgressIndicator(value: progress),
-                const SizedBox(height: 8),
+      child: FocusTraversalGroup(
+        policy: WidgetOrderTraversalPolicy(),
+        child: AlertDialog(
+          scrollable: true,
+          insetPadding: const EdgeInsets.all(24),
+          contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+          icon: const AppIcon(AppIconAssets.systemRefresh),
+          title: Text(
+            !_isBusy
+                ? strings.updateAvailableTitle
+                : progress != null && progress >= 1
+                ? strings.updatePreparingTitle
+                : strings.updateDownloading,
+          ),
+          content: SizedBox(
+            width: contentWidth,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
                 Text(
-                  expectedBytes > 0
-                      ? strings.updateDownloadProgress(
-                          _formatBytes(_downloadedBytes, strings.locale),
-                          _formatBytes(expectedBytes, strings.locale),
-                          _formatBytes(_bytesPerSecond, strings.locale),
-                        )
-                      : strings.updateDownloading,
+                  strings.updateAvailableMessage(
+                    info.version,
+                    _formatBytes(info.asset.size, strings.locale),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  info.requiresManualDownload
+                      ? strings.updateManualDownloadHint
+                      : info.isPortableUpdate
+                      ? strings.updatePortableHint
+                      : strings.updateInstallerHint,
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
+                if (!_isBusy && notes != null && notes.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  if (TelevisionLayout.isActive(context))
+                    Focus(
+                      canRequestFocus: false,
+                      onKeyEvent: _scrollNotesWithRemote,
+                      child: Builder(
+                        builder: (notesContext) => TextButton(
+                          key: const ValueKey('update-notes-remote-focus'),
+                          focusNode: _notesFocus,
+                          onPressed: () {
+                            final position = Scrollable.maybeOf(
+                              notesContext,
+                            )?.position;
+                            if (position != null) _scrollNotes(position, 1);
+                          },
+                          child: Tooltip(
+                            message: strings.updateNotesRemoteHint,
+                            child: Text(strings.updateReleaseNotes),
+                          ),
+                        ),
+                      ),
+                    )
+                  else
+                    Text(
+                      strings.updateReleaseNotes,
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                  const SizedBox(height: 8),
+                  ReleaseNotes(
+                    data: notes,
+                    maxWidth: contentWidth,
+                    onOpenLink: (uri) => unawaited(_openNotesLink(uri)),
+                  ),
+                ],
+                if (_isBusy) ...[
+                  const SizedBox(height: 16),
+                  LinearProgressIndicator(value: progress),
+                  const SizedBox(height: 8),
+                  Text(
+                    expectedBytes > 0
+                        ? strings.updateDownloadProgress(
+                            _formatBytes(_downloadedBytes, strings.locale),
+                            _formatBytes(expectedBytes, strings.locale),
+                            _formatBytes(_bytesPerSecond, strings.locale),
+                          )
+                        : strings.updateDownloading,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+                if (_message != null) ...[
+                  const SizedBox(height: 16),
+                  Semantics(
+                    liveRegion: true,
+                    child: Text(
+                      _message!,
+                      style: TextStyle(color: colors.error),
+                    ),
+                  ),
+                ],
               ],
-              if (_message != null) ...[
-                const SizedBox(height: 16),
-                Semantics(
-                  liveRegion: true,
-                  child: Text(_message!, style: TextStyle(color: colors.error)),
-                ),
-              ],
-            ],
+            ),
           ),
-        ),
-        actions: [
-          if (!_isBusy) ...[
-            _remoteAction(
-              TextButton(
-                onPressed: _canClose ? widget.onClose : null,
-                child: Text(strings.updateLater),
-              ),
-              notesAvailable: notes != null && notes.isNotEmpty,
-            ),
-            if (!info.manifest.mandatory)
-              _remoteAction(
-                TextButton(
-                  onPressed: _canClose ? _skip : null,
-                  child: Text(strings.skipUpdate),
-                ),
-                notesAvailable: notes != null && notes.isNotEmpty,
-              ),
-            _remoteAction(
-              FilledButton(
-                autofocus: true,
-                onPressed: _canClose ? _startDownload : null,
-                child: Text(_retryAction ? strings.retry : actionLabel),
-              ),
-              notesAvailable: notes != null && notes.isNotEmpty,
-            ),
+          actions: [
+            if (!_isBusy)
+              if (compactActions)
+                SizedBox(
+                  key: const ValueKey('update-compact-actions'),
+                  width: contentWidth,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Wrap(
+                        alignment: WrapAlignment.end,
+                        spacing: 4,
+                        runSpacing: 4,
+                        children: secondaryActions,
+                      ),
+                      const SizedBox(height: 4),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: primaryAction,
+                      ),
+                    ],
+                  ),
+                )
+              else ...[
+                ...secondaryActions,
+                primaryAction,
+              ],
           ],
-        ],
+        ),
       ),
     );
   }
