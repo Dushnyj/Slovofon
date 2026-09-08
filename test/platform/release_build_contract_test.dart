@@ -51,7 +51,7 @@ void main() {
     },
   );
 
-  test('release checks execute both native updater regression suites', () {
+  test('release checks execute native updater and close regression suites', () {
     final workflow = File(
       '.github/workflows/release.yml',
     ).readAsStringSync().replaceAll('\r\n', '\n');
@@ -79,10 +79,22 @@ void main() {
       );
     }
     expect(
+      checks,
+      contains('windows/runner/tests/windows_close_request_test.cpp'),
+    );
+    expect(
+      checks,
+      contains(
+        '-o "\$RUNNER_TEMP/windows-close-request-test"\n'
+        '          "\$RUNNER_TEMP/windows-close-request-test"',
+      ),
+      reason: 'The native lifecycle suite must execute, not just compile.',
+    );
+    expect(
       RegExp(
         r'c\+\+ -std=c\+\+17 -Wall -Wextra -Werror -UNDEBUG',
       ).allMatches(checks),
-      hasLength(2),
+      hasLength(3),
     );
     expect(checks, contains('-Werror -UNDEBUG -pthread'));
   });

@@ -138,6 +138,10 @@ jobs:
             windows/runner/tests/windows_installation_task_test.cpp \
             -o "$RUNNER_TEMP/windows-installation-task-test"
           "$RUNNER_TEMP/windows-installation-task-test"
+          c++ -std=c++17 -Wall -Wextra -Werror -UNDEBUG -pthread \
+            windows/runner/tests/windows_close_request_test.cpp \
+            -o "$RUNNER_TEMP/windows-close-request-test"
+          "$RUNNER_TEMP/windows-close-request-test"
 
   android-release:
     name: Android signed release

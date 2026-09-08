@@ -8,6 +8,23 @@ import 'package:slovofon/services/audio/playback_controller.dart';
 
 import '../services/audio/playback_shutdown_test.dart' show ShutdownTestEngine;
 
+const _nativeChannel = MethodChannel('com.slovofon.app/windows_lifecycle');
+
+Future<Object?> _nativeExit(
+  WidgetTester tester, {
+  String method = 'requestExit',
+}) async {
+  final response = await tester.binding.defaultBinaryMessenger
+      .handlePlatformMessage(
+        _nativeChannel.name,
+        _nativeChannel.codec.encodeMethodCall(MethodCall(method)),
+        null,
+      );
+  return response == null
+      ? null
+      : _nativeChannel.codec.decodeEnvelope(response);
+}
+
 Future<String> _platformExit(WidgetTester tester) async {
   final response = await tester.binding.defaultBinaryMessenger
       .handlePlatformMessage(
@@ -23,7 +40,7 @@ Future<String> _platformExit(WidgetTester tester) async {
 
 void main() {
   testWidgets(
-    'Windows platform exit waits for actual controller native disposal',
+    'Windows native close and framework exit await the same native disposal',
     (tester) async {
       late ShutdownTestEngine engine;
       late PlaybackController controller;
@@ -42,17 +59,22 @@ void main() {
           child: const SizedBox(),
         ),
       );
-      // Drive the native lifecycle handshake with real microtasks, not an
-      // arbitrary number of frame pumps or a longer fake-clock delay.
+      // Exercise the runner's channel and framework API together. This covers
+      // Dart's side of the bridge; actual HWND delivery has separate native QA.
       await tester.runAsync(() async {
         var firstCompleted = false;
         var secondCompleted = false;
-        final first = _platformExit(tester).then((value) {
+        var frameworkCompleted = false;
+        final first = _nativeExit(tester).then((value) {
           firstCompleted = true;
           return value;
         });
-        final second = _platformExit(tester).then((value) {
+        final second = _nativeExit(tester).then((value) {
           secondCompleted = true;
+          return value;
+        });
+        final framework = _platformExit(tester).then((value) {
+          frameworkCompleted = true;
           return value;
         });
         try {
@@ -62,6 +84,7 @@ void main() {
           expect(engine.disposals, 1);
           expect(firstCompleted, isFalse);
           expect(secondCompleted, isFalse);
+          expect(frameworkCompleted, isFalse);
         } finally {
           engine.disposeGate!.complete();
         }
@@ -69,14 +92,81 @@ void main() {
           await Future.wait([
             first,
             second,
+            framework,
           ]).timeout(const Duration(seconds: 5)),
-          ['exit', 'exit'],
+          [true, true, 'exit'],
         );
         expect(engine.disposals, 1);
         expect(engine.events, ['dispose-start', 'dispose-end']);
       });
       controller.dispose();
       await tester.pumpWidget(const SizedBox());
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.windows),
+  );
+
+  testWidgets(
+    'native close cancels on shutdown failure and permits retry',
+    (tester) async {
+      var attempts = 0;
+      await tester.pumpWidget(
+        WindowsAppExitListener(
+          onExitRequested: () async {
+            if (++attempts == 1) throw StateError('checkpoint failed');
+          },
+          child: const SizedBox(),
+        ),
+      );
+      final first = _nativeExit(tester);
+      await tester.pump();
+      expect(await first, isFalse);
+      expect(tester.takeException(), isStateError);
+      final second = _nativeExit(tester);
+      await tester.pump();
+      expect(await second, isTrue);
+      expect(attempts, 2);
+      await tester.pumpWidget(const SizedBox());
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.windows),
+  );
+
+  testWidgets(
+    'native handler exists only while the Windows listener is mounted',
+    (tester) async {
+      expect(await _nativeExit(tester), isNull);
+      var calls = 0;
+      await tester.pumpWidget(
+        WindowsAppExitListener(
+          onExitRequested: () async => calls++,
+          child: const SizedBox(),
+        ),
+      );
+      final unsupported = _nativeExit(tester, method: 'unknown');
+      await tester.pump();
+      expect(await unsupported, isNull);
+      expect(calls, 0);
+      await tester.pumpWidget(const SizedBox());
+      expect(await _nativeExit(tester), isNull);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.windows),
+  );
+
+  testWidgets(
+    'late native response after listener disposal cannot approve close',
+    (tester) async {
+      final gate = Completer<void>();
+      await tester.pumpWidget(
+        WindowsAppExitListener(
+          onExitRequested: () => gate.future,
+          child: const SizedBox(),
+        ),
+      );
+      final response = _nativeExit(tester);
+      await tester.pump();
+      await tester.pumpWidget(const SizedBox());
+      gate.complete();
+      await tester.pump();
+      expect(await response, isFalse);
     },
     variant: TargetPlatformVariant.only(TargetPlatform.windows),
   );
@@ -123,6 +213,7 @@ void main() {
         await tester.pump();
         expect(await response, 'exit');
         expect(calls, 0);
+        expect(await _nativeExit(tester), isNull);
         await tester.pumpWidget(const SizedBox());
       },
       variant: TargetPlatformVariant.only(platform),

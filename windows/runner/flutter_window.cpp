@@ -1,5 +1,7 @@
 #include "flutter_window.h"
 
+#include <flutter/method_result_functions.h>
+
 #include <process.h>
 
 #include <atomic>
@@ -14,10 +16,12 @@
 namespace {
 
 constexpr UINT kWindowsInstallationCompleted = WM_APP + 0x530;
+constexpr UINT kWindowsCloseApproved = WM_APP + 0x531;
 constexpr UINT kWindowsInstallationTimeoutMs = 5000;
 // High, process-wide tokens avoid ordinary plugin timer IDs and stale replies
 // after HWND reuse. The message carries only this number, never a heap pointer.
 std::atomic<UINT_PTR> next_windows_installation_token{0x53000000};
+std::atomic<UINT_PTR> next_windows_close_token{0x53100000};
 
 struct InstallationWorkerContext {
   std::shared_ptr<windows_installation::InstallationTask> task;
@@ -67,6 +71,7 @@ FlutterWindow::FlutterWindow(const flutter::DartProject& project)
     : project_(project) {}
 
 FlutterWindow::~FlutterWindow() {
+  CancelWindowsClose();
   CancelWindowsInstallationRequest();
 }
 
@@ -86,6 +91,16 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
+  windows_close_request_ = std::make_shared<windows_lifecycle::CloseRequest>(
+      [hwnd = GetHandle()](windows_lifecycle::CloseRequest::Token token) {
+        return PostMessageW(hwnd, kWindowsCloseApproved,
+                            static_cast<WPARAM>(token), 0) != FALSE;
+      });
+  windows_lifecycle_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          flutter_controller_->engine()->messenger(),
+          "com.slovofon.app/windows_lifecycle",
+          &flutter::StandardMethodCodec::GetInstance());
   windows_update_hwnd_ = GetHandle();
   windows_update_task_ =
       std::make_shared<windows_installation::InstallationTask>(
@@ -123,13 +138,48 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  CancelWindowsClose();
   CancelWindowsInstallationRequest();
+  windows_lifecycle_channel_ = nullptr;
   windows_update_channel_ = nullptr;
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }
 
   Win32Window::OnDestroy();
+}
+
+void FlutterWindow::RequestWindowsClose() {
+  if (!windows_close_request_ || !windows_lifecycle_channel_) return;
+  const auto token =
+      next_windows_close_token.fetch_add(1, std::memory_order_relaxed);
+  if (!windows_close_request_->Start(token)) return;
+  const std::weak_ptr<windows_lifecycle::CloseRequest> weak_request =
+      windows_close_request_;
+  const auto complete = [weak_request, token](bool approved) {
+    if (const auto request = weak_request.lock()) {
+      request->Complete(token, approved);
+    }
+  };
+  try {
+    windows_lifecycle_channel_->InvokeMethod(
+        "requestExit", nullptr,
+        std::make_unique<flutter::MethodResultFunctions<flutter::EncodableValue>>(
+            [complete](const flutter::EncodableValue* result) {
+              const auto approved = result ? std::get_if<bool>(result) : nullptr;
+              complete(approved && *approved);
+            },
+            [complete](const std::string&, const std::string&,
+                       const flutter::EncodableValue*) { complete(false); },
+            [complete]() { complete(false); }));
+  } catch (...) {
+    complete(false);
+  }
+}
+
+void FlutterWindow::CancelWindowsClose() {
+  if (windows_close_request_) windows_close_request_->Deactivate();
+  windows_close_request_.reset();
 }
 
 void FlutterWindow::StartWindowsInstallationRequest(
@@ -210,6 +260,21 @@ LRESULT
 FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
                               LPARAM const lparam) noexcept {
+  // Flutter's standard close handshake only runs for the last parentless HWND.
+  // MediaPlayer owns a hidden SMTC HWND, so the main window must explicitly wait
+  // for Dart to checkpoint and dispose audio before destroying the engine/COM.
+  if (message == WM_CLOSE) {
+    RequestWindowsClose();
+    return 0;
+  }
+  if (message == kWindowsCloseApproved) {
+    if (windows_close_request_ && windows_close_request_->TakeApproval(wparam)) {
+      // Leave the channel reply stack before destroying its binary messenger.
+      // Skip Flutter's last-window check: it would request the same exit again.
+      return Win32Window::MessageHandler(hwnd, WM_CLOSE, 0, 0);
+    }
+    return 0;
+  }
   // Owned completion messages and timers must not be swallowed by plugins.
   if (message == kWindowsInstallationCompleted) {
     FinishWindowsInstallationRequest(static_cast<UINT_PTR>(wparam), false);
@@ -221,6 +286,7 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
     return 0;
   }
   if (message == WM_DESTROY) {
+    CancelWindowsClose();
     // Win32Window clears GetHandle() before OnDestroy; deactivate while this
     // HWND is still valid, also if a plugin consumes WM_DESTROY afterward.
     CancelWindowsInstallationRequest();

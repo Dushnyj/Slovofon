@@ -9,6 +9,7 @@
 #include <memory>
 
 #include "win32_window.h"
+#include "windows_close_request.h"
 #include "windows_installation_task.h"
 
 // A window that does nothing but host a Flutter view.
@@ -26,6 +27,8 @@ class FlutterWindow : public Win32Window {
                          LPARAM const lparam) noexcept override;
 
  private:
+  void RequestWindowsClose();
+  void CancelWindowsClose();
   void StartWindowsInstallationRequest(
       std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result);
   void FinishWindowsInstallationRequest(UINT_PTR token, bool timed_out);
@@ -40,6 +43,9 @@ class FlutterWindow : public Win32Window {
   // Destroy the channel before its engine/binary messenger.
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
       windows_update_channel_;
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
+      windows_lifecycle_channel_;
+  std::shared_ptr<windows_lifecycle::CloseRequest> windows_close_request_;
 
   // Only the platform thread owns/replies to MethodResult. Workers retain only
   // the independent shared state, which is deactivated before engine teardown.
