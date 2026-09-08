@@ -4,14 +4,15 @@ import '../icons/app_icons.dart';
 
 /// Shared, font-independent 15-second artwork for every in-app transport.
 ///
-/// Both directions use the same upright outlined numerals inside a spacious
-/// broken circular arrow. Only the arrow is reflected; its head follows the
-/// circle's tangent. The button supplies localized action semantics.
+/// Both directions use the same upright filled numeral paths, centred inside
+/// a broken circular arrow. Only the arrow and its rounded head are reflected.
+/// The 24-unit artwork renders at 28 dp; buttons retain their existing bounds
+/// and supply localized action semantics.
 class SeekIntervalIcon extends StatelessWidget {
   const SeekIntervalIcon({
     required this.forward,
     this.color,
-    this.size = 24,
+    this.size = 28,
     super.key,
   });
 

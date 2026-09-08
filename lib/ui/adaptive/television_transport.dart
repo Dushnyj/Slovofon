@@ -53,7 +53,11 @@ class TelevisionTransport extends ConsumerWidget {
             key: ValueKey(key),
             tooltip: tooltip,
             onPressed: onPressed,
-            style: secondaryStyle,
+            style: icon is SeekIntervalIcon
+                ? secondaryStyle.copyWith(
+                    padding: const WidgetStatePropertyAll(EdgeInsets.all(4)),
+                  )
+                : secondaryStyle,
             icon: icon,
           ),
         );
@@ -79,7 +83,7 @@ class TelevisionTransport extends ConsumerWidget {
               onPressed: canSkip
                   ? () => controller.skipBy(const Duration(seconds: -15))
                   : null,
-              icon: const SeekIntervalIcon(forward: false, size: 24),
+              icon: const SeekIntervalIcon(forward: false),
             ),
             const SizedBox(width: 3),
             IconButton.filled(
@@ -125,7 +129,7 @@ class TelevisionTransport extends ConsumerWidget {
               onPressed: canSkip
                   ? () => controller.skipBy(const Duration(seconds: 15))
                   : null,
-              icon: const SeekIntervalIcon(forward: true, size: 24),
+              icon: const SeekIntervalIcon(forward: true),
             ),
             const SizedBox(width: 3),
             secondaryButton(

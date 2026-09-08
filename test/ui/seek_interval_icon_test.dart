@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:slovofon/app/theme/app_theme.dart';
 import 'package:slovofon/ui/components/seek_interval_icon.dart';
@@ -16,7 +17,7 @@ void main() {
     for (final dpr in [1.0, 1.5, 2.0]) {
       testWidgets('seek vector raster dark=$dark dpr=$dpr', (tester) async {
         final theme = dark ? AppTheme.dark() : AppTheme.light();
-        for (final size in [24.0, 28.0, 32.0]) {
+        for (final size in [20.0, 24.0, 28.0, 32.0]) {
           final baseline = <bool, Uint8List>{};
           for (final textScale in [1.0, 3.0]) {
             final pair = <Uint8List>[];
@@ -66,13 +67,13 @@ void main() {
             int regionInk(Uint8List bytes, Rect bounds) {
               var ink = 0;
               for (
-                var y = (bounds.top * factor).ceil();
-                y < (bounds.bottom * factor).floor();
+                var y = (bounds.top * factor - .5).ceil();
+                y < (bounds.bottom * factor - .5).ceil();
                 y++
               ) {
                 for (
-                  var x = (bounds.left * factor).ceil();
-                  x < (bounds.right * factor).floor();
+                  var x = (bounds.left * factor - .5).ceil();
+                  x < (bounds.right * factor - .5).ceil();
                   x++
                 ) {
                   ink += bytes[(y * width + x) * 4 + 3];
@@ -81,14 +82,30 @@ void main() {
               return ink;
             }
 
-            // Top wings are distinct from the circular body. The left/right
-            // openings remain blank instead of becoming a closed reload ring.
-            const leftHead = Rect.fromLTRB(5.5, .5, 7.5, 2.8);
-            const rightHead = Rect.fromLTRB(16.5, .5, 18.5, 2.8);
-            expect(regionInk(pair[0], leftHead), greaterThan(64));
-            expect(regionInk(pair[0], rightHead), 0);
-            expect(regionInk(pair[1], leftHead), 0);
-            expect(regionInk(pair[1], rightHead), greaterThan(64));
+            // The filled wings protrude beyond the circle's outer radius
+            // (9.2 + 1 stroke unit). Measure only that outer sector, comparing
+            // directions to cancel the circular body's antialias fringe.
+            // Rectangular head regions would also measure the internal arc.
+            var leftWingInk = 0;
+            var rightWingInk = 0;
+            for (var y = 0; y < width; y++) {
+              for (var x = 0; x < width; x++) {
+                final point = Offset((x + .5) / factor, (y + .5) / factor);
+                if (point.dy >= 7) continue;
+                if ((point - const Offset(12, 12)).distance <= 10.2) {
+                  continue;
+                }
+                final alpha = (y * width + x) * 4 + 3;
+                if (point.dx < 8) {
+                  leftWingInk += pair[0][alpha] - pair[1][alpha];
+                } else if (point.dx > 16) {
+                  rightWingInk += pair[1][alpha] - pair[0][alpha];
+                }
+              }
+            }
+            expect(leftWingInk, greaterThan(64));
+            expect(rightWingInk, greaterThan(64));
+            // Openings remain blank rather than becoming a closed reload ring.
             const leftGap = Rect.fromLTRB(1, 9, 5, 12);
             const rightGap = Rect.fromLTRB(19, 9, 23, 12);
             expect(regionInk(pair[0], leftGap), 0);
@@ -98,9 +115,10 @@ void main() {
             // The inner disk contains every numeral pixel, including its
             // antialias fringe; its upper cut excludes the arrowhead. Digits
             // are identical between directions, not mirrored with the arrow.
-            for (var y = (8 * factor).ceil(); y < width; y++) {
+            for (var y = 0; y < width; y++) {
               for (var x = 0; x < width; x++) {
                 final point = Offset((x + .5) / factor, (y + .5) / factor);
+                if (point.dy < 7.2) continue;
                 if ((point - const Offset(12, 12)).distance > 7.2) continue;
                 final offset = (y * width + x) * 4;
                 expect(
@@ -119,11 +137,67 @@ void main() {
               greaterThan(255),
             );
           }
+          // Optional one-off integration proof against the actual user-approved
+          // draft, before metadata-only additions to the checked-in assets.
+          final approved = Platform.environment['SLOVOFON_SEEK_APPROVED_DIR'];
+          if (size == 28 && approved != null && approved.isNotEmpty) {
+            for (final forward in [false, true]) {
+              final name = forward ? 'forward' : 'rewind';
+              final draftPixels = await _approvedRaster(
+                tester,
+                theme,
+                File('$approved/${name}_15.svg').readAsStringSync(),
+                dpr,
+              );
+              expect(draftPixels, orderedEquals(baseline[forward]!));
+            }
+          }
         }
         await _renderProof(tester, theme, dark: dark, dpr: dpr);
       });
     }
   }
+}
+
+Future<Uint8List> _approvedRaster(
+  WidgetTester tester,
+  ThemeData theme,
+  String source,
+  double dpr,
+) async {
+  await tester.pumpWidget(
+    MaterialApp(
+      theme: theme,
+      home: Center(
+        child: RepaintBoundary(
+          key: const ValueKey('approved-seek-raster'),
+          child: SvgPicture.string(
+            source,
+            width: 28,
+            height: 28,
+            colorFilter: ColorFilter.mode(
+              theme.colorScheme.onSurfaceVariant,
+              BlendMode.srcIn,
+            ),
+            theme: SvgTheme(currentColor: theme.colorScheme.onSurfaceVariant),
+          ),
+        ),
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+  final boundary = tester.renderObject<RenderRepaintBoundary>(
+    find.byKey(const ValueKey('approved-seek-raster')),
+  );
+  late Uint8List bytes;
+  await tester.runAsync(() async {
+    final image = await boundary.toImage(pixelRatio: dpr);
+    bytes = (await image.toByteData(
+      format: ui.ImageByteFormat.rawRgba,
+    ))!.buffer.asUint8List();
+    image.dispose();
+  });
+  return bytes;
 }
 
 Future<void> _renderProof(
@@ -146,10 +220,10 @@ Future<void> _renderProof(
             color: colors.surfaceContainerLow,
             child: SizedBox(
               width: 304,
-              height: 240,
+              height: 320,
               child: Column(
                 children: [
-                  for (final size in [24.0, 28.0, 32.0])
+                  for (final size in [20.0, 24.0, 28.0, 32.0])
                     SizedBox(
                       height: 80,
                       child: Row(

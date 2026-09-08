@@ -208,6 +208,29 @@ void main() {
               matching: find.byType(IconButton),
             );
             expect(button, findsOneWidget);
+            expect(tester.getSize(graphic), const Size.square(28));
+            final graphicBounds = tester.getRect(graphic);
+            final buttonBounds = tester.getRect(button);
+            expect(graphicBounds.left, greaterThanOrEqualTo(buttonBounds.left));
+            expect(graphicBounds.right, lessThanOrEqualTo(buttonBounds.right));
+            expect(graphicBounds.top, greaterThanOrEqualTo(buttonBounds.top));
+            expect(
+              graphicBounds.bottom,
+              lessThanOrEqualTo(buttonBounds.bottom),
+            );
+            if (profile.television) {
+              expect(
+                tester.getSize(button),
+                Size.square(profile.full ? 40 : 36),
+                reason: '28 dp artwork must not enlarge TV controls',
+              );
+            }
+            if (profile.windows) {
+              expect(
+                tester.getSize(button),
+                Size.square(profile.full ? 48 : 40),
+              );
+            }
             final strings = AppStrings.of(tester.element(button));
             expect(
               tester.widget<IconButton>(button).tooltip,

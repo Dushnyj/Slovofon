@@ -1,6 +1,9 @@
 <!-- Source: Slovofon original seek artwork; License: Apache-2.0 -->
 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
   <title>Forward 15 seconds</title>
-  <path id="arrow" stroke-width="1.8" transform="translate(24 0) scale(-1 1)" d="M3.1135 14.3811A9.2 9.2 0 1 0 5.4946 5.4946M6.2 2L5.4946 5.4946L9 4.8"/>
-  <path id="interval" stroke-width="1.4" d="M8.5 11L9.8 9.5V16.5M8.7 16.5H10.9M16.2 9.5H12.8V12.5H14.2C17.4 12.5 17.4 16.5 14.2 16.5H12.8"/>
+  <g transform="translate(24 0) scale(-1 1)">
+    <path id="arrow" stroke-width="2" d="M3.1135 14.3811A9.2 9.2 0 1 0 5.4946 5.4946"/>
+    <path id="arrowhead" fill="currentColor" stroke="none" d="M4.13 6.93Q3.86 6.98 3.91 6.71L4.52 3.22Q4.58 2.87 4.83 3.12L7.88 6.17Q8.13 6.42 7.78 6.48Z"/>
+  </g>
+  <path id="interval" fill="currentColor" stroke="none" d="M7.4 9.7L8.9 8H10.2V16H8.8V10L8.3 10.5Z M15.7 8H11.7V12.4H12.9C13.18 12.16 13.5 12.03 13.86 12.03C14.7 12.03 15.2 12.5 15.2 13.3C15.2 14.16 14.62 14.67 13.79 14.67C13.16 14.67 12.57 14.44 12.06 14.04L11.44 15.21C12.08 15.75 12.95 16 13.85 16C15.59 16 16.6 14.98 16.6 13.25C16.6 11.73 15.69 10.76 14.25 10.76C13.85 10.76 13.47 10.83 13.1 10.97V9.32H15.7Z"/>
 </svg>

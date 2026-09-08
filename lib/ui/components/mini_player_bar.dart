@@ -945,7 +945,7 @@ class _DesktopMiniIconButton extends StatelessWidget {
           ? SeekIntervalIcon(
               forward: iconAsset == AppIconAssets.playerForward15,
               color: color,
-              size: 24,
+              size: 28,
             )
           : AppIcon(iconAsset, color: color, size: 21),
     );

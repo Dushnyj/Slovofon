@@ -3253,6 +3253,10 @@ class _ControlIcon extends StatelessWidget {
   Widget build(BuildContext context) {
     final desktop = _usesLargeScreenPlayer(context);
     final colors = Theme.of(context).colorScheme;
+    final televisionSeek =
+        TelevisionLayout.isActive(context) &&
+        (iconAsset == AppIconAssets.playerRewind15 ||
+            iconAsset == AppIconAssets.playerForward15);
     return IconButton(
       tooltip: tooltip,
       onPressed: onPressed,
@@ -3277,6 +3281,10 @@ class _ControlIcon extends StatelessWidget {
                   width: 1.5,
                 ),
               ),
+            )
+          : televisionSeek
+          ? const ButtonStyle(
+              padding: WidgetStatePropertyAll(EdgeInsets.all(6)),
             )
           : null,
       icon:
