@@ -12,6 +12,8 @@
   "search": "Search",
   "library": "Library",
   "downloads": "Downloads",
+  "mobileNavigationDownloads": "Downloads",
+  "mobileNavigationSettings": "Settings",
   "downloadsQueueSubtitle": "Queue, progress, pause, retry, and offline file removal.",
   "activeDownloads": "Active",
   "queuedDownloads": "Queued",

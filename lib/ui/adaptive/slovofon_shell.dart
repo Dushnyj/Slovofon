@@ -858,8 +858,16 @@ List<_ShellDestination> _destinations(AppStrings strings) {
     _ShellDestination(strings.home, AppIconAssets.navHome),
     _ShellDestination(strings.search, AppIconAssets.navSearch),
     _ShellDestination(strings.library, AppIconAssets.navLibrary),
-    _ShellDestination(strings.downloads, AppIconAssets.navDownloads),
-    _ShellDestination(strings.settings, AppIconAssets.navSettings),
+    _ShellDestination(
+      strings.downloads,
+      AppIconAssets.navDownloads,
+      mobileLabel: strings.mobileNavigationDownloads,
+    ),
+    _ShellDestination(
+      strings.settings,
+      AppIconAssets.navSettings,
+      mobileLabel: strings.mobileNavigationSettings,
+    ),
   ];
 }
 
@@ -878,9 +886,10 @@ class _MobileNavigationBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
 
-    final labelStyle = Theme.of(
-      context,
-    ).textTheme.labelMedium!.copyWith(height: 1, fontWeight: FontWeight.w700);
+    final labelStyle = Theme.of(context).textTheme.labelMedium!.copyWith(
+      height: 1.15,
+      fontWeight: FontWeight.w700,
+    );
     final textScaler = MediaQuery.textScalerOf(context);
 
     return Material(
@@ -891,65 +900,46 @@ class _MobileNavigationBar extends StatelessWidget {
         child: LayoutBuilder(
           builder: (context, constraints) {
             final itemWidth = constraints.maxWidth / destinations.length;
-            var showAllLabels = true;
             var labelHeight = 0.0;
             for (final destination in destinations) {
               final painter = TextPainter(
-                text: TextSpan(text: destination.label, style: labelStyle),
+                text: TextSpan(
+                  text: destination.mobileLabel,
+                  style: labelStyle,
+                ),
                 textScaler: textScaler,
                 textDirection: Directionality.of(context),
                 locale: Localizations.localeOf(context),
-                maxLines: 1,
-              )..layout();
-              if (painter.width > itemWidth - 4) showAllLabels = false;
+                maxLines: 2,
+                ellipsis: '\u2026',
+              )..layout(maxWidth: (itemWidth - 8).clamp(0, double.infinity));
               if (painter.height > labelHeight) labelHeight = painter.height;
               painter.dispose();
             }
-            // Five large labels cannot fit a phone. Keep every destination
-            // available and show the active label at full width, never shrink
-            // the user's font or let fixed-height chrome clip it.
-            return Column(
+            // A long translation must not remove the other tab labels or move
+            // the selected name below the entire bar. Reserve the same two-line
+            // label slot for every item so selection cannot move the icons.
+            // Extreme text scales may ellipsize locally; semantics and tooltips
+            // retain the complete name without reducing the user's text scale.
+            return SizedBox(
               key: const ValueKey('mobile-navigation-bar-content'),
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                SizedBox(
-                  height: showAllLabels
-                      ? (44 + labelHeight).clamp(64, double.infinity)
-                      : 48,
-                  child: Row(
-                    children: [
-                      for (var index = 0; index < destinations.length; index++)
-                        Expanded(
-                          child: _MobileNavigationItem(
-                            destination: destinations[index],
-                            index: index,
-                            total: destinations.length,
-                            selected: index == selectedIndex,
-                            showLabel: showAllLabels,
-                            onSelected: () => onDestinationSelected(index),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-                if (!showAllLabels &&
-                    selectedIndex >= 0 &&
-                    selectedIndex < destinations.length)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-                    child: ExcludeSemantics(
-                      child: Text(
-                        destinations[selectedIndex].label,
-                        key: const ValueKey('mobile-navigation-active-label'),
-                        textAlign: TextAlign.center,
-                        style: labelStyle.copyWith(
-                          color: colorScheme.onSurface,
-                          fontWeight: FontWeight.w700,
-                        ),
+              height: (44 + labelHeight).clamp(64, double.infinity),
+              child: Row(
+                children: [
+                  for (var index = 0; index < destinations.length; index++)
+                    Expanded(
+                      child: _MobileNavigationItem(
+                        destination: destinations[index],
+                        index: index,
+                        total: destinations.length,
+                        selected: index == selectedIndex,
+                        labelStyle: labelStyle,
+                        labelHeight: labelHeight,
+                        onSelected: () => onDestinationSelected(index),
                       ),
                     ),
-                  ),
-              ],
+                ],
+              ),
             );
           },
         ),
@@ -964,7 +954,8 @@ class _MobileNavigationItem extends StatelessWidget {
     required this.index,
     required this.total,
     required this.selected,
-    required this.showLabel,
+    required this.labelStyle,
+    required this.labelHeight,
     required this.onSelected,
   });
 
@@ -972,7 +963,8 @@ class _MobileNavigationItem extends StatelessWidget {
   final int index;
   final int total;
   final bool selected;
-  final bool showLabel;
+  final TextStyle labelStyle;
+  final double labelHeight;
   final VoidCallback onSelected;
 
   @override
@@ -997,7 +989,7 @@ class _MobileNavigationItem extends StatelessWidget {
           key: ValueKey('mobile-navigation-item-$index'),
           onTap: onSelected,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 2),
+            padding: const EdgeInsets.symmetric(horizontal: 4),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -1026,20 +1018,31 @@ class _MobileNavigationItem extends StatelessWidget {
                     ),
                   ),
                 ),
-                if (showLabel) ...[
-                  const SizedBox(height: 2),
-                  Text(
-                    destination.label,
-                    maxLines: 1,
-                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                      color: selected
-                          ? colorScheme.onSurface
-                          : colorScheme.onSurfaceVariant,
-                      fontWeight: selected ? FontWeight.w700 : null,
-                      height: 1.0,
+                const SizedBox(height: 2),
+                SizedBox(
+                  height: labelHeight,
+                  width: double.infinity,
+                  child: Align(
+                    alignment: Alignment.topCenter,
+                    child: Text(
+                      destination.mobileLabel,
+                      key: ValueKey('mobile-navigation-label-$index'),
+                      semanticsLabel: destination.label,
+                      maxLines: 2,
+                      softWrap: true,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: labelStyle.copyWith(
+                        color: selected
+                            ? colorScheme.onSurface
+                            : colorScheme.onSurfaceVariant,
+                        fontWeight: selected
+                            ? FontWeight.w700
+                            : FontWeight.w500,
+                      ),
                     ),
                   ),
-                ],
+                ),
               ],
             ),
           ),
@@ -1050,8 +1053,11 @@ class _MobileNavigationItem extends StatelessWidget {
 }
 
 class _ShellDestination {
-  const _ShellDestination(this.label, this.iconAsset);
+  const _ShellDestination(this.label, this.iconAsset, {String? mobileLabel})
+    : _mobileLabel = mobileLabel;
 
   final String label;
   final String iconAsset;
+  final String? _mobileLabel;
+  String get mobileLabel => _mobileLabel ?? label;
 }

@@ -79,6 +79,10 @@ class AppStrings {
   String get search => _text('search');
   String get library => _text('library');
   String get downloads => _text('downloads');
+  // Discretionary breaks are only for narrow labels, never screen titles,
+  // tooltips or accessibility names.
+  String get mobileNavigationDownloads => _text('mobileNavigationDownloads');
+  String get mobileNavigationSettings => _text('mobileNavigationSettings');
   String get downloadsQueueSubtitle => _text('downloadsQueueSubtitle');
   String get activeDownloads => _text('activeDownloads');
   String get queuedDownloads => _text('queuedDownloads');

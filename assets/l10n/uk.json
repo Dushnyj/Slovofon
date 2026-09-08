@@ -12,6 +12,8 @@
   "search": "Пошук",
   "library": "Бібліотека",
   "downloads": "Завантаження",
+  "mobileNavigationDownloads": "Заванта\u00adження",
+  "mobileNavigationSettings": "Налашту\u00adвання",
   "downloadsQueueSubtitle": "Черга, прогрес, призупинення, повтор і видалення офлайн-файлів.",
   "activeDownloads": "Активні",
   "queuedDownloads": "Черга",

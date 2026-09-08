@@ -78,15 +78,19 @@ void main() {
             );
             await tester.pumpAndSettle();
             expect(find.text('Настройки'), findsOneWidget);
-            final selectedLabel = find.byKey(
-              const ValueKey('mobile-navigation-active-label'),
+            expect(
+              find.byKey(const ValueKey('mobile-navigation-active-label')),
+              findsNothing,
             );
-            if (selectedLabel.evaluate().isNotEmpty) {
+            for (var index = 0; index < 5; index++) {
               expect(
-                tester
-                    .renderObject<RenderParagraph>(selectedLabel)
-                    .didExceedMaxLines,
-                isFalse,
+                find.descendant(
+                  of: find.byKey(ValueKey('mobile-navigation-item-$index')),
+                  matching: find.byKey(
+                    ValueKey('mobile-navigation-label-$index'),
+                  ),
+                ),
+                findsOneWidget,
               );
             }
             await tester.tap(find.byTooltip('Следующая глава'));

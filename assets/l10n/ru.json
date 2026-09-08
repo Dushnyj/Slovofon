@@ -12,6 +12,8 @@
   "search": "Поиск",
   "library": "Библиотека",
   "downloads": "Загрузки",
+  "mobileNavigationDownloads": "Загрузки",
+  "mobileNavigationSettings": "Настройки",
   "downloadsQueueSubtitle": "Очередь, прогресс, пауза, повтор и удаление оффлайн-файлов.",
   "activeDownloads": "Активные",
   "queuedDownloads": "Очередь",

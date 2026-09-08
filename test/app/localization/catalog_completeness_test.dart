@@ -9,6 +9,23 @@ import 'package:slovofon/app/localization/app_strings.dart';
 import 'app_strings_snapshot.dart';
 
 void main() {
+  test('mobile navigation breaks preserve full translated names', () {
+    for (final locale in AppStrings.supportedLocales) {
+      final strings = AppStrings.forLocale(locale);
+      expect(
+        strings.mobileNavigationDownloads.replaceAll('\u00ad', ''),
+        strings.downloads,
+      );
+      expect(
+        strings.mobileNavigationSettings.replaceAll('\u00ad', ''),
+        strings.settings,
+      );
+    }
+    final ukrainian = AppStrings.forLocale(const Locale('uk'));
+    expect(ukrainian.mobileNavigationDownloads, 'Заванта\u00adження');
+    expect(ukrainian.mobileNavigationSettings, 'Налашту\u00adвання');
+  });
+
   final tokens = RegExp(r'\{([A-Za-z][A-Za-z0-9]*)\}');
   Set<String> placeholders(String text) =>
       tokens.allMatches(text).map((match) => match[1]!).toSet();

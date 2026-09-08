@@ -163,9 +163,7 @@ Future<void> _expectSelectedColors(
     of: selected,
     matching: find.text('Настройки'),
   );
-  final label = inlineLabel.evaluate().isNotEmpty
-      ? inlineLabel
-      : find.byKey(const ValueKey('mobile-navigation-active-label'));
+  final label = inlineLabel;
   expect(label, findsOneWidget);
   final foreground = tester.widget<Text>(label).style!.color!;
   expect(foreground, wide ? colors.onSecondaryContainer : colors.onSurface);

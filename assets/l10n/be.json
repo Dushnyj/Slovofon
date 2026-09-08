@@ -12,6 +12,8 @@
   "search": "Пошук",
   "library": "Бібліятэка",
   "downloads": "Спампоўкі",
+  "mobileNavigationDownloads": "Спампоўкі",
+  "mobileNavigationSettings": "Налады",
   "downloadsQueueSubtitle": "Чарга, прагрэс, прыпыненне, паўтор і выдаленне афлайн-файлаў.",
   "activeDownloads": "Актыўныя",
   "queuedDownloads": "Чарга",

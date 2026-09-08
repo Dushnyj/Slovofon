@@ -12,6 +12,8 @@
   "search": "Іздеу",
   "library": "Кітапхана",
   "downloads": "Жүктеулер",
+  "mobileNavigationDownloads": "Жүктеулер",
+  "mobileNavigationSettings": "Баптаулар",
   "downloadsQueueSubtitle": "Кезек, жүктелу барысы, кідірту, қайталау және офлайн файлдарды жою.",
   "activeDownloads": "Белсенді",
   "queuedDownloads": "Кезек",
