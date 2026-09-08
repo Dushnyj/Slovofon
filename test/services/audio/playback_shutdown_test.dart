@@ -181,6 +181,7 @@ void main() {
 class ShutdownTestEngine extends InMemoryAudioEngine {
   ShutdownTestEngine(this.events);
   final List<String> events;
+  final disposalStarted = Completer<void>();
   Completer<void>? loadGate;
   Completer<void>? disposeGate;
   bool failDispose = false;
@@ -214,6 +215,7 @@ class ShutdownTestEngine extends InMemoryAudioEngine {
   Future<void> dispose() async {
     disposals++;
     events.add('dispose-start');
+    if (!disposalStarted.isCompleted) disposalStarted.complete();
     await disposeGate?.future;
     await super.dispose();
     if (failDispose) throw StateError('native disposal failed');

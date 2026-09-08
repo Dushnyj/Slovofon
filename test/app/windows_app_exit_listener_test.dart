@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -26,32 +25,56 @@ void main() {
   testWidgets(
     'Windows platform exit waits for actual controller native disposal',
     (tester) async {
-      final engine = ShutdownTestEngine([])..disposeGate = Completer<void>();
-      final controller = PlaybackController(engine: engine);
+      late ShutdownTestEngine engine;
+      late PlaybackController controller;
+      // Construct the controller's initial Future.value queues and the engine
+      // gates in the same real async zone as the platform handshake below.
+      // A completed Future still schedules late listeners in its creation zone;
+      // creating it in FakeAsync makes shutdown's first queue await stall while
+      // runAsync is waiting, because runAsync cannot flush the fake microtasks.
+      await tester.runAsync(() async {
+        engine = ShutdownTestEngine([])..disposeGate = Completer<void>();
+        controller = PlaybackController(engine: engine);
+      });
       await tester.pumpWidget(
         WindowsAppExitListener(
           onExitRequested: controller.shutdown,
           child: const SizedBox(),
         ),
       );
-      var firstCompleted = false;
-      final first = _platformExit(tester).then((value) {
-        firstCompleted = true;
-        return value;
+      // Drive the native lifecycle handshake with real microtasks, not an
+      // arbitrary number of frame pumps or a longer fake-clock delay.
+      await tester.runAsync(() async {
+        var firstCompleted = false;
+        var secondCompleted = false;
+        final first = _platformExit(tester).then((value) {
+          firstCompleted = true;
+          return value;
+        });
+        final second = _platformExit(tester).then((value) {
+          secondCompleted = true;
+          return value;
+        });
+        try {
+          await engine.disposalStarted.future.timeout(
+            const Duration(seconds: 5),
+          );
+          expect(engine.disposals, 1);
+          expect(firstCompleted, isFalse);
+          expect(secondCompleted, isFalse);
+        } finally {
+          engine.disposeGate!.complete();
+        }
+        expect(
+          await Future.wait([
+            first,
+            second,
+          ]).timeout(const Duration(seconds: 5)),
+          ['exit', 'exit'],
+        );
+        expect(engine.disposals, 1);
+        expect(engine.events, ['dispose-start', 'dispose-end']);
       });
-      final second = _platformExit(tester);
-      // Drain the platform-channel callback and the controller's native queue,
-      // rather than assuming all asynchronous stages finish in one frame.
-      for (var frame = 0; frame < 20 && engine.disposals == 0; frame++) {
-        await tester.pump(const Duration(milliseconds: 1));
-      }
-      expect(engine.disposals, 1);
-      expect(firstCompleted, isFalse);
-      engine.disposeGate!.complete();
-      await tester.pump();
-      expect(await first, 'exit');
-      expect(await second, 'exit');
-      expect(engine.disposals, 1);
       controller.dispose();
       await tester.pumpWidget(const SizedBox());
     },
