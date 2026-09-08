@@ -194,10 +194,14 @@ void _expectChrome(
     expect(item.hitTestable(), findsOneWidget);
     expect(find.descendant(of: item, matching: label), findsOneWidget);
     final text = tester.widget<Text>(label);
-    expect(text.data?.replaceAll('\u00ad', ''), labels[index]);
+    expect(
+      text.data?.replaceAll('\u00ad', '').replaceAll('\n', ''),
+      labels[index],
+    );
     expect(text.semanticsLabel, labels[index]);
-    expect(text.maxLines, 2);
-    expect(text.softWrap, isTrue);
+    expect(text.maxLines, text.data!.split('\n').length);
+    expect(text.maxLines, inInclusiveRange(1, 2));
+    expect(text.softWrap, isFalse);
     expect(text.overflow, TextOverflow.ellipsis);
     final paragraph = tester.renderObject<RenderParagraph>(
       find.descendant(of: label, matching: find.byType(RichText)),

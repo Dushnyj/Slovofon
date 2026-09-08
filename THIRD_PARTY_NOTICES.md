@@ -240,9 +240,10 @@ Windows desktop presentation использует установленные с�
 
 Никогда не включать font files без проверки лицензии.
 
-Только для растровых тестов используется неизменённый Roboto Medium из уже
-установленного Flutter SDK 3.44.0. Файл `test/fixtures/fonts/Roboto-Medium.ttf`
-распространяется по Apache-2.0; копия лицензии и происхождение находятся рядом
+Только для растровых и типографических тестов используются неизменённые Roboto
+Medium и Bold из уже установленного Flutter SDK 3.44.0. Файлы
+`test/fixtures/fonts/Roboto-Medium.ttf` и `test/fixtures/fonts/Roboto-Bold.ttf`
+распространяются по Apache-2.0; копия лицензии и происхождение находятся рядом
 в `test/fixtures/fonts/LICENSE.txt` и `test/fixtures/fonts/README.md`.
 Фикстура не объявлена в `pubspec.yaml`, не попадает в Android/Windows bundle
 и не меняет системные шрифты интерфейса. Тесты не скачивают шрифты из сети.

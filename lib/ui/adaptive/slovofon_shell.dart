@@ -889,6 +889,7 @@ class _MobileNavigationBar extends StatelessWidget {
     final labelStyle = Theme.of(context).textTheme.labelMedium!.copyWith(
       height: 1.15,
       fontWeight: FontWeight.w700,
+      letterSpacing: 0,
     );
     final textScaler = MediaQuery.textScalerOf(context);
 
@@ -900,36 +901,88 @@ class _MobileNavigationBar extends StatelessWidget {
         child: LayoutBuilder(
           builder: (context, constraints) {
             final itemWidth = constraints.maxWidth / destinations.length;
-            var labelHeight = 0.0;
+            final labels = <String>[];
+            final minimumWidths = <double>[];
+            final labelHeights = <double>[];
+            final singleLineHeights = <double>[];
             for (final destination in destinations) {
-              final painter = TextPainter(
-                text: TextSpan(
-                  text: destination.mobileLabel,
-                  style: labelStyle,
-                ),
-                textScaler: textScaler,
-                textDirection: Directionality.of(context),
-                locale: Localizations.localeOf(context),
-                maxLines: 2,
-                ellipsis: '\u2026',
-              )..layout(maxWidth: (itemWidth - 8).clamp(0, double.infinity));
-              if (painter.height > labelHeight) labelHeight = painter.height;
-              painter.dispose();
+              Size measure(String text) {
+                var size = Size.zero;
+                // Both states must fit without moving the items on selection.
+                for (final weight in [FontWeight.w500, FontWeight.w700]) {
+                  final painter = TextPainter(
+                    text: TextSpan(
+                      text: text,
+                      style: labelStyle.copyWith(fontWeight: weight),
+                    ),
+                    textScaler: textScaler,
+                    textDirection: Directionality.of(context),
+                    locale: Localizations.localeOf(context),
+                    maxLines: 2,
+                  )..layout();
+                  size = Size(
+                    painter.width > size.width ? painter.width : size.width,
+                    painter.height > size.height ? painter.height : size.height,
+                  );
+                  painter.dispose();
+                }
+                return size;
+              }
+
+              final singleLine = destination.mobileLabel.replaceAll(
+                '\u00ad',
+                '',
+              );
+              var label = singleLine;
+              var size = measure(label);
+              singleLineHeights.add(size.height);
+              if (size.width > itemWidth - 4 &&
+                  destination.mobileLabel.contains('\u00ad')) {
+                // A discretionary break alone still permits Flutter to split a
+                // word elsewhere. Use only the translator's approved boundary;
+                // the Text below never performs emergency character wrapping.
+                label = destination.mobileLabel.replaceAll('\u00ad', '\n');
+                size = measure(label);
+              }
+              labels.add(label);
+              minimumWidths.add((size.width + 4).clamp(48, double.infinity));
+              labelHeights.add(size.height);
             }
-            // A long translation must not remove the other tab labels or move
-            // the selected name below the entire bar. Reserve the same two-line
-            // label slot for every item so selection cannot move the icons.
-            // Extreme text scales may ellipsize locally; semantics and tooltips
-            // retain the complete name without reducing the user's text scale.
+            final itemWidths = _mobileNavigationWidths(
+              minimumWidths,
+              constraints.maxWidth,
+            );
+            var labelHeight = 0.0;
+            for (var index = 0; index < labels.length; index++) {
+              if (labels[index].contains('\n') &&
+                  minimumWidths[index] > itemWidths[index]) {
+                // With ellipsis, Flutter can still wrap an overlong first
+                // segment even when softWrap is false. If the approved split
+                // cannot fit at this text scale, keep one whole-word line.
+                labels[index] = destinations[index].mobileLabel.replaceAll(
+                  '\u00ad',
+                  '',
+                );
+                labelHeights[index] = singleLineHeights[index];
+              }
+              if (labelHeights[index] > labelHeight) {
+                labelHeight = labelHeights[index];
+              }
+            }
+            // Short names lend a little room to longer ones instead of leaving
+            // a lone final letter on a second line. At large accessibility text
+            // sizes, local ellipsis is preferable to arbitrary word fragments.
             return SizedBox(
               key: const ValueKey('mobile-navigation-bar-content'),
               height: (44 + labelHeight).clamp(64, double.infinity),
               child: Row(
                 children: [
                   for (var index = 0; index < destinations.length; index++)
-                    Expanded(
+                    SizedBox(
+                      width: itemWidths[index],
                       child: _MobileNavigationItem(
                         destination: destinations[index],
+                        label: labels[index],
                         index: index,
                         total: destinations.length,
                         selected: index == selectedIndex,
@@ -948,9 +1001,35 @@ class _MobileNavigationBar extends StatelessWidget {
   }
 }
 
+List<double> _mobileNavigationWidths(List<double> minimums, double available) {
+  if (minimums.fold(0.0, (sum, width) => sum + width) > available) {
+    return List.filled(minimums.length, available / minimums.length);
+  }
+  final widths = List.filled(minimums.length, 0.0);
+  final remaining = List.generate(minimums.length, (index) => index);
+  var space = available;
+  while (remaining.isNotEmpty) {
+    final share = space / remaining.length;
+    final wider = remaining.where((index) => minimums[index] > share).toList();
+    if (wider.isEmpty) {
+      for (final index in remaining) {
+        widths[index] = share;
+      }
+      break;
+    }
+    for (final index in wider) {
+      widths[index] = minimums[index];
+      space -= widths[index];
+      remaining.remove(index);
+    }
+  }
+  return widths;
+}
+
 class _MobileNavigationItem extends StatelessWidget {
   const _MobileNavigationItem({
     required this.destination,
+    required this.label,
     required this.index,
     required this.total,
     required this.selected,
@@ -960,6 +1039,7 @@ class _MobileNavigationItem extends StatelessWidget {
   });
 
   final _ShellDestination destination;
+  final String label;
   final int index;
   final int total;
   final bool selected;
@@ -989,7 +1069,7 @@ class _MobileNavigationItem extends StatelessWidget {
           key: ValueKey('mobile-navigation-item-$index'),
           onTap: onSelected,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 2),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -1025,11 +1105,11 @@ class _MobileNavigationItem extends StatelessWidget {
                   child: Align(
                     alignment: Alignment.topCenter,
                     child: Text(
-                      destination.mobileLabel,
+                      label,
                       key: ValueKey('mobile-navigation-label-$index'),
                       semanticsLabel: destination.label,
-                      maxLines: 2,
-                      softWrap: true,
+                      maxLines: label.contains('\n') ? 2 : 1,
+                      softWrap: false,
                       overflow: TextOverflow.ellipsis,
                       textAlign: TextAlign.center,
                       style: labelStyle.copyWith(
