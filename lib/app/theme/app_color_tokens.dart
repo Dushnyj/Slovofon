@@ -29,6 +29,7 @@ class AppColorTokens extends ThemeExtension<AppColorTokens> {
     required this.selected,
     required this.playerSurface,
     required this.onPlayerSurface,
+    this.highContrast = false,
   });
 
   final Color background;
@@ -58,8 +59,40 @@ class AppColorTokens extends ThemeExtension<AppColorTokens> {
   final Color selected;
   final Color playerSurface;
   final Color onPlayerSurface;
+  final bool highContrast;
 
   static const Color defaultAccent = Color(0xFF3969D8);
+
+  /// Derive a readable foreground without giving gray/black accents a new hue.
+  /// The saved swatch remains [accent]; only its presentation tone is adjusted.
+  static Color accessibleAccent(
+    Color accent,
+    Iterable<Color> backgrounds, {
+    double minimumContrast = 4.5,
+  }) {
+    final surfaces = backgrounds.toList(growable: false);
+    final opaque = accent.withValues(alpha: 1);
+    if (surfaces.isEmpty) return opaque;
+    double minimum(Color candidate) => surfaces
+        .map((surface) => contrastRatio(candidate, surface))
+        .reduce((a, b) => a < b ? a : b);
+    if (minimum(opaque) >= minimumContrast) return opaque;
+    const white = Color(0xFFFFFFFF);
+    const black = Color(0xFF000000);
+    final target = minimum(white) >= minimum(black) ? white : black;
+    // Binary search the smallest change, then round towards the safe endpoint.
+    var low = 0.0;
+    var high = 1.0;
+    for (var step = 0; step < 24; step++) {
+      final mid = (low + high) / 2;
+      if (minimum(Color.lerp(opaque, target, mid)!) >= minimumContrast) {
+        high = mid;
+      } else {
+        low = mid;
+      }
+    }
+    return Color.lerp(opaque, target, high)!;
+  }
 
   static Color readableOn(Color background) {
     const dark = Color(0xFF111418);
@@ -124,6 +157,7 @@ class AppColorTokens extends ThemeExtension<AppColorTokens> {
     Color? selected,
     Color? playerSurface,
     Color? onPlayerSurface,
+    bool? highContrast,
   }) {
     return AppColorTokens(
       background: background ?? this.background,
@@ -153,6 +187,7 @@ class AppColorTokens extends ThemeExtension<AppColorTokens> {
       selected: selected ?? this.selected,
       playerSurface: playerSurface ?? this.playerSurface,
       onPlayerSurface: onPlayerSurface ?? this.onPlayerSurface,
+      highContrast: highContrast ?? this.highContrast,
     );
   }
 
@@ -194,6 +229,7 @@ class AppColorTokens extends ThemeExtension<AppColorTokens> {
       selected: Color.lerp(selected, other.selected, t)!,
       playerSurface: Color.lerp(playerSurface, other.playerSurface, t)!,
       onPlayerSurface: Color.lerp(onPlayerSurface, other.onPlayerSurface, t)!,
+      highContrast: t < 0.5 ? highContrast : other.highContrast,
     );
   }
 }

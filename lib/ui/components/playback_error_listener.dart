@@ -1,3 +1,4 @@
+import '../motion/app_motion.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -93,7 +94,7 @@ class _PlaybackErrorListenerState extends ConsumerState<PlaybackErrorListener> {
       _closeSnackBar();
       final notice = _PlaybackErrorNotice(messenger);
       _notice = notice;
-      final snackBar = messenger.showSnackBar(
+      final snackBar = messenger.showMotionSnackBar(
         SnackBar(
           // Let ScaffoldMessenger assign a unique SnackBar key, so each notice
           // receives its own onVisible callback even when messages replace it.

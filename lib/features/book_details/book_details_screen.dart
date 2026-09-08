@@ -1,3 +1,4 @@
+import '../../ui/motion/motion_progress_indicator.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -5,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/localization/app_strings.dart';
+import '../../app/localization/duration_label.dart';
 import '../../data/mock/mock_audio_playback.dart';
 import '../../data/mock/stage3_mock_data.dart';
 import '../../services/downloads/download_manager_provider.dart';
@@ -135,11 +137,13 @@ class BookDetailsScreen extends ConsumerWidget {
           child: ListTile(
             leading: const AppIcon(AppIconAssets.bookSource),
             title: Text('${version.sourceName} · ${version.narrator}'),
-            subtitle: Text('${version.durationLabel} · ${version.accessLabel}'),
+            subtitle: Text(
+              '${strings.formatDurationLabel(version.durationLabel)} · ${version.accessLabel}',
+            ),
           ),
         ),
       const SizedBox(height: 20),
-      SectionHeader(title: desktop ? strings.information : 'Information'),
+      SectionHeader(title: strings.information),
       Wrap(
         spacing: 8,
         runSpacing: 8,
@@ -147,7 +151,7 @@ class BookDetailsScreen extends ConsumerWidget {
           _InfoPill(label: book.sourceName),
           _InfoPill(label: book.genre),
           _InfoPill(label: '${book.year}'),
-          _InfoPill(label: 'Audio ${book.audioYear}'),
+          _InfoPill(label: strings.audioYearLabel(book.audioYear)),
           _InfoPill(label: book.series),
           DownloadStatusChip(status: book.downloadStatus),
         ],
@@ -277,10 +281,13 @@ class _BookHeaderDetails extends StatelessWidget {
           ),
           const SizedBox(height: 8),
         ],
-        if (identity) Text('${book.narrator} · ${book.durationLabel}'),
+        if (identity)
+          Text(
+            '${book.narrator} · ${context.strings.formatDurationLabel(book.durationLabel)}',
+          ),
         if (facts) ...[
           const SizedBox(height: 10),
-          LinearProgressIndicator(
+          AppLinearProgressIndicator(
             value: book.progress,
             minHeight: 6,
             borderRadius: BorderRadius.circular(999),

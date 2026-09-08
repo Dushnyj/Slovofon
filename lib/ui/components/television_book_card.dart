@@ -1,6 +1,10 @@
+import '../motion/app_motion.dart';
+import '../motion/motion_tooltip.dart';
+import '../motion/motion_progress_indicator.dart';
 import 'package:flutter/material.dart';
 
 import '../../app/localization/app_strings.dart';
+import '../../app/localization/duration_label.dart';
 import '../adaptive/desktop_layout.dart';
 import '../adaptive/television_layout.dart';
 import '../icons/app_icons.dart';
@@ -55,7 +59,9 @@ class _TelevisionBookCardState extends State<TelevisionBookCard> {
         : seriesNumber != null && seriesNumber.isFinite && seriesNumber > 0
         ? '$seriesTitle #${_numberLabel(seriesNumber)}'
         : seriesTitle;
-    final duration = _metadataValue(book.durationLabel);
+    final duration = _metadataValue(
+      strings.formatDurationLabel(book.durationLabel),
+    );
     final year =
         _metadataValue(card.yearLabel) ??
         (book.year != null && book.year! > 0 ? '${book.year}' : null);
@@ -96,6 +102,10 @@ class _TelevisionBookCardState extends State<TelevisionBookCard> {
         borderRadius: BorderRadius.circular(8),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
+          hoverDuration: AppMotion.of(context).duration(
+            full: const Duration(milliseconds: 50),
+            reduced: const Duration(milliseconds: 40),
+          ),
           focusNode: _detailsFocus,
           onTap: activate,
           // Focus is an outline, not a tint over colored source metadata.
@@ -204,7 +214,7 @@ class _TelevisionBookCardState extends State<TelevisionBookCard> {
                   ),
                 ),
                 if (progress > 0)
-                  LinearProgressIndicator(value: progress, minHeight: 2),
+                  AppLinearProgressIndicator(value: progress, minHeight: 2),
               ],
             ),
           ),
@@ -229,7 +239,7 @@ class _TelevisionMetadata extends StatelessWidget {
   Widget build(BuildContext context) => Semantics(
     label: '$role: $value',
     excludeSemantics: true,
-    child: Tooltip(
+    child: AppTooltip(
       message: value,
       excludeFromSemantics: true,
       child: Row(

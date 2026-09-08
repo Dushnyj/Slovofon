@@ -107,10 +107,31 @@ void main() {
     final reply = Completer<Object?>();
     messenger.setMockMethodCallHandler(channel, (call) => reply.future);
     final result = AppDeviceProfile.detect(platform: TargetPlatform.android);
-    await tester.pump(const Duration(seconds: 3));
+    await tester.pump(AppDeviceProfile.nativeProfileTimeout);
     expect((await result).isTelevision, isFalse);
     reply.complete(null);
     await tester.pump();
+  });
+
+  testWidgets('slow cold-start TV reply is retained before UI selection', (
+    tester,
+  ) async {
+    final reply = Completer<Object?>();
+    messenger.setMockMethodCallHandler(channel, (call) => reply.future);
+    var completed = false;
+    final result = AppDeviceProfile.detect(platform: TargetPlatform.android);
+    unawaited(result.then((_) => completed = true));
+    await tester.pump(const Duration(seconds: 3));
+    expect(completed, isFalse);
+    reply.complete({
+      'isTelevision': true,
+      'uiModeType': 4,
+      'hasLeanbackFeature': true,
+      'hasTouchscreen': false,
+    });
+    await tester.pump();
+    expect((await result).isTelevision, isTrue);
+    expect(completed, isTrue);
   });
 
   test('bootstrap override supplies TV without changing target platform', () {

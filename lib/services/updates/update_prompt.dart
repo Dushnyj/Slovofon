@@ -1,3 +1,6 @@
+import '../../ui/motion/motion_tooltip.dart';
+import '../../ui/motion/app_motion.dart';
+import '../../ui/motion/motion_progress_indicator.dart';
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -163,8 +166,8 @@ Future<void> _presentUpdatePrompt(
   final service = ref.read(updateServiceProvider);
   final launchReleasePage = ref.read(updateReleasePageLauncherProvider);
   final messenger = ScaffoldMessenger.maybeOf(hostContext);
-  late final DialogRoute<void> updateRoute;
-  updateRoute = DialogRoute<void>(
+  late final MotionDialogRoute<void> updateRoute;
+  updateRoute = MotionDialogRoute<void>(
     context: hostContext,
     themes: InheritedTheme.capture(from: hostContext, to: navigator.context),
     barrierDismissible: false,
@@ -179,7 +182,7 @@ Future<void> _presentUpdatePrompt(
       },
       onInstalled: (message) {
         if (messenger?.mounted ?? false) {
-          messenger!.showSnackBar(SnackBar(content: Text(message)));
+          messenger!.showMotionSnackBar(SnackBar(content: Text(message)));
         }
       },
     ),
@@ -476,7 +479,7 @@ class _UpdatePromptDialogState extends State<_UpdatePromptDialog> {
                 Text(
                   strings.updateAvailableMessage(
                     info.version,
-                    _formatBytes(info.asset.size, strings.locale),
+                    _formatBytes(info.asset.size, strings),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -504,7 +507,7 @@ class _UpdatePromptDialogState extends State<_UpdatePromptDialog> {
                             )?.position;
                             if (position != null) _scrollNotes(position, 1);
                           },
-                          child: Tooltip(
+                          child: AppTooltip(
                             message: strings.updateNotesRemoteHint,
                             child: Text(strings.updateReleaseNotes),
                           ),
@@ -525,14 +528,14 @@ class _UpdatePromptDialogState extends State<_UpdatePromptDialog> {
                 ],
                 if (_isBusy) ...[
                   const SizedBox(height: 16),
-                  LinearProgressIndicator(value: progress),
+                  AppLinearProgressIndicator(value: progress),
                   const SizedBox(height: 8),
                   Text(
                     expectedBytes > 0
                         ? strings.updateDownloadProgress(
-                            _formatBytes(_downloadedBytes, strings.locale),
-                            _formatBytes(expectedBytes, strings.locale),
-                            _formatBytes(_bytesPerSecond, strings.locale),
+                            _formatBytes(_downloadedBytes, strings),
+                            _formatBytes(expectedBytes, strings),
+                            _formatBytes(_bytesPerSecond, strings),
                           )
                         : strings.updateDownloading,
                     style: Theme.of(context).textTheme.bodySmall,
@@ -586,21 +589,12 @@ class _UpdatePromptDialogState extends State<_UpdatePromptDialog> {
   }
 }
 
-String _formatBytes(int bytes, Locale locale) {
-  if (bytes <= 0) {
-    return locale.languageCode == 'ru' ? '0 Б' : '0 B';
+String _formatBytes(int bytes, AppStrings strings) {
+  var scaled = bytes.toDouble();
+  while (scaled >= 1024) {
+    scaled /= 1024;
   }
-  final units = locale.languageCode == 'ru'
-      ? const ['Б', 'КБ', 'МБ', 'ГБ']
-      : const ['B', 'KB', 'MB', 'GB'];
-  var value = bytes.toDouble();
-  var unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  final digits = value >= 10 || unit == 0 ? 0 : 1;
-  return '${value.toStringAsFixed(digits)} ${units[unit]}';
+  return strings.formatBytes(bytes, decimals: scaled >= 10 ? 0 : 1);
 }
 
 Future<void> checkUpdatesManually(BuildContext context, WidgetRef ref) {
@@ -638,7 +632,7 @@ Future<void> _checkUpdatesManually(
   while (retry && context.mounted && navigator.mounted) {
     if (!context.mounted || !navigator.mounted) return;
     retry = false;
-    final progressRoute = DialogRoute<void>(
+    final progressRoute = MotionDialogRoute<void>(
       context: context,
       themes: InheritedTheme.capture(from: context, to: navigator.context),
       barrierDismissible: false,
@@ -648,7 +642,7 @@ Future<void> _checkUpdatesManually(
           children: [
             const SizedBox.square(
               dimension: 24,
-              child: CircularProgressIndicator(strokeWidth: 2.5),
+              child: AppCircularProgressIndicator(strokeWidth: 2.5),
             ),
             const SizedBox(width: 16),
             Expanded(child: Text(strings.checkingUpdates)),
@@ -679,12 +673,12 @@ Future<void> _checkUpdatesManually(
           : strings.noUpdatesAvailable;
       ScaffoldMessenger.maybeOf(
         context,
-      )?.showSnackBar(SnackBar(content: Text(message)));
+      )?.showMotionSnackBar(SnackBar(content: Text(message)));
     } on Object catch (error) {
       if (!closeProgressIfCurrent() || !context.mounted) return;
       final text = updateCheckErrorText(strings: strings, error: error);
       retry =
-          await showDialog<bool>(
+          await showMotionDialog<bool>(
             context: context,
             builder: (errorContext) => AlertDialog(
               scrollable: true,

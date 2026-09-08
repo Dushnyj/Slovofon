@@ -1,3 +1,4 @@
+import '../../ui/motion/app_motion.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -24,6 +25,7 @@ import '../../ui/components/app_bar_text.dart';
 import '../../ui/adaptive/desktop_layout.dart';
 import '../../ui/adaptive/television_layout.dart';
 import '../../ui/components/book_card.dart';
+import '../../ui/components/active_listenable_builder.dart';
 import '../../ui/components/filter_picker_sheet.dart';
 import '../../ui/components/responsive_tile_grid.dart';
 import '../../ui/components/section_header.dart';
@@ -53,7 +55,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
     final libraryStore = ref.watch(libraryStoreProvider);
     final bookmarkStore = ref.watch(bookmarkStoreProvider);
     final playbackController = ref.watch(playbackControllerProvider);
-    final downloadManager = ref.watch(downloadManagerProvider);
+    final downloadManager = ref.watch(downloadManagerProvider.notifier);
     final metadata = ref.watch(libraryPlaybackBooksProvider);
     final progress = ref.watch(playbackProgressSnapshotsProvider);
     final progressSnapshots =
@@ -71,8 +73,8 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
     final selected = shelves[_selectedShelf];
     final shelf = LibraryShelf.values[_selectedShelf];
 
-    return ListenableBuilder(
-      listenable: playbackController,
+    return ActiveListenableBuilder(
+      listenable: Listenable.merge([playbackController, downloadManager]),
       builder: (context, _) {
         final catalog = projectLibraryShelves(
           favorites: libraryStore.favorites,
@@ -125,158 +127,204 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
                     Text(strings.library),
                   ),
                 ),
-          body: ListView(
-            padding: desktop
-                ? DesktopLayout.pagePadding(context)
-                : television
-                ? const EdgeInsets.fromLTRB(12, 4, 12, 16)
-                : const EdgeInsets.fromLTRB(16, 8, 16, 24),
-            children: [
-              if (desktop) ...[
-                DesktopPageHeader(
-                  title: strings.library,
-                  trailing: Text(
-                    isBookmarks
-                        ? '${strings.bookmarks}: $count'
-                        : strings.booksCount(count),
-                    key: const ValueKey('desktop-library-count'),
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                ),
-                Card(
-                  margin: EdgeInsets.zero,
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Wrap(
-                      key: const ValueKey('desktop-library-shelves'),
-                      spacing: 8,
-                      runSpacing: 8,
+          body: CustomScrollView(
+            key: const PageStorageKey('library-catalog-scroll'),
+            slivers: [
+              SliverPadding(
+                padding: desktop
+                    ? DesktopLayout.pagePadding(context)
+                    : television
+                    ? const EdgeInsets.fromLTRB(12, 4, 12, 16)
+                    : const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                sliver: SliverMainAxisGroup(
+                  slivers: [
+                    SliverList.list(
                       children: [
-                        for (var index = 0; index < shelves.length; index++)
-                          ChoiceChip(
-                            label: Text(shelves[index]),
-                            selected: index == _selectedShelf,
-                            onSelected: (_) =>
-                                setState(() => _selectedShelf = index),
+                        if (desktop) ...[
+                          DesktopPageHeader(
+                            title: strings.library,
+                            trailing: Text(
+                              isBookmarks
+                                  ? '${strings.bookmarks}: $count'
+                                  : strings.booksCount(count),
+                              key: const ValueKey('desktop-library-count'),
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
                           ),
+                          Card(
+                            margin: EdgeInsets.zero,
+                            child: Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Wrap(
+                                key: const ValueKey('desktop-library-shelves'),
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: [
+                                  for (
+                                    var index = 0;
+                                    index < shelves.length;
+                                    index++
+                                  )
+                                    ChoiceChip(
+                                      label: Text(shelves[index]),
+                                      selected: index == _selectedShelf,
+                                      onSelected: (_) => setState(
+                                        () => _selectedShelf = index,
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ] else if (television)
+                          Wrap(
+                            key: const ValueKey('tv-library-shelves'),
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: [
+                              for (
+                                var index = 0;
+                                index < shelves.length;
+                                index++
+                              )
+                                ChoiceChip(
+                                  label: Text(shelves[index]),
+                                  selected: index == _selectedShelf,
+                                  onSelected: (_) =>
+                                      setState(() => _selectedShelf = index),
+                                ),
+                            ],
+                          )
+                        else
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: InputChip(
+                              key: const ValueKey('library-shelf-picker'),
+                              avatar: const AppIcon(
+                                AppIconAssets.systemFilter,
+                                size: 16,
+                              ),
+                              label: Text('${strings.filter}: $selected'),
+                              onPressed: () => _pickShelf(context, shelves),
+                            ),
+                          ),
+                        SizedBox(height: television ? 8 : 16),
+                        if (television)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: Text(
+                              isBookmarks
+                                  ? '${strings.bookmarks}: $count'
+                                  : strings.booksCount(count),
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          )
+                        else
+                          SectionHeader(
+                            title: selected,
+                            subtitle: desktop
+                                ? null
+                                : (isBookmarks
+                                      ? '$count'
+                                      : strings.booksCount(count)),
+                          ),
+                        if (failed) ...[
+                          StatePlaceholder.error(
+                            title: strings.libraryLoadError,
+                          ),
+                          Center(
+                            child: TextButton(
+                              onPressed: () {
+                                unawaited(libraryStore.load());
+                                unawaited(bookmarkStore.load());
+                                ref.invalidate(libraryPlaybackBooksProvider);
+                                ref.invalidate(
+                                  playbackProgressSnapshotsProvider,
+                                );
+                              },
+                              child: Text(strings.retry),
+                            ),
+                          ),
+                        ],
+                        if (empty && loading && !failed)
+                          StatePlaceholder.loading(title: strings.library)
+                        else if (empty && !failed) ...[
+                          StatePlaceholder.empty(
+                            title: emptyCopy.$1,
+                            message: emptyCopy.$2,
+                          ),
+                          const SizedBox(height: 12),
+                          Align(
+                            alignment: Alignment.center,
+                            child: FilledButton.icon(
+                              onPressed: () => context.go('/search'),
+                              icon: const AppIcon(AppIconAssets.navSearch),
+                              label: Text(strings.openSearch),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
-                  ),
-                ),
-              ] else if (television)
-                Wrap(
-                  key: const ValueKey('tv-library-shelves'),
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: [
-                    for (var index = 0; index < shelves.length; index++)
-                      ChoiceChip(
-                        label: Text(shelves[index]),
-                        selected: index == _selectedShelf,
-                        onSelected: (_) =>
-                            setState(() => _selectedShelf = index),
-                      ),
-                  ],
-                )
-              else
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: InputChip(
-                    key: const ValueKey('library-shelf-picker'),
-                    avatar: const AppIcon(AppIconAssets.systemFilter, size: 16),
-                    label: Text('${strings.filter}: $selected'),
-                    onPressed: () => _pickShelf(context, shelves),
-                  ),
-                ),
-              SizedBox(height: television ? 8 : 16),
-              if (television)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Text(
-                    isBookmarks
-                        ? '${strings.bookmarks}: $count'
-                        : strings.booksCount(count),
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                )
-              else
-                SectionHeader(
-                  title: selected,
-                  subtitle: desktop
-                      ? null
-                      : (isBookmarks ? '$count' : strings.booksCount(count)),
-                ),
-              if (failed) ...[
-                StatePlaceholder.error(title: strings.libraryLoadError),
-                Center(
-                  child: TextButton(
-                    onPressed: () {
-                      unawaited(libraryStore.load());
-                      unawaited(bookmarkStore.load());
-                      ref.invalidate(libraryPlaybackBooksProvider);
-                      ref.invalidate(playbackProgressSnapshotsProvider);
-                    },
-                    child: Text(strings.retry),
-                  ),
-                ),
-              ],
-              if (empty && loading && !failed)
-                StatePlaceholder.loading(title: strings.library)
-              else if (empty && !failed) ...[
-                StatePlaceholder.empty(
-                  title: emptyCopy.$1,
-                  message: emptyCopy.$2,
-                ),
-                const SizedBox(height: 12),
-                Align(
-                  alignment: Alignment.center,
-                  child: FilledButton.icon(
-                    onPressed: () => context.go('/search'),
-                    icon: const AppIcon(AppIconAssets.navSearch),
-                    label: Text(strings.openSearch),
-                  ),
-                ),
-              ] else if (isBookmarks)
-                _LibraryCollection(
-                  children: [
-                    for (final bookmark in bookmarkStore.entries)
-                      _LibraryBookmarkTile(
-                        bookmark: bookmark,
-                        onPlay: () => _jumpToBookmark(bookmark),
-                        onRemove: () => _removeBookmark(bookmark),
-                      ),
-                  ],
-                )
-              else
-                _LibraryCollection(
-                  children: [
-                    for (final item in entries)
-                      _LibraryBookCard(
-                        key: ValueKey('library-book-${_bookKey(item.book)}'),
-                        entry: item.cardEntry,
-                        playbackController: playbackController,
-                        downloadManager: downloadManager,
-                        isPlayLoading: _playLoadingKeys.contains(
-                          _bookKey(item.book),
-                        ),
-                        isDownloadLoading: _downloadLoadingKeys.contains(
-                          _bookKey(item.book),
-                        ),
-                        isLater: libraryStore.isLater(item.book),
-                        onLaterPressed: () => _libraryAction(
-                          () => libraryStore.toggleLater(item.book),
-                        ),
-                        onPlay: () =>
-                            _libraryAction(() => _playEntry(item.book)),
-                        onDownload: () =>
-                            _libraryAction(() => _downloadEntry(item.book)),
-                        onFavoritePressed: () => _libraryAction(
-                          () => libraryStore.toggleFavorite(item.book),
-                        ),
-                        onTap: () => _openSourceBook(context, item.book),
+                    if (!empty && isBookmarks)
+                      SliverResponsiveTileGrid.builder(
+                        key: desktop
+                            ? const ValueKey('desktop-library-rows')
+                            : null,
+                        singleColumn: desktop,
+                        itemCount: bookmarkStore.entries.length,
+                        itemKeyBuilder: (index) =>
+                            ValueKey(bookmarkStore.entries[index].id),
+                        itemBuilder: (context, index) {
+                          final bookmark = bookmarkStore.entries[index];
+                          return _LibraryBookmarkTile(
+                            bookmark: bookmark,
+                            onPlay: () => _jumpToBookmark(bookmark),
+                            onRemove: () => _removeBookmark(bookmark),
+                          );
+                        },
+                      )
+                    else if (!empty)
+                      SliverResponsiveTileGrid.builder(
+                        key: desktop
+                            ? const ValueKey('desktop-library-rows')
+                            : null,
+                        singleColumn: desktop,
+                        itemCount: entries.length,
+                        itemKeyBuilder: (index) =>
+                            ValueKey(_bookKey(entries[index].book)),
+                        itemBuilder: (context, index) {
+                          final item = entries[index];
+                          return _LibraryBookCard(
+                            key: ValueKey(
+                              'library-book-${_bookKey(item.book)}',
+                            ),
+                            entry: item.cardEntry,
+                            playbackController: playbackController,
+                            downloadManager: downloadManager,
+                            isPlayLoading: _playLoadingKeys.contains(
+                              _bookKey(item.book),
+                            ),
+                            isDownloadLoading: _downloadLoadingKeys.contains(
+                              _bookKey(item.book),
+                            ),
+                            isLater: libraryStore.isLater(item.book),
+                            onLaterPressed: () => _libraryAction(
+                              () => libraryStore.toggleLater(item.book),
+                            ),
+                            onPlay: () =>
+                                _libraryAction(() => _playEntry(item.book)),
+                            onDownload: () =>
+                                _libraryAction(() => _downloadEntry(item.book)),
+                            onFavoritePressed: () => _libraryAction(
+                              () => libraryStore.toggleFavorite(item.book),
+                            ),
+                            onTap: () => _openSourceBook(context, item.book),
+                          );
+                        },
                       ),
                   ],
                 ),
+              ),
             ],
           ),
         );
@@ -325,7 +373,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
       await action();
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showMotionSnackBar(
           SnackBar(content: Text(context.strings.libraryActionError)),
         );
       }
@@ -333,7 +381,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   }
 
   Future<void> _removeBookmark(PlaybackBookmark bookmark) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showMotionDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         scrollable: true,
@@ -391,7 +439,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
       if (mounted) await context.push('/player');
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showMotionSnackBar(
           SnackBar(content: Text(context.strings.bookmarkUnavailable)),
         );
       }
@@ -402,7 +450,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
     // Rotation and keyboard insets rebuild the route, not only StatefulBuilder.
     // Keep the unapplied selection for the lifetime of this picker invocation.
     var draft = _selectedShelf;
-    final next = await showModalBottomSheet<int>(
+    final next = await showMotionBottomSheet<int>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
@@ -573,29 +621,6 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
       context.push(
         '/source-book/${book.sourceId}/${Uri.encodeComponent(sourceBookId)}',
       ),
-    );
-  }
-}
-
-class _LibraryCollection extends StatelessWidget {
-  const _LibraryCollection({required this.children});
-
-  final List<Widget> children;
-
-  @override
-  Widget build(BuildContext context) {
-    if (!DesktopLayout.isActive(context)) {
-      return ResponsiveTileGrid(children: children);
-    }
-    return Column(
-      key: const ValueKey('desktop-library-rows'),
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        for (var index = 0; index < children.length; index++) ...[
-          children[index],
-          if (index != children.length - 1) const SizedBox(height: 12),
-        ],
-      ],
     );
   }
 }

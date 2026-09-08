@@ -14,7 +14,9 @@ import '../ui/adaptive/desktop_layout.dart';
 import '../ui/adaptive/television_layout.dart';
 import '../ui/adaptive/windows_playback_shortcuts.dart';
 import '../ui/components/playback_error_listener.dart';
+import '../ui/motion/app_motion.dart';
 import 'localization/app_strings.dart';
+import 'windows_app_exit_listener.dart';
 import 'router.dart';
 import 'theme/app_theme.dart';
 import 'theme/app_text_scaler.dart';
@@ -33,12 +35,14 @@ class SlovofonApp extends ConsumerStatefulWidget {
   ConsumerState<SlovofonApp> createState() => _SlovofonAppState();
 }
 
-class _SlovofonAppState extends ConsumerState<SlovofonApp> {
+class _SlovofonAppState extends ConsumerState<SlovofonApp>
+    with WidgetsBindingObserver {
   StreamSubscription<Uri>? _deepLinkSubscription;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _listenForDeepLinks();
   }
 
@@ -53,8 +57,14 @@ class _SlovofonAppState extends ConsumerState<SlovofonApp> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     unawaited(_deepLinkSubscription?.cancel());
     super.dispose();
+  }
+
+  @override
+  void didChangeAccessibilityFeatures() {
+    if (mounted) setState(() {});
   }
 
   void _listenForDeepLinks() {
@@ -81,7 +91,7 @@ class _SlovofonAppState extends ConsumerState<SlovofonApp> {
     if (location == null) {
       return;
     }
-    if (mounted) {
+    if (mounted && !WindowsAppExitListener.isClosing(context)) {
       appRouter.go(location);
     }
   }
@@ -103,68 +113,99 @@ class _SlovofonAppState extends ConsumerState<SlovofonApp> {
     final television = ref.watch(appDeviceProfileProvider).isTelevision;
     final accent = _accentColor(appSettings.accentColor);
 
-    return MaterialApp.router(
-      debugShowCheckedModeBanner: false,
-      onGenerateTitle: (context) => context.strings.appTitle,
-      routerConfig: appRouter,
-      locale: _localeFor(appSettings.languageCode),
-      themeMode: _themeModeFor(appSettings.themeMode),
-      theme: AppTheme.light(accent: accent),
-      darkTheme: AppTheme.dark(
-        accent: accent,
-        amoled: appSettings.themeMode == AppThemeMode.amoled,
-      ),
-      highContrastTheme: AppTheme.light(accent: accent, highContrast: true),
-      highContrastDarkTheme: AppTheme.dark(
-        accent: accent,
-        highContrast: true,
-        amoled: appSettings.themeMode == AppThemeMode.amoled,
-      ),
-      builder: (context, child) {
-        final routeChild = PlaybackErrorListener(
-          child: child ?? const SizedBox.shrink(),
-        );
-        return UpdateStartupGate(
-          navigatorKey: rootNavigatorKey,
-          child: MediaQuery(
-            data: MediaQuery.of(context).copyWith(
-              disableAnimations:
-                  MediaQuery.disableAnimationsOf(context) ||
-                  ((DesktopLayout.isActive(context) || television) &&
-                      appSettings.animationsMode != AppAnimationsMode.full),
-              textScaler: AppTextScaler(
-                MediaQuery.textScalerOf(context),
-                appSettings.textScale,
+    final systemReduceMotion =
+        MediaQuery.maybeOf(context)?.disableAnimations ??
+        View.of(
+          context,
+        ).platformDispatcher.accessibilityFeatures.disableAnimations;
+    final motion = AppMotion.resolve(
+      appSettings.animationsMode,
+      systemReduceMotion: systemReduceMotion,
+    );
+
+    return AppMotionScope(
+      motion: motion,
+      child: MaterialApp.router(
+        debugShowCheckedModeBanner: false,
+        onGenerateTitle: (context) => context.strings.appTitle,
+        routerConfig: appRouter,
+        locale: _localeFor(appSettings.languageCode),
+        themeMode: _themeModeFor(appSettings.themeMode),
+        themeAnimationDuration: motion.themeDuration,
+        themeAnimationCurve: AppMotion.curve,
+        theme: motion.applyTheme(AppTheme.light(accent: accent)),
+        darkTheme: motion.applyTheme(
+          AppTheme.dark(
+            accent: accent,
+            amoled: appSettings.themeMode == AppThemeMode.amoled,
+          ),
+        ),
+        highContrastTheme: motion.applyTheme(
+          AppTheme.light(accent: accent, highContrast: true),
+        ),
+        highContrastDarkTheme: motion.applyTheme(
+          AppTheme.dark(
+            accent: accent,
+            highContrast: true,
+            amoled: appSettings.themeMode == AppThemeMode.amoled,
+          ),
+        ),
+        builder: (context, child) {
+          WindowsAppExitListener.capturePresentation(
+            context,
+            errorTitle: context.strings.failed,
+            errorMessage: context.strings.libraryActionError,
+            retryLabel: context.strings.retry,
+            pendingLabel: context.strings.loading,
+          );
+          final routeChild = PlaybackErrorListener(
+            child: child ?? const SizedBox.shrink(),
+          );
+          return UpdateStartupGate(
+            navigatorKey: rootNavigatorKey,
+            child: MediaQuery(
+              data: MediaQuery.of(context).copyWith(
+                disableAnimations:
+                    MediaQuery.disableAnimationsOf(context) ||
+                    !motion.hasSpatialMotion,
+                textScaler: AppTextScaler(
+                  MediaQuery.textScalerOf(context),
+                  appSettings.textScale,
+                ),
+              ),
+              child: DesktopPreferences(
+                compactCards: appSettings.compactCards,
+                showSourceOnCards: appSettings.showSourceOnCards,
+                showPercentOnCovers: appSettings.showPercentOnCovers,
+                child: television
+                    ? TelevisionLayout(
+                        enabled: true,
+                        child: Theme(
+                          data: motion.applyTheme(
+                            TelevisionTheme.from(Theme.of(context)),
+                          ),
+                          child: TelevisionViewport(child: routeChild),
+                        ),
+                      )
+                    : DesktopLayout.isActive(context)
+                    ? Theme(
+                        data: motion.applyTheme(
+                          WindowsTheme.from(Theme.of(context)),
+                        ),
+                        child: WindowsPlaybackShortcuts(child: routeChild),
+                      )
+                    : routeChild,
               ),
             ),
-            child: DesktopPreferences(
-              compactCards: appSettings.compactCards,
-              showSourceOnCards: appSettings.showSourceOnCards,
-              showPercentOnCovers: appSettings.showPercentOnCovers,
-              child: television
-                  ? TelevisionLayout(
-                      enabled: true,
-                      child: Theme(
-                        data: TelevisionTheme.from(Theme.of(context)),
-                        child: TelevisionViewport(child: routeChild),
-                      ),
-                    )
-                  : DesktopLayout.isActive(context)
-                  ? Theme(
-                      data: WindowsTheme.from(Theme.of(context)),
-                      child: WindowsPlaybackShortcuts(child: routeChild),
-                    )
-                  : routeChild,
-            ),
-          ),
-        );
-      },
-      localizationsDelegates: const [
-        GlobalMaterialLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-      ],
-      supportedLocales: AppStrings.supportedLocales,
+          );
+        },
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+        ],
+        supportedLocales: AppStrings.supportedLocales,
+      ),
     );
   }
 }

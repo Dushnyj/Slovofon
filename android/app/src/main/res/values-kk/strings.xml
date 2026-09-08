@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Slovofon</string>
+    <string name="playback_notification_channel_name">Slovofon ойнатуы</string>
+    <string name="media_action_previous_chapter">Алдыңғы тарау</string>
+    <string name="media_action_rewind_30">30 секунд артқа</string>
+    <string name="media_action_play">Ойнату</string>
+    <string name="media_action_pause">Кідірту</string>
+    <string name="media_action_stop">Тоқтату</string>
+    <string name="media_action_forward_30">30 секунд алға</string>
+    <string name="media_action_next_chapter">Келесі тарау</string>
+</resources>

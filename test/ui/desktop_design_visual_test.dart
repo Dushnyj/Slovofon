@@ -39,6 +39,7 @@ import 'package:slovofon/services/updates/update_installer.dart';
 import 'package:slovofon/services/updates/update_manifest.dart';
 import 'package:slovofon/services/updates/update_service.dart';
 import 'package:slovofon/sources/sources.dart';
+import 'package:slovofon/ui/motion/motion_controls.dart';
 import 'package:slovofon/sources/knigoblud/knigoblud_mapper.dart';
 import 'package:slovofon/ui/adaptive/desktop_layout.dart';
 import 'package:slovofon/ui/components/book_card.dart';
@@ -48,6 +49,8 @@ import 'package:slovofon/ui/icons/app_icons.dart';
 import 'package:slovofon/core/platform/app_device_profile.dart';
 
 import 'test_search_history_store.dart';
+import 'support/sliver_geometry.dart';
+import 'package:slovofon/ui/components/responsive_tile_grid.dart';
 
 /// Opt-in native-Flutter render harness. No production bootstrap, network,
 /// platform audio, database, or user folders. Books are local synthetic fixtures.
@@ -1000,24 +1003,8 @@ List<Map<String, Object>> _workspaceGeometry(WidgetTester tester, Size size) =>
           },
     ];
 
-Rect? _workspaceRenderBounds(RenderObject? render) {
-  if (render is RenderBox && render.hasSize) {
-    return render.localToGlobal(Offset.zero) & render.size;
-  }
-  if (render is RenderSliver && render.geometry != null) {
-    final origin = MatrixUtils.transformPoint(
-      render.getTransformTo(null),
-      Offset.zero,
-    );
-    return Rect.fromLTWH(
-      origin.dx,
-      origin.dy,
-      render.constraints.crossAxisExtent,
-      render.geometry!.paintExtent,
-    );
-  }
-  return null;
-}
+Rect? _workspaceRenderBounds(RenderObject? render) =>
+    scrollContentBounds(render);
 
 List<Map<String, Object>> _workspaceChecks(
   WidgetTester tester,
@@ -1093,17 +1080,32 @@ List<Map<String, Object>> _workspaceChecks(
       ValueKey(workspaceKey),
       skipOffstage: false,
     );
-    final workspaceWidget = tester.widget<DesktopWorkspaceColumns>(
-      workspaceFinder,
-    );
+    final workspaceWidget = tester.widget(workspaceFinder);
+    final (
+      minimumPrimaryWidth,
+      secondaryWidth,
+      gap,
+    ) = switch (workspaceWidget) {
+      DesktopWorkspaceColumns value => (
+        value.minimumPrimaryWidth,
+        value.secondaryWidth,
+        value.gap,
+      ),
+      SliverWorkspaceColumns value => (
+        value.minimumPrimaryWidth,
+        value.secondaryWidth,
+        value.gap,
+      ),
+      _ => throw StateError(
+        'Unexpected workspace ${workspaceWidget.runtimeType}',
+      ),
+    };
     final factor = DesktopLayout.workspaceScaleFactor(
       tester.element(workspaceFinder),
     );
-    final available = tester.getRect(workspaceFinder).width;
+    final available = scrollContentRect(tester, workspaceFinder).width;
     final minimumSplitWidth =
-        (workspaceWidget.minimumPrimaryWidth + workspaceWidget.secondaryWidth) *
-            factor +
-        workspaceWidget.gap;
+        (minimumPrimaryWidth + secondaryWidth) * factor + gap;
     if (available >= minimumSplitWidth) {
       check(
         'context occupies right side when both readable columns fit',
@@ -1119,7 +1121,7 @@ List<Map<String, Object>> _workspaceChecks(
     } else {
       check(
         'stacked context follows primary and both retain full width',
-        secondary.top >= primary.bottom + workspaceWidget.gap - 1 &&
+        secondary.top >= primary.bottom + gap - 1 &&
             (secondary.left - primary.left).abs() <= 2 &&
             (primary.width - available).abs() <= 2 &&
             (secondary.width - available).abs() <= 2,
@@ -1222,8 +1224,26 @@ List<Map<String, Object>> _workspaceChecks(
       if (expectedSearchResults != null) {
         check(
           'all synthetic search results are delivered to the UI',
-          cards.length == expectedSearchResults,
-          {'actualCount': cards.length, 'expectedCount': expectedSearchResults},
+          tester
+                  .widgetList<SliverResponsiveTileGrid>(
+                    find.descendant(
+                      of: find.byKey(
+                        const ValueKey('desktop-search-primary'),
+                        skipOffstage: false,
+                      ),
+                      matching: find.byType(
+                        SliverResponsiveTileGrid,
+                        skipOffstage: false,
+                      ),
+                      skipOffstage: false,
+                    ),
+                  )
+                  .fold<int>(0, (count, grid) => count + grid.itemCount) ==
+              expectedSearchResults,
+          {
+            'mountedCount': cards.length,
+            'expectedDataCount': expectedSearchResults,
+          },
         );
       }
       if (primary != null && cards.isNotEmpty) {
@@ -1346,7 +1366,7 @@ List<Map<String, Object>> _workspaceChecks(
     }
     final slider = find.byKey(const ValueKey('appearance-text-scale-slider'));
     if (slider.evaluate().length == 1) {
-      final widget = tester.widget<Slider>(slider);
+      final widget = _readSlider(tester, slider);
       check(
         'inline slider reflects actual app scale and can edit it',
         (widget.value - appScale).abs() <= 0.001 &&
@@ -1364,7 +1384,7 @@ List<Map<String, Object>> _workspaceChecks(
       final exists = finder.evaluate().length == 1;
       check(
         'card preference is an enabled inline switch',
-        exists && tester.widget<SwitchListTile>(finder).onChanged != null,
+        exists && tester.widget<AppSwitchListTile>(finder).onChanged != null,
         {'key': key},
       );
     }
@@ -1569,7 +1589,11 @@ class _VisualSearchCatalog extends SourceCatalogService {
   final int resultCount;
 
   @override
-  Future<SourceSearchResponse> search(SearchRequest request) async {
+  Future<SourceSearchResponse> search(
+    SearchRequest request, {
+    void Function(SourceSearchResponse response)? onUpdate,
+    SourceSearchCancellation? cancellation,
+  }) async {
     const sources = [
       'yakniga',
       'akniga',
@@ -2321,7 +2345,11 @@ class _ResizeVisualCatalog extends _VisualSearchCatalog {
   _ResizeVisualCatalog({required super.registry, required super.resultCount});
   String page = '';
   @override
-  Future<SourceSearchResponse> search(SearchRequest request) async {
+  Future<SourceSearchResponse> search(
+    SearchRequest request, {
+    void Function(SourceSearchResponse response)? onUpdate,
+    SourceSearchCancellation? cancellation,
+  }) async {
     if (page == 'search-no-results') {
       return const SourceSearchResponse(results: []);
     }
@@ -2622,4 +2650,12 @@ Future<Map<String, Object>> _probeResizeSearch(
     'contextReachability': contextChecks,
     'restoredScrollOffset': state.position.pixels,
   };
+}
+
+Slider _readSlider(WidgetTester tester, Finder root) {
+  final widget = tester.widget(root);
+  if (widget is Slider) return widget;
+  return tester.widget<Slider>(
+    find.descendant(of: root, matching: find.byType(Slider)),
+  );
 }

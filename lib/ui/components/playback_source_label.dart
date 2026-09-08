@@ -1,3 +1,4 @@
+import '../motion/motion_tooltip.dart';
 import 'package:flutter/material.dart';
 
 import '../../app/localization/app_strings.dart';
@@ -27,7 +28,7 @@ class PlaybackSourceLabel extends StatelessWidget {
         : localized;
     final theme = Theme.of(context);
 
-    return Tooltip(
+    return AppTooltip(
       message: name,
       excludeFromSemantics: true,
       child: Text(

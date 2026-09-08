@@ -30,7 +30,7 @@ void main() {
       );
       await Future<void>.delayed(Duration.zero);
 
-      expect(platform.updates.last.appName, 'Словофон');
+      expect(platform.updates.last.appName, 'Slovofon');
       expect(platform.updates.last.bookTitle, 'Мастер и Маргарита');
       expect(platform.updates.last.chapterTitle, 'Глава 1');
       expect(platform.updates.last.sourceName, 'Yakniga');

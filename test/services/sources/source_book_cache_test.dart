@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:slovofon/data/database/app_database.dart';
 import 'package:slovofon/domain/models/audio_book.dart';
 import 'package:slovofon/domain/models/book_version.dart';
 import 'package:slovofon/domain/models/chapter.dart';
@@ -11,6 +13,7 @@ import 'package:slovofon/services/downloads/download_manager.dart';
 import 'package:slovofon/services/downloads/download_persistence.dart';
 import 'package:slovofon/services/downloads/download_storage.dart';
 import 'package:slovofon/services/library/library_store.dart';
+import 'package:slovofon/services/library/library_drift_persistence.dart';
 import 'package:slovofon/services/sources/source_book_cache.dart';
 import 'package:slovofon/services/sources/source_catalog_service.dart';
 import 'package:slovofon/sources/source_models.dart';
@@ -84,6 +87,160 @@ void main() {
       );
     },
   );
+
+  test(
+    'shutdown drains a refresh accepted before its cover and final Drift write',
+    () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'slovofon-source-cache-shutdown-',
+      );
+      addTearDown(() async {
+        final resolved = await tempDir.resolveSymbolicLinks();
+        final tempRoot = await Directory.systemTemp.resolveSymbolicLinks();
+        if (Directory(resolved).parent.path != tempRoot ||
+            !Directory(resolved).uri.pathSegments
+                .where((part) => part.isNotEmpty)
+                .last
+                .startsWith('slovofon-source-cache-shutdown-')) {
+          throw StateError('Unexpected temporary test directory: $resolved');
+        }
+        await Directory(resolved).delete(recursive: true);
+      });
+      final db = AppDatabase(NativeDatabase.memory());
+      var databaseClosed = false;
+      addTearDown(() async {
+        if (!databaseClosed) await db.close();
+      });
+      final persistence = _GatedDriftLibraryStore(db);
+      final libraryStore = LibraryStore(persistence);
+      addTearDown(libraryStore.dispose);
+      await libraryStore.toggleFavorite(_oldAudioBook);
+      persistence.holdNextSave = true;
+      final storage = _CountingDownloadStorage(rootDirectory: tempDir);
+      final manager = DownloadManager(
+        client: _NoopDownloadClient(),
+        storage: storage,
+        persistence: MemoryDownloadPersistenceStore(),
+      );
+      addTearDown(manager.dispose);
+      final coverStarted = Completer<void>();
+      final cover = Completer<List<int>?>();
+      addTearDown(() async {
+        if (!cover.isCompleted) cover.complete(null);
+        if (!persistence.releaseSave.isCompleted) {
+          persistence.releaseSave.complete();
+        }
+        await manager.shutdown();
+      });
+      var coverRequests = 0;
+      final cache = SourceBookCache(
+        downloadStorage: storage,
+        downloadManager: manager,
+        libraryStore: libraryStore,
+        coverBytesLoader: (_) {
+          coverRequests++;
+          if (!coverStarted.isCompleted) coverStarted.complete();
+          return cover.future;
+        },
+      );
+
+      final refresh = cache.refresh(_snapshot);
+      await coverStarted.future;
+      var shutdownComplete = false;
+      final shutdown = manager.shutdown().then((_) => shutdownComplete = true);
+      await Future<void>.value();
+      expect(shutdownComplete, isFalse);
+      expect(storage.metadataWrites, 0);
+      expect(storage.coverWrites, 0);
+
+      // A new refresh must be rejected at admission, not after starting its
+      // network/cover/file work and not by encountering an already closed DB.
+      await expectLater(cache.refresh(_snapshot), throwsStateError);
+      expect(coverRequests, 1);
+      cover.complete(const [1, 2, 3, 4]);
+      await persistence.saveStarted.future;
+      expect(shutdownComplete, isFalse);
+      expect(storage.metadataWrites, 1);
+      expect(storage.coverWrites, 1);
+      expect(
+        (await persistence.loadFavorites()).single.book.title,
+        _oldAudioBook.title,
+      );
+
+      persistence.releaseSave.complete();
+      final refreshed = await refresh;
+      await shutdown;
+      await libraryStore.flushPendingWrites();
+      expect(shutdownComplete, isTrue);
+      expect(persistence.completedRefreshWrites, 1);
+      expect(
+        (await persistence.loadFavorites()).single.book.title,
+        _audioBook.title,
+      );
+      expect(refreshed.audioBook.coverUrl, startsWith('file:'));
+      expect(
+        (await storage.readMetadataForIds(
+          _playbackBook.sourceId,
+          _playbackBook.versionId,
+        ))?.coverUrl,
+        refreshed.audioBook.coverUrl,
+      );
+      expect(
+        manager.bookForTask('chapter:izib:izib-2033:chapter-1')?.coverUrl,
+        refreshed.audioBook.coverUrl,
+      );
+
+      // Mirror bootstrap ordering: accepted cache work is already committed
+      // before DB close, and no later refresh can start persistence afterwards.
+      await db.close();
+      databaseClosed = true;
+      await expectLater(cache.refresh(_snapshot), throwsStateError);
+      expect(coverRequests, 1);
+      expect(storage.metadataWrites, 1);
+      expect(storage.coverWrites, 1);
+      expect(persistence.completedRefreshWrites, 1);
+    },
+  );
+}
+
+class _GatedDriftLibraryStore extends DriftLibraryPersistenceStore {
+  _GatedDriftLibraryStore(super.db);
+
+  bool holdNextSave = false;
+  final saveStarted = Completer<void>();
+  final releaseSave = Completer<void>();
+  int completedRefreshWrites = 0;
+
+  @override
+  Future<void> saveFavorite(LibraryBookEntry entry) async {
+    if (!holdNextSave) {
+      await super.saveFavorite(entry);
+      return;
+    }
+    saveStarted.complete();
+    await releaseSave.future;
+    await super.saveFavorite(entry);
+    completedRefreshWrites++;
+  }
+}
+
+class _CountingDownloadStorage extends FileDownloadStorage {
+  _CountingDownloadStorage({required super.rootDirectory});
+
+  int metadataWrites = 0;
+  int coverWrites = 0;
+
+  @override
+  Future<void> writeMetadata(AudioPlaybackBook book) {
+    metadataWrites++;
+    return super.writeMetadata(book);
+  }
+
+  @override
+  Future<String> writeCoverBytes(AudioPlaybackBook book, List<int> bytes) {
+    coverWrites++;
+    return super.writeCoverBytes(book, bytes);
+  }
 }
 
 const _oldAudioBook = AudioBook(

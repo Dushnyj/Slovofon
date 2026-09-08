@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:slovofon/ui/motion/motion_tooltip.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:slovofon/app/theme/app_color_tokens.dart';
 import 'package:slovofon/app/theme/app_theme.dart';
@@ -46,7 +47,7 @@ void main() {
         final anchor = find.byTooltip('Volume');
         final anchorButton = find.ancestor(
           of: anchor,
-          matching: find.byType(IconButton),
+          matching: find.byType(AppIconButton),
         );
         _focus(tester, anchorButton);
         await tester.pumpAndSettle();

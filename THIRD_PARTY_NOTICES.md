@@ -173,6 +173,16 @@ Purpose: Native Android MediaSessionService, notification, lock screen controls,
 
 ## 4. Icons
 
+### Bundled language flags
+
+- Project: [flag-icons](https://github.com/lipis/flag-icons), version 7.5.0.
+- Copyright (c) 2013 Panayiotis Lipiridis; MIT license.
+- Pinned revision: `7aa5b2bdddd570ece62c812c0cb588ccdc099e2e`.
+- Five unmodified 4:3 SVGs (`ru`, `gb`, `kz`, `by`, `ua`) are bundled in
+  `assets/flags/languages/`; the complete license is included as `LICENSE.txt`.
+- Used only as decorative language-picker hints alongside readable language names.
+  No runtime network loading, new package dependency, or locale behavior change.
+
 Текущие иконки:
 
 ```text

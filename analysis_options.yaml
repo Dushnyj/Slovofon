@@ -4,6 +4,9 @@ analyzer:
   exclude:
     - build/**
     - .dart_tool/**
+    # Ignored local QA exports and one-off capture/generation scripts.
+    # Maintained production code and regression tests remain fully analyzed.
+    - artifacts/**
   errors:
     missing_required_param: error
     missing_return: error
@@ -16,4 +19,3 @@ linter:
     prefer_const_literals_to_create_immutables: true
     prefer_final_locals: true
     unawaited_futures: true
-

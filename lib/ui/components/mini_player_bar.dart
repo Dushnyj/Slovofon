@@ -1,3 +1,7 @@
+import '../motion/motion_tooltip.dart';
+import '../motion/motion_controls.dart';
+import '../motion/app_motion.dart';
+import '../motion/motion_progress_indicator.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -37,12 +41,16 @@ class MiniPlayerBar extends ConsumerWidget {
           return const SizedBox.shrink();
         }
 
-        return Tooltip(
+        return AppTooltip(
           message: strings.openFullPlayer,
           child: Material(
             color: tokens.playerSurface,
             surfaceTintColor: Colors.transparent,
             child: InkWell(
+              hoverDuration: AppMotion.of(context).duration(
+                full: const Duration(milliseconds: 50),
+                reduced: const Duration(milliseconds: 40),
+              ),
               onTap: () => unawaited(context.push('/player')),
               child: SafeArea(
                 top: false,
@@ -50,7 +58,7 @@ class MiniPlayerBar extends ConsumerWidget {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    LinearProgressIndicator(
+                    AppLinearProgressIndicator(
                       value: state.bookProgress,
                       minHeight: 2,
                       color: colorScheme.primary,
@@ -91,7 +99,11 @@ class MiniPlayerBar extends ConsumerWidget {
                                         ),
                                   ),
                                   Text(
-                                    _miniPlayerChapterLabel(book, chapter),
+                                    _miniPlayerChapterLabel(
+                                      context.strings,
+                                      book,
+                                      chapter,
+                                    ),
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: Theme.of(context).textTheme.bodySmall
@@ -191,7 +203,13 @@ class DesktopMiniPlayerBar extends ConsumerWidget {
         }
 
         if (_isWindowsDesktopPlayer(context)) {
-          return _WindowsPlaybackDock(service: service, state: state);
+          // Keep retained transport/slider semantics under one stable parent
+          // when a destination adds its own focus or overlay semantics nodes.
+          return Semantics(
+            container: true,
+            explicitChildNodes: true,
+            child: _WindowsPlaybackDock(service: service, state: state),
+          );
         }
 
         final chapterDuration = state.chapterDuration;
@@ -342,11 +360,15 @@ class _WindowsPlaybackDockState extends State<_WindowsPlaybackDock> {
             final metadataWidth =
                 (constraints.maxWidth * 0.29).clamp(190.0, 350.0) +
                 ((textScale - 1) * 90).clamp(0.0, 135.0);
-            final metadata = Tooltip(
+            final metadata = AppTooltip(
               message: lowHeight
                   ? '${book.title}\n${book.author}\n${chapter.title}\n${context.strings.openFullPlayer}'
                   : context.strings.openFullPlayer,
               child: InkWell(
+                hoverDuration: AppMotion.of(context).duration(
+                  full: const Duration(milliseconds: 50),
+                  reduced: const Duration(milliseconds: 40),
+                ),
                 key: const ValueKey('desktop-player-book-link'),
                 borderRadius: BorderRadius.circular(12),
                 onTap: () => unawaited(context.push('/player')),
@@ -436,7 +458,7 @@ class _WindowsPlaybackDockState extends State<_WindowsPlaybackDock> {
                     activeTrackColor: colors.primary,
                     inactiveTrackColor: colors.surfaceContainerHighest,
                   ),
-                  child: Slider(
+                  child: AppSlider(
                     key: const ValueKey('desktop-player-seek'),
                     value: (_dragProgress ?? state.chapterProgress).clamp(0, 1),
                     onChanged: state.chapterDuration > Duration.zero
@@ -719,7 +741,7 @@ class _DesktopMiniPlayerMetadata extends StatelessWidget {
               ),
               const SizedBox(height: 4),
               Text(
-                _miniPlayerChapterLabel(book, chapter),
+                _miniPlayerChapterLabel(context.strings, book, chapter),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -789,7 +811,7 @@ class _DesktopMiniPlayerProgress extends StatelessWidget {
         thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
         overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
       ),
-      child: Slider(value: progress, onChanged: canSeek ? onSeek : null),
+      child: AppSlider(value: progress, onChanged: canSeek ? onSeek : null),
     );
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -905,7 +927,7 @@ class _DesktopMiniIconButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final desktop = _isWindowsDesktopPlayer(context);
     final colors = Theme.of(context).colorScheme;
-    return IconButton(
+    return AppIconButton(
       tooltip: tooltip,
       onPressed: onPressed,
       style:
@@ -924,10 +946,7 @@ class _DesktopMiniIconButton extends StatelessWidget {
                   )
                 : null,
           ).copyWith(
-            animationDuration:
-                desktop && MediaQuery.disableAnimationsOf(context)
-                ? Duration.zero
-                : null,
+            animationDuration: AppMotion.of(context).duration(),
             side: desktop
                 ? WidgetStateProperty.resolveWith(
                     (states) => BorderSide(
@@ -964,27 +983,19 @@ class _DesktopPlayButton extends StatelessWidget {
     final strings = context.strings;
     final desktop = _isWindowsDesktopPlayer(context);
 
-    return IconButton.filled(
+    return AppIconButton.filled(
       tooltip: isPlaying ? strings.pause : strings.play,
       onPressed: onPressed,
-      style:
-          IconButton.styleFrom(
-            fixedSize: Size.square(desktop ? 46 : 48),
-            minimumSize: Size.square(desktop ? 46 : 48),
-            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            backgroundColor: colorScheme.primary,
-            foregroundColor: colorScheme.onPrimary,
-            shape: desktop
-                ? RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(15),
-                  )
-                : null,
-          ).copyWith(
-            animationDuration:
-                desktop && MediaQuery.disableAnimationsOf(context)
-                ? Duration.zero
-                : null,
-          ),
+      style: IconButton.styleFrom(
+        fixedSize: Size.square(desktop ? 46 : 48),
+        minimumSize: Size.square(desktop ? 46 : 48),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        backgroundColor: colorScheme.primary,
+        foregroundColor: colorScheme.onPrimary,
+        shape: desktop
+            ? RoundedRectangleBorder(borderRadius: BorderRadius.circular(15))
+            : null,
+      ).copyWith(animationDuration: AppMotion.of(context).duration()),
       icon: AppIcon(
         isPlaying ? AppIconAssets.playerPause : AppIconAssets.playerPlay,
         color: colorScheme.onPrimary,
@@ -1086,12 +1097,13 @@ class MiniPlayerControlsBar extends ConsumerWidget {
 }
 
 String _miniPlayerChapterLabel(
+  AppStrings strings,
   AudioPlaybackBook book,
   AudioPlaybackChapter chapter,
 ) {
   final position = book.chapters.indexWhere((item) => item.id == chapter.id);
   if (position < 0) return chapter.title;
-  return 'Глава ${(position + 1).toString().padLeft(2, '0')}. ${chapter.title}';
+  return '${strings.chapterNumber(position + 1, minimumDigits: 2)}. ${chapter.title}';
 }
 
 String _formatMiniPlayerDuration(Duration duration) {
@@ -1123,7 +1135,7 @@ class _MiniPlayerIconButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return IconButton(
+    return AppIconButton(
       tooltip: tooltip,
       onPressed: onPressed,
       style: IconButton.styleFrom(

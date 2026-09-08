@@ -67,8 +67,9 @@ flutter::EncodableValue InstallationInfoValue(
 
 }  // namespace
 
-FlutterWindow::FlutterWindow(const flutter::DartProject& project)
-    : project_(project) {}
+FlutterWindow::FlutterWindow(const flutter::DartProject& project,
+                             windows_activation::SingleInstance& single_instance)
+    : project_(project), single_instance_(single_instance) {}
 
 FlutterWindow::~FlutterWindow() {
   CancelWindowsClose();
@@ -91,6 +92,38 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
+  windows_activation_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          flutter_controller_->engine()->messenger(),
+          "com.slovofon.app/windows_activation",
+          &flutter::StandardMethodCodec::GetInstance());
+  windows_activation_channel_->SetMethodCallHandler(
+      [this](const flutter::MethodCall<flutter::EncodableValue>& call,
+             std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
+        const auto encode_arguments = [](const windows_activation::Arguments& args) {
+          flutter::EncodableList values;
+          for (const auto& argument : args) values.emplace_back(argument);
+          return values;
+        };
+        if (call.method_name() == "getInitialArguments") {
+          result->Success(flutter::EncodableValue(
+              encode_arguments(GetCommandLineArguments())));
+        } else if (call.method_name() == "takePendingActivations") {
+          // This handshake happens only after Dart installs its method handler.
+          // Early launches remain queued instead of disappearing in app_links.
+          activation_listener_ready_ = true;
+          flutter::EncodableList batches;
+          for (const auto& args : pending_activations_.Take()) {
+            batches.emplace_back(encode_arguments(args));
+          }
+          result->Success(flutter::EncodableValue(batches));
+        } else if (call.method_name() == "stopListening") {
+          activation_listener_ready_ = false;
+          result->Success();
+        } else {
+          result->NotImplemented();
+        }
+      });
   windows_close_request_ = std::make_shared<windows_lifecycle::CloseRequest>(
       [hwnd = GetHandle()](windows_lifecycle::CloseRequest::Token token) {
         return PostMessageW(hwnd, kWindowsCloseApproved,
@@ -138,6 +171,9 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  single_instance_.DetachWindow();
+  activation_listener_ready_ = false;
+  windows_activation_channel_ = nullptr;
   CancelWindowsClose();
   CancelWindowsInstallationRequest();
   windows_lifecycle_channel_ = nullptr;
@@ -260,6 +296,27 @@ LRESULT
 FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
                               LPARAM const lparam) noexcept {
+  if (message == WM_COPYDATA) {
+    // Consume all external COPYDATA here: the app_links plugin otherwise reads
+    // a raw C string without validating cbData. Only our bounded protocol and
+    // a sender belonging to this same user/session may reach the Dart queue.
+    const auto* data = reinterpret_cast<const COPYDATASTRUCT*>(lparam);
+    if (!data || data->dwData != windows_activation::kCopyDataTag ||
+        !single_instance_.IsValidSender(reinterpret_cast<HWND>(wparam))) {
+      return FALSE;
+    }
+    try {
+      auto arguments = windows_activation::Decode(data->lpData, data->cbData);
+      if (!arguments || !pending_activations_.Add(std::move(*arguments))) return FALSE;
+      windows_activation::SingleInstance::RestoreAndActivate(hwnd);
+      if (activation_listener_ready_ && windows_activation_channel_) {
+        windows_activation_channel_->InvokeMethod("activationAvailable", nullptr);
+      }
+      return TRUE;
+    } catch (...) {
+      return FALSE;
+    }
+  }
   // Flutter's standard close handshake only runs for the last parentless HWND.
   // MediaPlayer owns a hidden SMTC HWND, so the main window must explicitly wait
   // for Dart to checkpoint and dispose audio before destroying the engine/COM.

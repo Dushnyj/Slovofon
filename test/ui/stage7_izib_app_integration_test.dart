@@ -326,7 +326,7 @@ void main() {
     expect(find.text('Дмитрий Глуховский'), findsWidgets);
     expect(find.text('Петр Иващенко'), findsWidgets);
     expect(find.text('Метро'), findsWidgets);
-    expect(find.text('4.5 из 5'), findsOneWidget);
+    expect(find.text('4.5 out of 5'), findsOneWidget);
     expect(find.text('2020'), findsWidgets);
     expect(find.text('Izib'), findsWidgets);
     expect(find.textContaining('size is being calculated'), findsOneWidget);
@@ -1127,7 +1127,7 @@ void main() {
     expect(find.text('Зорич Александр'), findsOneWidget);
     expect(find.text('Чайцын Александр'), findsOneWidget);
     expect(find.text('S.T.A.L.K.E.R.'), findsOneWidget);
-    expect(find.text('4.6 из 5'), findsOneWidget);
+    expect(find.text('4.6 out of 5'), findsOneWidget);
     expect(find.text('2010'), findsOneWidget);
     expect(find.byTooltip('Delete downloaded'), findsOneWidget);
     expect(find.byTooltip('Download'), findsNothing);
@@ -1242,7 +1242,7 @@ void main() {
         expect(find.text('Олег Шубин'), findsOneWidget);
         expect(find.text('Тимофей Зобнин'), findsOneWidget);
         expect(find.text('Велес #1'), findsOneWidget);
-        expect(find.text('4.3 из 5'), findsOneWidget);
+        expect(find.text('4.3 out of 5'), findsOneWidget);
         expect(find.text('Source page'), findsOneWidget);
         expect(find.text('https://izib.uk/art2033'), findsOneWidget);
         expect(find.text('Genre'), findsOneWidget);

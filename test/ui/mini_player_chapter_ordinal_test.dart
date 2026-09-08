@@ -64,7 +64,7 @@ void main() {
           await tester.pumpAndSettle();
           expect(
             find.text(
-              'Глава ${(position + 1).toString().padLeft(2, '0')}. Part $position',
+              'Chapter ${(position + 1).toString().padLeft(2, '0')}. Part $position',
             ),
             findsOneWidget,
           );

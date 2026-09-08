@@ -66,6 +66,11 @@ class BookmarkStore extends ChangeNotifier {
   bool isLoaded = false;
   Object? error;
 
+  Future<void> flushPendingWrites() async {
+    await _loadFuture;
+    await _operations;
+  }
+
   List<PlaybackBookmark> get entries => List.unmodifiable(
     _entries.values.toList()
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt)),

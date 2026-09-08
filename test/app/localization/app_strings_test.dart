@@ -248,30 +248,19 @@ void main() {
   });
 
   for (final language in ['kk', 'be', 'uk']) {
-    test('$language retains the existing English fallback', () {
-      final fallback = AppStrings.forLocale(Locale(language));
-      expect(_newUiStrings(fallback), _newUiStrings(en));
-      for (final count in [0, 1, 2, 11, 21]) {
-        expect(fallback.booksCount(count), en.booksCount(count));
-        expect(fallback.chaptersCount(count), en.chaptersCount(count));
+    test('$language translates application UI instead of using English', () {
+      final localized = AppStrings.forLocale(Locale(language));
+      final translated = _newUiStrings(localized);
+      final english = _newUiStrings(en);
+      for (var index = 0; index < translated.length; index++) {
         expect(
-          fallback.sourceResultsCount(count),
-          en.sourceResultsCount(count),
+          translated[index],
+          isNot(english[index]),
+          reason: '$language message $index',
         );
-        expect(
-          fallback.partialSourceFailures(count),
-          en.partialSourceFailures(count),
-        );
-        expect(
-          fallback.selectedSourcesCount(count),
-          en.selectedSourcesCount(count),
-        );
-        expect(
-          fallback.cacheCleared(count, '8 MB'),
-          en.cacheCleared(count, '8 MB'),
-        );
+        expect(translated[index], isNotEmpty);
       }
-      expect(fallback.appTitle, 'Slovofon');
+      expect(localized.appTitle, 'Slovofon');
     });
   }
 }

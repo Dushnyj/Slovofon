@@ -32,6 +32,29 @@ class SourceSettingsStore extends ChangeNotifier {
   final DateTime Function() _clock;
   late Map<String, SourceSettings> _settings;
   Future<void>? _loadFuture;
+  Future<void> _updates = Future<void>.value();
+  bool _disposed = false;
+
+  Future<void> flushPendingWrites() async {
+    await _loadFuture;
+    await _updates;
+  }
+
+  Future<void> _serialize(Future<void> Function() operation) {
+    final result = _updates.then((_) => operation());
+    _updates = result.then<void>((_) {}, onError: (Object _, StackTrace _) {});
+    return result;
+  }
+
+  void _notify() {
+    if (!_disposed) notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
 
   List<SourceSettings> get settings {
     return [for (final id in defaultSourceIds) _settings[id]!];
@@ -54,18 +77,19 @@ class SourceSettingsStore extends ChangeNotifier {
     return _loadFuture ??= _load();
   }
 
-  Future<void> setSourceEnabled(String sourceId, bool enabled) async {
-    await load();
-    final current =
-        _settings[sourceId] ??
-        SourceSettings(sourceId: sourceId, updatedAt: _clock());
-    final next = current.copyWith(isEnabled: enabled, updatedAt: _clock());
-    _settings[sourceId] = next;
-    await _persistence.save(next);
-    notifyListeners();
-  }
+  Future<void> setSourceEnabled(String sourceId, bool enabled) =>
+      _serialize(() async {
+        await load();
+        final current =
+            _settings[sourceId] ??
+            SourceSettings(sourceId: sourceId, updatedAt: _clock());
+        final next = current.copyWith(isEnabled: enabled, updatedAt: _clock());
+        _settings[sourceId] = next;
+        await _persistence.save(next);
+        _notify();
+      });
 
-  Future<void> setEnabledSources(Set<String> sourceIds) async {
+  Future<void> setEnabledSources(Set<String> sourceIds) => _serialize(() async {
     await load();
     final enabledIds = sourceIds.isEmpty ? {defaultSourceIds.first} : sourceIds;
     for (final setting in settings) {
@@ -74,14 +98,14 @@ class SourceSettingsStore extends ChangeNotifier {
       _settings[setting.sourceId] = next;
       await _persistence.save(next);
     }
-    notifyListeners();
-  }
+    _notify();
+  });
 
   Future<void> setMediaPermissions(
     String sourceId, {
     bool? allowStreaming,
     bool? allowDownload,
-  }) async {
+  }) => _serialize(() async {
     await load();
     if (allowStreaming == null && allowDownload == null) {
       return;
@@ -96,8 +120,8 @@ class SourceSettingsStore extends ChangeNotifier {
     );
     _settings[sourceId] = next;
     await _persistence.save(next);
-    notifyListeners();
-  }
+    _notify();
+  });
 
   Future<void> _load() async {
     final loaded = await _persistence.load();
@@ -108,7 +132,7 @@ class SourceSettingsStore extends ChangeNotifier {
       for (final id in defaultSourceIds)
         id: loaded[id] ?? SourceSettings(sourceId: id, updatedAt: _clock()),
     };
-    notifyListeners();
+    _notify();
   }
 }
 

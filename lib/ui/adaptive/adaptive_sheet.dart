@@ -1,6 +1,8 @@
+import '../motion/motion_tooltip.dart';
 import 'package:flutter/material.dart';
 
 import '../icons/app_icons.dart';
+import '../motion/app_motion.dart';
 import 'desktop_layout.dart';
 import 'television_layout.dart';
 
@@ -11,15 +13,18 @@ Future<T?> showAdaptiveSheet<T>({
   required WidgetBuilder builder,
   String? title,
   double maxWidth = 640,
-  bool isScrollControlled = false,
-  bool useSafeArea = false,
+  bool isScrollControlled = true,
+  bool useSafeArea = true,
   bool showDragHandle = true,
 }) {
   final television = TelevisionLayout.isActive(context);
   if (!DesktopLayout.isActive(context) && !television) {
-    return showModalBottomSheet<T>(
+    return showMotionBottomSheet<T>(
       context: context,
       builder: builder,
+      // A settings route lives inside the shell's branch Navigator. Its modal
+      // must cover the persistent transport/navigation, not sit behind them.
+      useRootNavigator: true,
       isScrollControlled: isScrollControlled,
       useSafeArea: useSafeArea,
       showDragHandle: showDragHandle,
@@ -29,7 +34,7 @@ Future<T?> showAdaptiveSheet<T>({
   // TV coordinates are logical dp (960x540 on both FHD and 4K), not physical
   // pixels. Avoid stretching a small choice dialog across the television.
   final dialogWidth = television && maxWidth > 600 ? 600.0 : maxWidth;
-  return showDialog<T>(
+  return showMotionDialog<T>(
     context: context,
     builder: (dialogContext) => Dialog(
       insetPadding: EdgeInsets.all(television ? 16 : 24),
@@ -75,7 +80,7 @@ Future<T?> showAdaptiveSheet<T>({
                           ),
                   ),
                   if (television) const SizedBox(width: 8),
-                  IconButton(
+                  AppIconButton(
                     key: const ValueKey('desktop-options-close'),
                     style: television
                         ? _televisionCloseStyle(

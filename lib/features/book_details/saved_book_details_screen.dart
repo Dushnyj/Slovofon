@@ -1,3 +1,5 @@
+import '../../ui/motion/motion_tooltip.dart';
+import '../../ui/motion/app_motion.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -5,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/localization/app_strings.dart';
+import '../../app/localization/duration_label.dart';
 import '../../domain/models/audio_book.dart';
 import '../../services/audio/audio_state.dart';
 import '../../services/audio/playback_controller_provider.dart';
@@ -243,7 +246,8 @@ class _SavedBookDetailsScreenState
         Text(
           strings.chaptersCount(playback?.chapters.length ?? book.chapterCount),
         ),
-        if (book.durationLabel.isNotEmpty) Text(book.durationLabel),
+        if (book.durationLabel.isNotEmpty)
+          Text(context.strings.formatDurationLabel(book.durationLabel)),
         if (book.seriesTitle?.isNotEmpty == true)
           Text(
             '${book.seriesTitle}${book.seriesNumber == null ? '' : ' #${book.seriesNumber}'}',
@@ -276,7 +280,7 @@ class _SavedBookDetailsScreenState
             label: Text(strings.play),
           ),
         if (television) ...[
-          IconButton(
+          AppIconButton(
             key: const ValueKey('saved-book-favorite'),
             tooltip: library.isFavorite(book)
                 ? strings.removeFavorite
@@ -289,7 +293,7 @@ class _SavedBookDetailsScreenState
               size: 20,
             ),
           ),
-          IconButton(
+          AppIconButton(
             key: const ValueKey('saved-book-later'),
             tooltip: library.isLater(book)
                 ? strings.removeFromLater
@@ -557,7 +561,7 @@ class _SavedBookDetailsScreenState
   void _error(String message) {
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    ).showMotionSnackBar(SnackBar(content: Text(message)));
   }
 }
 

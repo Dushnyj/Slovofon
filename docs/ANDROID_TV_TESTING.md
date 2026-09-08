@@ -21,7 +21,8 @@ so detection also works before an Activity attaches and after Activity recreatio
 No Activity reference is retained. Flutter bootstrap uses `AppDeviceProfile.detect`
 and overrides `appDeviceProfileProvider` before `runApp`. Non-Android, malformed,
 missing or failed optional-channel responses have a safe non-TV fallback; the
-channel wait is bounded to two seconds. Window width, orientation, screen density,
+channel wait is bounded to ten seconds, allowing a slow cold-start engine to
+respond without incorrectly selecting the tablet UI. Window width, orientation, screen density,
 and lack of touch alone never select TV.
 
 ## Launcher art
@@ -79,15 +80,22 @@ or clamp the user's text scale to make more content fit. If a 4K mode is not
 actually available, mark it unverified; a 4K fixture PNG is a separate test.
 The design baseline follows [Android TV logical layouts](https://developer.android.com/design/ui/tv/guides/styles/layouts).
 
+The Navigator, shell canvas and full-player background fill the actual viewport;
+there is no outer 4% overscan frame or synthetic reduction of MediaQuery.size.
+Spacing belongs inside each surface: 16 dp for shell content/navigation, while
+the mini-player surface reaches the lower/right content edges and pads its own
+controls. Dialogs keep their own bounded inset. Real system safe areas are not
+erased. Compare the full framebuffer, not the emulator window border.
+
 | Area | D-pad / native procedure | Expected contract |
 | --- | --- | --- |
 | Side rail | Move Up/Down through all five destinations, Select each, Right into its content, Left back from the leftmost content item. Repeat with a short viewport and large text. | 56 dp rail, 48 dp controls, 12 dp content gap; selected destination and keyboard focus are distinguishable. No phone bottom navigation. |
 | Audiobook cards | Populate at least two rows, including several recordings of the same book and complete metadata. Traverse Left/Right and Up/Down; open a non-first card with Select and return with Back. | One stop per book; a 48x72 dp cover, title, author, narrator, cycle, duration, chapter count, year and rating are shown when available, with role icons. Long metadata wraps instead of disappearing. Source/progress remain in the footer. The neutral surface has a 1 dp resting outline and 2 dp focused outline without tinting source text. |
-| Real catalog width | At default text, inspect Home after safe insets, rail and page padding; also inspect Search. Repeat at 200%. | Home around 791 dp and Search around 799 dp fit two columns with the 360 dp minimum and 12 dp gaps; 200% text reduces this to one. Metadata grows naturally while the cover stays 48x72 dp; one book keeps its normal column width. |
+| Real catalog width | At default text, inspect Home after rail and internal page padding; also inspect Search. Repeat at 200%. | The full-screen viewport has no global percentage inset. Internal 16 dp chrome spacing and page padding leave Home/Search wide enough for two columns with the 360 dp minimum and 12 dp gaps; 200% text reduces this to one. Metadata grows naturally while the cover stays 48x72 dp; one book keeps its normal column width. |
 | Source and saved details | Open online and cached/saved books. Switch Chapters / Information tabs; enter the chapter list, scroll, return Up to its active tab, then Back to the originating shelf. | TV rail and Back remain available; focus and scroll do not get trapped. Play, favorite, Later and applicable download actions remain reachable without inline card actions. |
 | Scoped search | Open an author or narrator link in details, wait for results, choose a book, then Back. Also test a source failure and retry. | `/scoped-search` accepts completed results instead of remaining on a spinner; the query context and return route remain correct. |
 | Search and IME | Enter a query with the TV keyboard; hide IME using Back without submitting, then leave the field directionally. Repeat with submission, filters and an empty result. | Text is retained, the next control has visible focus, dialog/IME handling does not leak focus or hide the completion action. No Tab/mouse workaround is counted as D-pad PASS. |
-| Mini-player | Start real audio, wait several seconds, then pause/resume, seek both directions, and change chapter. Open the full player through its book area. | Time and progress update live, stop advancing while paused, and follow the current chapter. The source name keeps its color on a constant neutral background. Busy/unknown-duration states do not offer invalid seeking. |
+| Mini-player | Start real audio, wait several seconds, then pause/resume, press OK repeatedly on each 15-second seek action through buffering, and change chapters through a delayed load and book boundaries. Open the full player through its book area. | Time and progress update live, stop advancing while paused, and follow the current chapter. The source name keeps its color on a constant neutral background. Buffering retains the selected seek action and repeated OK presses continue seeking; chapter loading blocks activation without discarding selection. Actual first/last chapter boundaries remain disabled and skipped. Unknown-duration chapters keep relative seeking but not an invalid absolute slider. |
 | Full player | Traverse tabs, chapters, speed, timer, volume and bookmark editor; save a bookmark using only the remote after hiding IME. | Focus is visible; vertical arrows leave sliders/editors, while horizontal seek actions adjust position. Bookmark persistence is checked after returning, not inferred from opening the dialog. |
 | Settings / downloads | Change theme and custom color, adjust text, open every settings group; expand a download and reach its available actions. | Compact rows do not become narrow posters; active focus, disabled controls and completion actions remain readable. |
 | Media keys / lifecycle | Exercise foreground and background Play/Pause/seek, reopen the Activity, and Back to the launcher. | The existing media session owns hardware commands; no double dispatch, unexpected restart or lost progress. UI +/-15 s and existing native hardware seek interval are tested separately. |

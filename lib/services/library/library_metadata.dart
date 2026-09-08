@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../domain/models/audio_book.dart';
@@ -8,36 +10,73 @@ import '../downloads/download_manager_provider.dart';
 
 abstract interface class LibraryMetadataPersistence {
   Future<void> savePlaybackBook(AudioPlaybackBook book);
-  Future<List<AudioPlaybackBook>> loadPlaybackBooks();
+  Future<List<AudioPlaybackBook>> loadPlaybackBooks({Set<String>? versionIds});
 }
 
 final libraryMetadataPersistenceProvider =
     Provider<LibraryMetadataPersistence?>((ref) => null);
+
+/// Home needs listening history, not every book ever cached by search/details.
+/// Read those durable identities first. Only legacy history missing from the DB
+/// needs a cache scan; recover that metadata without moving/deleting any files.
+final historyPlaybackBooksProvider = FutureProvider<List<AudioPlaybackBook>>((
+  ref,
+) async {
+  final identities = ref.watch(
+    playbackProgressSnapshotsProvider.selectAsync((value) {
+      final ids = value.map((p) => p.bookVersionId).toSet().toList();
+      ids.sort();
+      return jsonEncode(ids);
+    }),
+  );
+  final persistence = ref.watch(libraryMetadataPersistenceProvider);
+  final storage = ref.watch(downloadStorageProvider);
+  final ids = (jsonDecode(await identities) as List).cast<String>().toSet();
+  if (!ref.mounted) return const [];
+  if (ids.isEmpty) return const [];
+  final durable =
+      await persistence?.loadPlaybackBooks(versionIds: ids) ??
+      <AudioPlaybackBook>[];
+  if (!ref.mounted) return const [];
+  final missing = ids.difference(durable.map((book) => book.versionId).toSet());
+  if (missing.isEmpty) return List.unmodifiable(durable);
+  final books = {for (final book in durable) libraryPlaybackKey(book): book};
+  for (final book in await storage.readAllMetadata()) {
+    if (!ref.mounted) return const [];
+    if (!missing.contains(book.versionId)) continue;
+    books[libraryPlaybackKey(book)] = book;
+    await persistence?.savePlaybackBook(book);
+  }
+  return List.unmodifiable(books.values);
+});
 
 /// Cached metadata alone is not a library membership. The shelf projection
 /// below only includes books referenced by progress, downloads, Later or marks.
 final libraryPlaybackBooksProvider = FutureProvider<List<AudioPlaybackBook>>((
   ref,
 ) async {
-  ref.watch(
-    playbackProgressSnapshotsProvider.select((value) {
-      final ids =
-          value.asData?.value.map((p) => p.bookVersionId).toSet().toList() ??
-          <String>[];
+  final identities = ref.watch(
+    playbackProgressSnapshotsProvider.selectAsync((value) {
+      final ids = value.map((p) => p.bookVersionId).toSet().toList();
       ids.sort();
-      return ids.join('\u0000');
+      return jsonEncode(ids);
     }),
   );
   final persistence = ref.watch(libraryMetadataPersistenceProvider);
   final storage = ref.watch(downloadStorageProvider);
   final durable =
       await persistence?.loadPlaybackBooks() ?? <AudioPlaybackBook>[];
+  if (!ref.mounted) return const [];
   final cached = await storage.readAllMetadata();
+  if (!ref.mounted) return const [];
   if (persistence != null) {
-    final progress = await ref.read(playbackProgressSnapshotsProvider.future);
-    final referenced = progress.map((p) => p.bookVersionId).toSet();
+    final referenced = (jsonDecode(await identities) as List)
+        .cast<String>()
+        .toSet();
+    if (!ref.mounted) return const [];
     final persisted = durable.map((b) => b.versionId).toSet();
     for (final book in cached) {
+      if (!ref.mounted) return const [];
       if (referenced.contains(book.versionId) &&
           !persisted.contains(book.versionId)) {
         await persistence.savePlaybackBook(book);
@@ -105,7 +144,9 @@ class LibraryPlaybackMetadataStore implements PlaybackBookMetadataStore {
       versionId: versionId,
     );
     if (cached != null) return cached;
-    for (final book in await library.loadPlaybackBooks()) {
+    for (final book in await library.loadPlaybackBooks(
+      versionIds: {versionId},
+    )) {
       if (book.sourceId == sourceId && book.versionId == versionId) return book;
     }
     return null;

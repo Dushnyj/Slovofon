@@ -1,3 +1,6 @@
+import '../motion/motion_tooltip.dart';
+import '../motion/motion_controls.dart';
+import '../motion/app_motion.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -83,7 +86,7 @@ class _DesktopVolumeControlState extends State<DesktopVolumeControl> {
             ),
           ),
         ],
-        builder: (context, controller, child) => IconButton(
+        builder: (context, controller, child) => AppIconButton(
           tooltip: context.strings.volume,
           focusNode: _anchorFocus,
           // TV focus changes both the fill and foreground together. An
@@ -102,9 +105,7 @@ class _DesktopVolumeControlState extends State<DesktopVolumeControl> {
                     borderRadius: BorderRadius.circular(10),
                   ),
                 ).copyWith(
-                  animationDuration: MediaQuery.disableAnimationsOf(context)
-                      ? Duration.zero
-                      : null,
+                  animationDuration: AppMotion.of(context).duration(),
                   side: WidgetStateProperty.resolveWith(
                     (states) => BorderSide(
                       color: states.contains(WidgetState.focused)
@@ -179,7 +180,7 @@ class _DesktopVolumePopover extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
           child: Row(
             children: [
-              IconButton(
+              AppIconButton(
                 key: const ValueKey('desktop-volume-mute-button'),
                 tooltip: volume > 0 ? strings.mute : strings.volume,
                 onPressed: onToggleMute,
@@ -216,7 +217,7 @@ class _DesktopVolumePopover extends StatelessWidget {
                       overlayRadius: 14,
                     ),
                   ),
-                  child: Slider(
+                  child: AppSlider(
                     key: const ValueKey('desktop-volume-slider'),
                     autofocus: true,
                     value: volume.clamp(0, 1).toDouble(),

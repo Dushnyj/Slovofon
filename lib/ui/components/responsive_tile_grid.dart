@@ -146,3 +146,238 @@ class ResponsiveTileGrid extends StatelessWidget {
     ],
   );
 }
+
+/// Shared pure geometry for lazy catalog rows and mixed-section SliverLists.
+/// This intentionally matches the bounded box ResponsiveTileGrid layout.
+({int columns, double tileWidth}) resolveResponsiveTileGridGeometry(
+  BuildContext context,
+  double width, {
+  double spacing = 12,
+  double minTileWidth = 300,
+  int maxColumns = 5,
+  double televisionMinTileWidth = ResponsiveTileGrid.televisionBookMinWidth,
+  int? televisionMaxColumns,
+  bool stretchDesktopColumns = false,
+  bool singleColumn = false,
+}) {
+  final scale = MediaQuery.textScalerOf(context).scale(14) / 14;
+  var columns = 1;
+  var tileWidth = width;
+  if (!singleColumn && TelevisionLayout.isActive(context)) {
+    final minimum =
+        math.max(1.0, televisionMinTileWidth) * math.max(1.0, scale);
+    final available = math.max(
+      1,
+      ((width + spacing) / (minimum + spacing)).floor(),
+    );
+    columns = math.max(
+      1,
+      math.min(televisionMaxColumns ?? available, available),
+    );
+    tileWidth = (width - spacing * (columns - 1)) / columns;
+  } else if (!singleColumn && isDesktopTileLayout(context)) {
+    if (DesktopLayout.isActive(context)) {
+      final preferred = math.max(minTileWidth, 464.0 * scale.clamp(1.0, 1.5));
+      columns = math.max(
+        1,
+        math.min(
+          maxColumns,
+          ((width + spacing) / (preferred + spacing)).floor(),
+        ),
+      );
+      tileWidth = stretchDesktopColumns
+          ? (width - spacing * (columns - 1)) / columns
+          : math.min(width, preferred);
+    } else {
+      final minimum = math.min(width, minTileWidth * math.max(1.0, scale));
+      columns = math.max(
+        1,
+        math.min(maxColumns, ((width + spacing) / (minimum + spacing)).floor()),
+      );
+      tileWidth = (width - spacing * (columns - 1)) / columns;
+    }
+  }
+  return (columns: columns, tileWidth: tileWidth);
+}
+
+/// Scroll-native equivalent of [ResponsiveTileGrid]. Only viewport/cache rows
+/// are mounted; row height remains natural (including 200% text), as with Wrap.
+/// Use the box variant only for small, bounded collections.
+class SliverResponsiveTileGrid extends StatefulWidget {
+  const SliverResponsiveTileGrid.builder({
+    required this.itemCount,
+    required this.itemBuilder,
+    this.itemKeyBuilder,
+    this.spacing = 12,
+    this.runSpacing = 12,
+    this.minTileWidth = 300,
+    this.maxColumns = 5,
+    this.televisionMinTileWidth = ResponsiveTileGrid.televisionBookMinWidth,
+    this.televisionMaxColumns,
+    this.stretchDesktopColumns = false,
+    this.singleColumn = false,
+    super.key,
+  });
+
+  final int itemCount;
+  final IndexedWidgetBuilder itemBuilder;
+  final LocalKey Function(int index)? itemKeyBuilder;
+  final double spacing;
+  final double runSpacing;
+  final double minTileWidth;
+  final int maxColumns;
+  final double televisionMinTileWidth;
+  final int? televisionMaxColumns;
+  final bool stretchDesktopColumns;
+  final bool singleColumn;
+
+  @override
+  State<SliverResponsiveTileGrid> createState() =>
+      _SliverResponsiveTileGridState();
+}
+
+class _SliverResponsiveTileGridState extends State<SliverResponsiveTileGrid> {
+  // Stable, lazily allocated keys retain a focused card when incremental search
+  // inserts/sorts results into different rows. Never key by list position.
+  final _itemKeys = <LocalKey, GlobalKey>{};
+  int get itemCount => widget.itemCount;
+  IndexedWidgetBuilder get itemBuilder => widget.itemBuilder;
+  LocalKey Function(int)? get itemKeyBuilder => widget.itemKeyBuilder;
+  double get spacing => widget.spacing;
+  double get runSpacing => widget.runSpacing;
+  double get minTileWidth => widget.minTileWidth;
+  int get maxColumns => widget.maxColumns;
+  double get televisionMinTileWidth => widget.televisionMinTileWidth;
+  int? get televisionMaxColumns => widget.televisionMaxColumns;
+  bool get stretchDesktopColumns => widget.stretchDesktopColumns;
+  bool get singleColumn => widget.singleColumn;
+
+  @override
+  Widget build(BuildContext context) => SliverLayoutBuilder(
+    builder: (context, constraints) {
+      final width = constraints.crossAxisExtent;
+      final geometry = resolveResponsiveTileGridGeometry(
+        context,
+        width,
+        spacing: spacing,
+        minTileWidth: minTileWidth,
+        maxColumns: maxColumns,
+        televisionMinTileWidth: televisionMinTileWidth,
+        televisionMaxColumns: televisionMaxColumns,
+        stretchDesktopColumns: stretchDesktopColumns,
+        singleColumn: singleColumn,
+      );
+      final columns = geometry.columns;
+      final tileWidth = geometry.tileWidth;
+      final rowCount = (itemCount / columns).ceil();
+      if (itemKeyBuilder != null && _itemKeys.isNotEmpty) {
+        final currentKeys = {
+          for (var i = 0; i < itemCount; i++) itemKeyBuilder!(i),
+        };
+        _itemKeys.removeWhere((key, _) => !currentKeys.contains(key));
+      }
+      // A keyed row lets the sliver retain state when entries reorder. The
+      // item keys inside it also keep focus/state aligned with book identity.
+      final rowIndices = itemKeyBuilder == null
+          ? null
+          : <Key, int>{
+              for (var row = 0; row < rowCount; row++)
+                ValueKey<LocalKey>(itemKeyBuilder!(row * columns)): row,
+            };
+      return SliverList(
+        delegate: SliverChildBuilderDelegate(
+          (context, row) {
+            final start = row * columns;
+            return Padding(
+              key: itemKeyBuilder == null
+                  ? null
+                  : ValueKey<LocalKey>(itemKeyBuilder!(start)),
+              padding: EdgeInsets.only(
+                bottom: row == rowCount - 1 ? 0 : runSpacing,
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (
+                    var column = 0;
+                    column < columns && start + column < itemCount;
+                    column++
+                  ) ...[
+                    if (column > 0) SizedBox(width: spacing),
+                    SizedBox(
+                      key: itemKeyBuilder?.call(start + column),
+                      width: tileWidth,
+                      child: itemKeyBuilder == null
+                          ? itemBuilder(context, start + column)
+                          : KeyedSubtree(
+                              key: _itemKeys.putIfAbsent(
+                                itemKeyBuilder!(start + column),
+                                GlobalKey.new,
+                              ),
+                              child: itemBuilder(context, start + column),
+                            ),
+                    ),
+                  ],
+                ],
+              ),
+            );
+          },
+          childCount: rowCount,
+          findChildIndexCallback: rowIndices == null
+              ? null
+              : (key) => rowIndices[key],
+        ),
+      );
+    },
+  );
+}
+
+/// Scroll-native desktop split: both columns share the same scroll offset but
+/// only visible primary rows build. The compact breakpoint matches the box
+/// DesktopWorkspaceColumns; neither pane owns an extra nested scroll view.
+class SliverWorkspaceColumns extends StatelessWidget {
+  const SliverWorkspaceColumns({
+    required this.primary,
+    required this.secondary,
+    this.secondaryWidth = 340,
+    this.minimumPrimaryWidth = 560,
+    this.gap = 24,
+    super.key,
+  });
+  final Widget primary;
+  final Widget secondary;
+  final double secondaryWidth;
+  final double minimumPrimaryWidth;
+  final double gap;
+
+  @override
+  Widget build(BuildContext context) => SliverLayoutBuilder(
+    builder: (context, constraints) {
+      final factor = DesktopLayout.workspaceScaleFactor(context);
+      final sideWidth = secondaryWidth * factor;
+      if (constraints.crossAxisExtent <
+          minimumPrimaryWidth * factor + sideWidth + gap) {
+        return SliverMainAxisGroup(
+          slivers: [
+            primary,
+            SliverToBoxAdapter(child: SizedBox(height: gap)),
+            SliverToBoxAdapter(child: secondary),
+          ],
+        );
+      }
+      return SliverCrossAxisGroup(
+        slivers: [
+          SliverCrossAxisExpanded(flex: 1, sliver: primary),
+          SliverConstrainedCrossAxis(
+            maxExtent: gap,
+            sliver: const SliverToBoxAdapter(child: SizedBox.shrink()),
+          ),
+          SliverConstrainedCrossAxis(
+            maxExtent: sideWidth,
+            sliver: SliverToBoxAdapter(child: secondary),
+          ),
+        ],
+      );
+    },
+  );
+}

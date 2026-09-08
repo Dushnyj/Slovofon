@@ -27,6 +27,7 @@ import 'package:slovofon/services/updates/update_installer.dart';
 import 'package:slovofon/services/updates/update_manifest.dart';
 import 'package:slovofon/services/updates/update_service.dart';
 import 'package:slovofon/sources/sources.dart';
+import 'package:slovofon/ui/motion/motion_controls.dart';
 
 import 'test_search_history_store.dart';
 
@@ -97,11 +98,10 @@ void main() {
                 expect(fixture.controller.state.volume, .37);
                 await _open(tester, fixture, surface);
                 expect(
-                  tester
-                      .widget<Slider>(
-                        find.byKey(const ValueKey('desktop-volume-slider')),
-                      )
-                      .value,
+                  _readSlider(
+                    tester,
+                    find.byKey(const ValueKey('desktop-volume-slider')),
+                  ).value,
                   .37,
                 );
               }
@@ -192,6 +192,31 @@ void main() {
 }
 
 void _polishTests() {
+  testWidgets(
+    'Windows animation dialog Full to Reduced and Off preserves host state',
+    (tester) async {
+      final fixture = await _pumpApp(tester, _Surface.animations, false, 2);
+      final hostRoute = appRouter.state.uri;
+      for (final mode in [AppAnimationsMode.reduced, AppAnimationsMode.off]) {
+        await fixture.settings.setAnimationsMode(AppAnimationsMode.full);
+        await _frames(tester);
+        await _open(tester, fixture, _Surface.animations);
+        final choice = _textIn(
+          _overlay(_Surface.animations),
+          mode == AppAnimationsMode.reduced ? 'Reduced' : 'Off',
+        );
+        await _reveal(tester, choice);
+        await tester.tap(choice);
+        await _frames(tester);
+        expect(_overlay(_Surface.animations), findsNothing);
+        expect(fixture.settings.settings.animationsMode, mode);
+        expect(fixture.settings.settings.textScale, 2);
+        expect(appRouter.state.uri, hostRoute);
+        expect(tester.takeException(), isNull);
+      }
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.windows),
+  );
   for (final dark in [false, true]) {
     testWidgets(
       'Windows color preview and apply stay visible at compact 200% dark $dark',
@@ -244,7 +269,7 @@ void _polishTests() {
           await _reveal(tester, tile);
           await tester.tap(tile);
           await _frames(tester);
-          final widget = tester.widget<CheckboxListTile>(tile);
+          final widget = tester.widget<AppCheckboxListTile>(tile);
           expect(widget.value, isFalse);
           expect((widget.subtitle as Text).data, 'Excluded from search');
           expect(fixture.sources.isEnabled(item.sourceId), isTrue);
@@ -253,7 +278,7 @@ void _polishTests() {
           ValueKey('source-choice-${choices.last.sourceId}'),
         );
         await _reveal(tester, last);
-        final widget = tester.widget<CheckboxListTile>(last);
+        final widget = tester.widget<AppCheckboxListTile>(last);
         expect(widget.value, isTrue);
         expect(widget.onChanged, isNull);
         expect(find.text('Select at least one source'), findsOneWidget);
@@ -352,7 +377,7 @@ void _draftTests() {
                   : find
                         .descendant(
                           of: overlay,
-                          matching: find.byType(CheckboxListTile),
+                          matching: find.byType(AppCheckboxListTile),
                         )
                         .at(surface == _Surface.sources ? 0 : 1);
             }
@@ -367,14 +392,14 @@ void _draftTests() {
                 Offset(rect.left + rect.width * .4, rect.center.dy),
               );
             } else {
-              final tile = tester.widget<CheckboxListTile>(control);
+              final tile = tester.widget<AppCheckboxListTile>(control);
               selectedKind = (tile.title! as Text).data;
               await tester.tap(control);
             }
             await _frames(tester);
             final value = surface == _Surface.customAccent
-                ? tester.widget<Slider>(draftControl()).value
-                : tester.widget<CheckboxListTile>(draftControl()).value;
+                ? _readSlider(tester, draftControl()).value
+                : tester.widget<AppCheckboxListTile>(draftControl()).value;
             if (surface == _Surface.sources) {
               expect(value, isFalse);
               expect(fixture.sources.isEnabled('izib'), isTrue);
@@ -391,8 +416,8 @@ void _draftTests() {
               await _reveal(tester, draftControl());
               expect(
                 surface == _Surface.customAccent
-                    ? tester.widget<Slider>(draftControl()).value
-                    : tester.widget<CheckboxListTile>(draftControl()).value,
+                    ? _readSlider(tester, draftControl()).value
+                    : tester.widget<AppCheckboxListTile>(draftControl()).value,
                 value,
                 reason:
                     'Resizing must not reset ${surface.name} draft at $size',
@@ -432,7 +457,7 @@ void _draftTests() {
               );
               await _open(tester, fixture, surface);
               expect(
-                tester.widget<CheckboxListTile>(draftControl()).value,
+                tester.widget<AppCheckboxListTile>(draftControl()).value,
                 isTrue,
               );
               await tester.sendKeyEvent(LogicalKeyboardKey.escape);
@@ -959,4 +984,12 @@ class _Connector implements SourceConnector {
   @override
   Future<SourceHealth> checkHealth() async =>
       SourceHealth.working(sourceId: id);
+}
+
+Slider _readSlider(WidgetTester tester, Finder root) {
+  final widget = tester.widget(root);
+  if (widget is Slider) return widget;
+  return tester.widget<Slider>(
+    find.descendant(of: root, matching: find.byType(Slider)),
+  );
 }

@@ -398,7 +398,11 @@ class _Catalog extends SourceCatalogService {
   _Catalog() : super(registry: SourceRegistry([]));
   final requests = <SearchRequest>[];
   @override
-  Future<SourceSearchResponse> search(SearchRequest request) async {
+  Future<SourceSearchResponse> search(
+    SearchRequest request, {
+    void Function(SourceSearchResponse response)? onUpdate,
+    SourceSearchCancellation? cancellation,
+  }) async {
     requests.add(request);
     return const SourceSearchResponse(
       results: [

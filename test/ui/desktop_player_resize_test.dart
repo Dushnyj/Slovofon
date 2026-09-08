@@ -188,7 +188,7 @@ void main() {
         await tester.tap(volume);
         await tester.pumpAndSettle();
         final slider = find.byKey(const ValueKey('desktop-volume-slider'));
-        expect(tester.widget<Slider>(slider).value, closeTo(.37, .001));
+        expect(_readSlider(tester, slider).value, closeTo(.37, .001));
         await tester.tapAt(tester.getCenter(slider));
         await tester.pumpAndSettle();
         expect(fixture.controller.state.volume, closeTo(.5, .03));
@@ -213,7 +213,7 @@ void main() {
           await tester.tap(volume);
           await tester.pumpAndSettle();
         }
-        expect(tester.widget<Slider>(slider).value, setVolume);
+        expect(_readSlider(tester, slider).value, setVolume);
         await tester.sendKeyEvent(LogicalKeyboardKey.escape);
         await tester.pumpAndSettle();
         expect(
@@ -226,7 +226,7 @@ void main() {
           find.byTooltip(AppStrings.forLocale(const Locale('ru')).volume),
         );
         await tester.pumpAndSettle();
-        expect(tester.widget<Slider>(slider).value, setVolume);
+        expect(_readSlider(tester, slider).value, setVolume);
         expect(tester.takeException(), isNull);
       },
     );
@@ -590,8 +590,11 @@ void main() {
         findsNothing,
       );
       expect(hostEscapes, 0);
+      // AppIconButton puts the policy-controlled tooltip around the stock
+      // IconButton. Assert focus on the actual interactive button, not its
+      // former ancestor relationship to the framework tooltip.
       final anchor = tester.widget<IconButton>(
-        find.ancestor(of: volume, matching: find.byType(IconButton)),
+        find.descendant(of: volume, matching: find.byType(IconButton)),
       );
       expect(anchor.focusNode!.hasFocus, isTrue);
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
@@ -886,4 +889,12 @@ class _PendingLoadEngine extends InMemoryAudioEngine {
     await ready.future;
     await super.load(chapter, position: position, book: book);
   }
+}
+
+Slider _readSlider(WidgetTester tester, Finder root) {
+  final widget = tester.widget(root);
+  if (widget is Slider) return widget;
+  return tester.widget<Slider>(
+    find.descendant(of: root, matching: find.byType(Slider)),
+  );
 }

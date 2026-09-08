@@ -11,12 +11,14 @@
 #include "win32_window.h"
 #include "windows_close_request.h"
 #include "windows_installation_task.h"
+#include "windows_single_instance.h"
 
 // A window that does nothing but host a Flutter view.
 class FlutterWindow : public Win32Window {
  public:
   // Creates a new FlutterWindow hosting a Flutter view running |project|.
-  explicit FlutterWindow(const flutter::DartProject& project);
+  FlutterWindow(const flutter::DartProject& project,
+                windows_activation::SingleInstance& single_instance);
   virtual ~FlutterWindow();
 
  protected:
@@ -36,11 +38,16 @@ class FlutterWindow : public Win32Window {
 
   // The project to run.
   flutter::DartProject project_;
+  windows_activation::SingleInstance& single_instance_;
+  windows_activation::PendingActivations pending_activations_;
+  bool activation_listener_ready_ = false;
 
   // The Flutter instance hosted by this window.
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;
 
   // Destroy the channel before its engine/binary messenger.
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
+      windows_activation_channel_;
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
       windows_update_channel_;
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>

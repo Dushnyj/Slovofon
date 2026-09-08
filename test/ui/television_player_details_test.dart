@@ -201,7 +201,13 @@ void main() {
           final controls = tester.getRect(
             find.byKey(const ValueKey('windows-full-player-controls')),
           );
-          expect(controls.bottom, lessThanOrEqualTo(540 - 21.6 + .01));
+          expect(controls.bottom, lessThanOrEqualTo(540 + .01));
+          expect(
+            tester.getRect(
+              find.byKey(const ValueKey('television-full-player')),
+            ),
+            const Rect.fromLTWH(0, 0, 960, 540),
+          );
           expect(find.byType(SlovofonBottomNavigationBar), findsNothing);
           expect(find.byType(MiniPlayerBar), findsNothing);
         });
@@ -625,6 +631,7 @@ _pump(
         downloadManagerProvider.overrideWith((ref) => manager),
         downloadStorageProvider.overrideWithValue(storage),
         libraryPlaybackBooksProvider.overrideWith((ref) async => [book]),
+        historyPlaybackBooksProvider.overrideWith((ref) async => [book]),
         if (catalog != null)
           sourceCatalogServiceProvider.overrideWithValue(catalog),
       ],

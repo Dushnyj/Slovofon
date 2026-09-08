@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'source_models.dart';
 import 'source_response_reader.dart';
+import 'source_search_cancellation.dart';
 
 /// Enforced both by clients (including injected transports) and before every
 /// native HTTP request, including redirects. Book IDs must not select a host.
@@ -70,12 +71,16 @@ class SourceMetadataTransport {
     required Map<String, String> headers,
     List<int> bodyBytes = const [],
   }) async {
+    final cancellation = SourceSearchCancellation.current;
+    cancellation?.throwIfCancelled();
     var currentUri = policy.validate(uri);
     var currentMethod = method;
     var currentBody = bodyBytes;
     final client = _httpClientFactory()..connectionTimeout = timeout;
+    final unlink = cancellation?.addListener(() => client.close(force: true));
     try {
       for (var redirects = 0; ; redirects++) {
+        cancellation?.throwIfCancelled();
         policy.validate(currentUri);
         final request = await client
             .openUrl(currentMethod, currentUri)
@@ -126,6 +131,7 @@ class SourceMetadataTransport {
         return SourceMetadataResponse(response.statusCode, body);
       }
     } finally {
+      unlink?.call();
       client.close(force: true);
     }
   }

@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'support/sliver_geometry.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -125,7 +127,10 @@ void main() {
       find.byKey(const ValueKey('desktop-search-controls')),
     );
     final secondary = tester.getRect(
-      find.byKey(const ValueKey('desktop-search-secondary')),
+      find.byKey(
+        const ValueKey('desktop-search-secondary'),
+        skipOffstage: false,
+      ),
     );
     expect(primary.left, 220 + 32);
     expect(primary.right, 1920 - 32);
@@ -406,7 +411,7 @@ void main() {
         await tester.testTextInput.receiveAction(TextInputAction.search);
         await tester.pumpAndSettle();
         expect(catalog.requests, hasLength(1));
-        expect(find.byType(BookCard), findsNWidgets(2));
+        expect(find.byType(BookCard).evaluate().length, inInclusiveRange(1, 2));
         for (final width in [1920.0, 1280.0, 2560.0]) {
           tester.view.physicalSize = Size(width, 1000);
           await tester.pumpAndSettle();
@@ -415,12 +420,20 @@ void main() {
             'Audiobook',
           );
           expect(catalog.requests, hasLength(1));
-          expect(find.byType(BookCard), findsNWidgets(2));
-          final primary = tester.getRect(
+          expect(
+            find.byType(BookCard).evaluate().length,
+            inInclusiveRange(1, 2),
+          );
+          final primary = scrollContentRect(
+            tester,
             find.byKey(const ValueKey('desktop-search-primary')),
           );
-          final secondary = tester.getRect(
-            find.byKey(const ValueKey('desktop-search-secondary')),
+          final secondary = scrollContentRect(
+            tester,
+            find.byKey(
+              const ValueKey('desktop-search-secondary'),
+              skipOffstage: false,
+            ),
           );
           final factor = (1 + .3 * (scale - 1)).clamp(1.0, 2.0);
           final controls = tester.getRect(
@@ -481,35 +494,67 @@ void main() {
             await tester.enterText(find.byType(TextField), 'Audiobook');
             await tester.testTextInput.receiveAction(TextInputAction.search);
             await tester.pumpAndSettle();
-            expect(find.byType(BookCard), findsNWidgets(15));
+            expect(
+              find.byType(BookCard).evaluate().length,
+              inInclusiveRange(1, 15),
+            );
             final controls = tester.getRect(
               find.byKey(const ValueKey('desktop-search-controls')),
             );
-            final primary = tester.getRect(
+            final primary = scrollContentRect(
+              tester,
               find.byKey(const ValueKey('desktop-search-primary')),
             );
-            final secondary = tester.getRect(
-              find.byKey(const ValueKey('desktop-search-secondary')),
+            final secondary = scrollContentRect(
+              tester,
+              find.byKey(
+                const ValueKey('desktop-search-secondary'),
+                skipOffstage: false,
+              ),
             );
             expect(controls.width, width - 244 - 64);
             expect(primary.top - controls.bottom, closeTo(12, .01));
-            for (var index = 0; index < 15; index++) {
-              final card = tester.getRect(find.byType(BookCard).at(index));
-              expect(card.left, primary.left);
-              expect(card.right, closeTo(primary.right, .01));
-              expect(
-                tester
-                    .widget<BookCard>(find.byType(BookCard).at(index))
-                    .desktopPresentation,
-                DesktopBookPresentation.result,
-              );
-              if (index > 0) {
-                final previous = tester.getRect(
-                  find.byType(BookCard).at(index - 1),
+            // Inspect every row across the virtual viewport, using content
+            // coordinates so spacing assertions are independent of scroll.
+            final scrollable = find.byType(Scrollable).first;
+            final scroll = tester.state<ScrollableState>(scrollable).position;
+            final measured = <String, Rect>{};
+            void collect() {
+              for (final element in find.byType(BookCard).evaluate()) {
+                final card = element.widget as BookCard;
+                final rect = tester.getRect(
+                  find.byElementPredicate((e) => identical(e, element)),
                 );
-                expect(card.top - previous.bottom, closeTo(12, .01));
+                measured[card.book.id] = rect.shift(Offset(0, scroll.pixels));
+                expect(rect.left, primary.left);
+                expect(rect.right, closeTo(primary.right, .01));
+                expect(
+                  card.desktopPresentation,
+                  DesktopBookPresentation.result,
+                );
               }
             }
+
+            collect();
+            var visits = 0;
+            while (scroll.pixels < scroll.maxScrollExtent && visits++ < 100) {
+              scroll.jumpTo(
+                (scroll.pixels + 300).clamp(0, scroll.maxScrollExtent),
+              );
+              await tester.pump();
+              collect();
+            }
+            expect(measured, hasLength(15));
+            final rows = measured.values.toList()
+              ..sort((a, b) => a.top.compareTo(b.top));
+            for (var index = 1; index < rows.length; index++) {
+              expect(
+                rows[index].top - rows[index - 1].bottom,
+                closeTo(12, .01),
+              );
+            }
+            scroll.jumpTo(0);
+            await tester.pump();
             final factor = (1 + .3 * (scale - 1)).clamp(1.0, 2.0);
             if (controls.width >= (620 + 340) * factor + 24) {
               expect(secondary.top, primary.top);
@@ -556,6 +601,7 @@ void main() {
           expect(
             find.byWidgetPredicate(
               (widget) => widget is Text && widget.data == 'Audiobook',
+              skipOffstage: false,
             ),
             findsOneWidget,
           ); // History only; no repeated result heading.
@@ -586,7 +632,7 @@ void main() {
         width: 1920,
         catalog: catalog,
       );
-      expect(find.byType(BookCard), findsNWidgets(2));
+      expect(find.byType(BookCard).evaluate().length, inInclusiveRange(1, 2));
       expect(find.textContaining('private low-level detail'), findsNothing);
       expect(
         find.descendant(
@@ -602,7 +648,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(catalog.requests, hasLength(2));
       expect(catalog.requests.last.query, 'Audiobook');
-      expect(find.byType(BookCard), findsNWidgets(2));
+      expect(find.byType(BookCard).evaluate().length, inInclusiveRange(1, 2));
       expect(tester.takeException(), isNull);
     },
   );
@@ -680,7 +726,18 @@ void main() {
           locale: const Locale('ru'),
           downloadManager: _PopulatedDownloads(),
         );
-        expect(find.byType(ExpansionTile), findsNWidgets(3));
+        for (var index = 0; index < 3; index++) {
+          await tester.scrollUntilVisible(
+            find.byKey(
+              PageStorageKey(
+                'desktop-download-expansion-baza_knig:version-$index',
+              ),
+            ),
+            250,
+            scrollable: find.byType(Scrollable).first,
+          );
+          expect(tester.takeException(), isNull);
+        }
         expect(tester.takeException(), isNull);
         await tester.pumpWidget(const SizedBox.shrink());
       }
@@ -867,7 +924,11 @@ class _SearchWorkspaceCatalog extends SourceCatalogService {
   final requests = <SearchRequest>[];
 
   @override
-  Future<SourceSearchResponse> search(SearchRequest request) async {
+  Future<SourceSearchResponse> search(
+    SearchRequest request, {
+    void Function(SourceSearchResponse response)? onUpdate,
+    SourceSearchCancellation? cancellation,
+  }) async {
     requests.add(request);
     return SourceSearchResponse(
       failures: failures,

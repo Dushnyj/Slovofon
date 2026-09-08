@@ -1,3 +1,7 @@
+import '../../ui/motion/motion_tooltip.dart';
+import '../../ui/motion/motion_controls.dart';
+import '../../ui/motion/app_motion.dart';
+import '../../ui/motion/motion_progress_indicator.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -37,8 +41,9 @@ class FullPlayerScreen extends ConsumerStatefulWidget {
 }
 
 class _FullPlayerScreenState extends ConsumerState<FullPlayerScreen>
-    with SingleTickerProviderStateMixin {
-  late final TabController _tabs;
+    with TickerProviderStateMixin {
+  late TabController _tabs;
+  Duration? _tabDuration;
   bool _tabsInitialized = false;
   // Keep the tab pages (and chapter scroll position) when the book panel moves
   // between the wide sidebar and the compact information dialog.
@@ -48,18 +53,23 @@ class _FullPlayerScreenState extends ConsumerState<FullPlayerScreen>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (!_tabsInitialized) {
+    final nextDuration = TelevisionLayout.isActive(context)
+        ? Duration.zero
+        : AppMotion.of(context).spatialDuration();
+    if (!_tabsInitialized || _tabDuration != nextDuration) {
+      final previous = _tabsInitialized ? _tabs : null;
+      final index = previous?.index ?? widget.initialTabIndex.clamp(0, 3);
       _tabsInitialized = true;
+      _tabDuration = nextDuration;
       _tabs = TabController(
         length: 4,
-        initialIndex: widget.initialTabIndex.clamp(0, 3),
-        // TabBarView reads the controller's duration, not animateTo's override.
-        // Remote Down must enter the destination page on the next frame.
-        animationDuration: TelevisionLayout.isActive(context)
-            ? Duration.zero
-            : null,
+        initialIndex: index,
+        // TabBarView reads the controller duration. Changing the preference
+        // updates this too, not merely individual animateTo invocations.
+        animationDuration: nextDuration,
         vsync: this,
       );
+      previous?.dispose();
     }
   }
 
@@ -97,7 +107,7 @@ class _FullPlayerScreenState extends ConsumerState<FullPlayerScreen>
                     padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
                     child: Row(
                       children: [
-                        IconButton(
+                        AppIconButton(
                           key: const ValueKey('windows-empty-player-back'),
                           tooltip: strings.home,
                           onPressed: () => _close(context),
@@ -110,7 +120,7 @@ class _FullPlayerScreenState extends ConsumerState<FullPlayerScreen>
                             style: Theme.of(context).textTheme.titleMedium,
                           ),
                         ),
-                        IconButton(
+                        AppIconButton(
                           tooltip: strings.cancel,
                           onPressed: () => _close(context),
                           icon: const AppIcon(AppIconAssets.systemClose),
@@ -137,7 +147,7 @@ class _FullPlayerScreenState extends ConsumerState<FullPlayerScreen>
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   if (loading)
-                                    const CircularProgressIndicator()
+                                    const AppCircularProgressIndicator()
                                   else ...[
                                     AppIcon(
                                       AppIconAssets.playerAudio,
@@ -208,7 +218,7 @@ class _FullPlayerScreenState extends ConsumerState<FullPlayerScreen>
                         : const EdgeInsets.fromLTRB(24, 16, 24, 0),
                     child: Row(
                       children: [
-                        IconButton(
+                        AppIconButton(
                           tooltip: strings.home,
                           onPressed: () => _close(context),
                           icon: const AppIcon(AppIconAssets.systemBack),
@@ -226,7 +236,7 @@ class _FullPlayerScreenState extends ConsumerState<FullPlayerScreen>
                                       ?.copyWith(fontWeight: FontWeight.w700),
                                 ),
                         ),
-                        IconButton(
+                        AppIconButton(
                           tooltip: strings.cancel,
                           onPressed: () => _close(context),
                           icon: const AppIcon(AppIconAssets.systemClose),
@@ -271,14 +281,12 @@ class _FullPlayerScreenState extends ConsumerState<FullPlayerScreen>
                                         downloadManager: downloadManager,
                                         onShowChapters: () => _tabs.animateTo(
                                           1,
-                                          duration:
-                                              MediaQuery.disableAnimationsOf(
-                                                context,
-                                              )
-                                              ? Duration.zero
-                                              : const Duration(
+                                          duration: AppMotion.of(context)
+                                              .spatialDuration(
+                                                full: const Duration(
                                                   milliseconds: 180,
                                                 ),
+                                              ),
                                         ),
                                       ),
                                       _ChaptersPage(
@@ -348,13 +356,13 @@ class _FullPlayerScreenState extends ConsumerState<FullPlayerScreen>
                   padding: const EdgeInsets.fromLTRB(8, 6, 8, 0),
                   child: Row(
                     children: [
-                      IconButton(
+                      AppIconButton(
                         tooltip: context.strings.home,
                         onPressed: () => _close(context),
                         icon: const AppIcon(AppIconAssets.systemBack),
                       ),
                       const Spacer(),
-                      IconButton(
+                      AppIconButton(
                         tooltip: context.strings.cancel,
                         onPressed: () => _close(context),
                         icon: const AppIcon(AppIconAssets.systemClose),
@@ -636,7 +644,7 @@ class _TelevisionFullPlayerState extends State<_TelevisionFullPlayer> {
                         '${strings.bookProgress}: ${(widget.state.bookProgress * 100).round()}%',
                       ),
                       const SizedBox(height: 8),
-                      LinearProgressIndicator(
+                      AppLinearProgressIndicator(
                         value: widget.state.bookProgress.clamp(0, 1),
                       ),
                       const SizedBox(height: 12),
@@ -690,7 +698,7 @@ class _TelevisionFullPlayerState extends State<_TelevisionFullPlayer> {
               padding: const EdgeInsets.fromLTRB(4, 0, 4, 6),
               child: Row(
                 children: [
-                  IconButton(
+                  AppIconButton(
                     tooltip: strings.home,
                     onPressed: widget.onClose,
                     icon: const AppIcon(AppIconAssets.systemBack),
@@ -702,7 +710,7 @@ class _TelevisionFullPlayerState extends State<_TelevisionFullPlayer> {
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
                   ),
-                  IconButton(
+                  AppIconButton(
                     tooltip: strings.cancel,
                     onPressed: widget.onClose,
                     icon: const AppIcon(AppIconAssets.systemClose),
@@ -890,7 +898,7 @@ class _CompactWindowsPlayerHeader extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Tooltip(
+            AppTooltip(
               message: book.title,
               child: Text(
                 book.title,
@@ -909,7 +917,7 @@ class _CompactWindowsPlayerHeader extends StatelessWidget {
           ],
         ),
       ),
-      IconButton(
+      AppIconButton(
         key: const ValueKey('windows-compact-player-book-details'),
         tooltip: context.strings.information,
         onPressed: () => showAdaptiveSheet<void>(
@@ -1171,7 +1179,7 @@ class _WindowsPlayerTabsState extends State<_WindowsPlayerTabs> {
         (_scroll.offset + direction * _scroll.position.viewportDimension * 0.7)
             .clamp(0.0, _scroll.position.maxScrollExtent)
             .toDouble();
-    if (MediaQuery.disableAnimationsOf(context)) {
+    if (!AppMotion.of(context).hasSpatialMotion) {
       _scroll.jumpTo(target);
     } else {
       _scroll.animateTo(
@@ -1208,7 +1216,7 @@ class _WindowsPlayerTabsState extends State<_WindowsPlayerTabs> {
       child: Row(
         children: [
           if (_overflow)
-            IconButton(
+            AppIconButton(
               key: const ValueKey('windows-player-tabs-back'),
               tooltip: strings.previousTabs,
               onPressed: canBack ? () => _move(-1) : null,
@@ -1252,16 +1260,15 @@ class _WindowsPlayerTabsState extends State<_WindowsPlayerTabs> {
                                     borderRadius: BorderRadius.circular(10),
                                   ),
                                 ).copyWith(
-                                  animationDuration:
-                                      MediaQuery.disableAnimationsOf(context)
-                                      ? Duration.zero
-                                      : null,
+                                  animationDuration: AppMotion.of(
+                                    context,
+                                  ).duration(),
                                 ),
                             onPressed: () => widget.controller.animateTo(
                               index,
-                              duration: MediaQuery.disableAnimationsOf(context)
-                                  ? Duration.zero
-                                  : const Duration(milliseconds: 180),
+                              duration: AppMotion.of(context).spatialDuration(
+                                full: const Duration(milliseconds: 180),
+                              ),
                             ),
                             child: Text(labels[index]),
                           ),
@@ -1273,7 +1280,7 @@ class _WindowsPlayerTabsState extends State<_WindowsPlayerTabs> {
             ),
           ),
           if (_overflow)
-            IconButton(
+            AppIconButton(
               key: const ValueKey('windows-player-tabs-forward'),
               tooltip: strings.nextTabs,
               onPressed: canForward ? () => _move(1) : null,
@@ -1348,7 +1355,7 @@ class _WindowsNowPlayingDetails extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 12),
-        LinearProgressIndicator(
+        AppLinearProgressIndicator(
           key: const ValueKey('windows-player-book-progress'),
           value: state.bookProgress,
           minHeight: 4,
@@ -1636,7 +1643,7 @@ class _LinkedPeopleMetaLine extends StatelessWidget {
                 ),
                 if (index < visiblePeople.length - 1) const _MetaText(', '),
               ],
-              if (hasMore) const _MetaText(' и др.'),
+              if (hasMore) _MetaText(context.strings.peopleAndOthers('')),
             ],
           ),
         ),
@@ -2041,11 +2048,9 @@ class _ChaptersPageState extends State<_ChaptersPage> {
                       right: 0,
                       bottom: 8,
                       child: AnimatedSwitcher(
-                        duration:
-                            _usesLargeScreenPlayer(context) &&
-                                MediaQuery.disableAnimationsOf(context)
-                            ? Duration.zero
-                            : const Duration(milliseconds: 180),
+                        duration: AppMotion.of(
+                          context,
+                        ).duration(full: const Duration(milliseconds: 180)),
                         child: _showCurrentChapterButton
                             ? Center(
                                 child: _CurrentChapterButton(
@@ -2117,7 +2122,7 @@ class _ChaptersPageState extends State<_ChaptersPage> {
     final target = _initialScrollOffset(
       chapterIndex,
     ).clamp(0.0, _controller.position.maxScrollExtent);
-    if (MediaQuery.disableAnimationsOf(context)) {
+    if (!AppMotion.of(context).hasSpatialMotion) {
       _controller.jumpTo(target);
     } else {
       unawaited(
@@ -2156,6 +2161,10 @@ class _CurrentChapterButton extends StatelessWidget {
       elevation: 4,
       borderRadius: BorderRadius.circular(999),
       child: InkWell(
+        hoverDuration: AppMotion.of(context).duration(
+          full: const Duration(milliseconds: 50),
+          reduced: const Duration(milliseconds: 40),
+        ),
         key: const ValueKey('full-player-current-chapter-button'),
         borderRadius: BorderRadius.circular(999),
         onTap: onPressed,
@@ -2204,7 +2213,7 @@ class _BookmarksPageState extends ConsumerState<_BookmarksPage> {
     if (!mounted) return;
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    ).showMotionSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _add() async {
@@ -2248,7 +2257,7 @@ class _BookmarksPageState extends ConsumerState<_BookmarksPage> {
 
   Future<void> _remove(PlaybackBookmark bookmark) async {
     if (_removing.contains(bookmark.id)) return;
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showMotionDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         key: const ValueKey('player-bookmark-delete-dialog'),
@@ -2321,7 +2330,7 @@ class _BookmarksPageState extends ConsumerState<_BookmarksPage> {
         ),
         const SizedBox(height: 16),
         if (!store.isLoaded)
-          const Center(child: CircularProgressIndicator())
+          const Center(child: AppCircularProgressIndicator())
         else if (store.error != null) ...[
           Text(strings.libraryLoadError),
           TextButton(
@@ -2358,7 +2367,7 @@ class _BookmarksPageState extends ConsumerState<_BookmarksPage> {
                           : null,
                     ),
                   ),
-                  IconButton(
+                  AppIconButton(
                     key: ValueKey('player-bookmark-delete-${bookmark.id}'),
                     tooltip: strings.deleteBookmarkAction,
                     onPressed: _removing.contains(bookmark.id)
@@ -2539,7 +2548,7 @@ class _InformationPage extends StatelessWidget {
         ),
         Align(
           alignment: Alignment.centerLeft,
-          child: IconButton.filled(
+          child: AppIconButton.filled(
             tooltip: strings.bookDetails,
             onPressed: () {
               final sourceBookId = book.sourceBookId;
@@ -2619,7 +2628,7 @@ class _PlayerChromeState extends State<_PlayerChrome> {
           onPressed: () => service.skipBy(const Duration(seconds: -15)),
         ),
         const SizedBox(width: 16),
-        IconButton.filled(
+        AppIconButton.filled(
           key: television ? const ValueKey('tv-full-player-toggle') : null,
           tooltip: state.isPlaying ? strings.pause : strings.play,
           style:
@@ -2641,9 +2650,7 @@ class _PlayerChromeState extends State<_PlayerChrome> {
                         ),
                       )
                     : null,
-                animationDuration: MediaQuery.disableAnimationsOf(context)
-                    ? Duration.zero
-                    : null,
+                animationDuration: AppMotion.of(context).duration(),
               ),
           onPressed: service.togglePlayPause,
           icon: AppIcon(
@@ -2727,7 +2734,7 @@ class _PlayerChromeState extends State<_PlayerChrome> {
                                 overlayRadius: 14,
                               ),
                             ),
-                            child: Slider(
+                            child: AppSlider(
                               key: const ValueKey('windows-full-player-seek'),
                               value: sliderValue,
                               onChanged: state.chapterDuration > Duration.zero
@@ -2825,7 +2832,7 @@ class _PlayerChromeState extends State<_PlayerChrome> {
                 trackHeight: 5,
                 thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
               ),
-              child: Slider(
+              child: AppSlider(
                 value: sliderValue,
                 onChanged: (value) => setState(() => _dragProgress = value),
                 onChangeEnd: (value) {
@@ -2863,7 +2870,7 @@ class _PlayerChromeState extends State<_PlayerChrome> {
                   iconAsset: AppIconAssets.playerRewind15,
                   onPressed: () => service.skipBy(const Duration(seconds: -15)),
                 ),
-                IconButton.filled(
+                AppIconButton.filled(
                   tooltip: state.isPlaying ? strings.pause : strings.play,
                   iconSize: 34,
                   onPressed: service.togglePlayPause,
@@ -2984,7 +2991,7 @@ Future<T?> _showPlayerOptions<T>({
       ),
     );
   }
-  return showModalBottomSheet<T>(
+  return showMotionBottomSheet<T>(
     context: context,
     showDragHandle: true,
     isScrollControlled: true,
@@ -3064,20 +3071,24 @@ class _PlayerDotsState extends State<_PlayerDots> {
             label: labels[index],
             onTap: () => widget.controller.animateTo(index),
             child: ExcludeSemantics(
-              child: Tooltip(
+              child: AppTooltip(
                 message: labels[index],
                 child: SizedBox.square(
                   dimension: 48,
                   child: InkResponse(
+                    hoverDuration: AppMotion.of(context).duration(
+                      full: const Duration(milliseconds: 50),
+                      reduced: const Duration(milliseconds: 40),
+                    ),
                     onTap: () => widget.controller.animateTo(index),
                     containedInkWell: true,
                     radius: 24,
                     child: Center(
                       child: AnimatedContainer(
                         key: ValueKey('mobile-player-dot-visual-$index'),
-                        duration: MediaQuery.disableAnimationsOf(context)
-                            ? Duration.zero
-                            : const Duration(milliseconds: 180),
+                        duration: AppMotion.of(context).spatialDuration(
+                          full: const Duration(milliseconds: 180),
+                        ),
                         width: widget.controller.index == index ? 18 : 8,
                         height: 8,
                         decoration: BoxDecoration(
@@ -3257,7 +3268,7 @@ class _ControlIcon extends StatelessWidget {
         TelevisionLayout.isActive(context) &&
         (iconAsset == AppIconAssets.playerRewind15 ||
             iconAsset == AppIconAssets.playerForward15);
-    return IconButton(
+    return AppIconButton(
       tooltip: tooltip,
       onPressed: onPressed,
       style: desktop && !TelevisionLayout.isActive(context)
@@ -3270,9 +3281,7 @@ class _ControlIcon extends StatelessWidget {
                 borderRadius: BorderRadius.circular(12),
               ),
             ).copyWith(
-              animationDuration: MediaQuery.disableAnimationsOf(context)
-                  ? Duration.zero
-                  : null,
+              animationDuration: AppMotion.of(context).duration(),
               side: WidgetStateProperty.resolveWith(
                 (states) => BorderSide(
                   color: states.contains(WidgetState.focused)
@@ -3350,27 +3359,15 @@ String? _seriesNumberLabel(double? value) {
 }
 
 String _sleepTimerOptionLabel(BuildContext context, _SleepTimerChoice choice) {
-  final locale = Localizations.localeOf(context).languageCode;
-  switch (choice.kind) {
-    case _SleepTimerChoiceKind.off:
-      return locale == 'ru' ? 'Отключить таймер' : 'Disable timer';
-    case _SleepTimerChoiceKind.endOfChapter:
-      return locale == 'ru' ? 'До конца главы' : 'Until chapter ends';
-    case _SleepTimerChoiceKind.duration:
-      final minutes = choice.duration!.inMinutes;
-      return locale == 'ru' ? '$minutes мин' : '$minutes min';
-  }
+  return switch (choice.kind) {
+    _SleepTimerChoiceKind.off => context.strings.disableSleepTimer,
+    _SleepTimerChoiceKind.endOfChapter =>
+      context.strings.sleepTimerUntilChapterEnd,
+    _SleepTimerChoiceKind.duration => context.strings.minutesLabel(
+      choice.duration!.inMinutes,
+    ),
+  };
 }
 
-String _formatShortDuration(BuildContext context, Duration duration) {
-  final locale = Localizations.localeOf(context).languageCode;
-  final minutes = duration.inMinutes;
-  final suffix = locale == 'ru' ? 'мин' : 'min';
-
-  if (duration.inHours > 0) {
-    final hoursSuffix = locale == 'ru' ? 'ч' : 'h';
-    return '${duration.inHours} $hoursSuffix ${minutes.remainder(60)} $suffix';
-  }
-
-  return '$minutes $suffix';
-}
+String _formatShortDuration(BuildContext context, Duration duration) =>
+    context.strings.formatDuration(duration);

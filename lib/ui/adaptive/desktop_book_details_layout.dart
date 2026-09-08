@@ -1,3 +1,4 @@
+import '../motion/motion_tooltip.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -151,7 +152,7 @@ class TelevisionBookPlayButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    return IconButton.filled(
+    return AppIconButton.filled(
       key: buttonKey,
       tooltip: tooltip,
       onPressed: onPressed,

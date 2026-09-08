@@ -64,30 +64,30 @@ abstract final class TelevisionTheme {
             (states) => BorderSide(
               width: states.contains(WidgetState.focused) ? 2 : 1,
               color: states.contains(WidgetState.focused)
-                  ? colors.primary
+                  ? filled
+                        ? colors.onPrimary
+                        : colors.primary
                   : outlined
                   ? colors.outlineVariant
                   : colors.outlineVariant.withValues(alpha: 0),
             ),
           ),
           backgroundColor: WidgetStateProperty.resolveWith(
-            (states) => states.contains(WidgetState.focused)
+            (states) => states.contains(WidgetState.disabled)
+                ? colors.surfaceContainerHighest
+                : states.contains(WidgetState.focused) || filled
                 ? colors.primary
-                : filled
-                ? colors.secondaryContainer
                 : colors.surfaceContainerLow,
           ),
           foregroundColor: WidgetStateProperty.resolveWith(
             (states) => states.contains(WidgetState.disabled)
                 ? colors.onSurface.withValues(alpha: .38)
-                : states.contains(WidgetState.focused)
+                : states.contains(WidgetState.focused) || filled
                 ? colors.onPrimary
-                : filled
-                ? colors.onSecondaryContainer
                 : colors.onSurface,
           ),
           overlayColor: WidgetStatePropertyAll(
-            colors.primary.withValues(alpha: .12),
+            colors.primary.withValues(alpha: 0),
           ),
         );
     return base.copyWith(

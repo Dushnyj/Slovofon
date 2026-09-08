@@ -48,7 +48,7 @@ void main() {
       expect(banner, contains('android:width="160dp"'));
       expect(banner, contains('android:height="90dp"'));
       expect(banner, contains('assets/app/slovofon_icon.png'));
-      expect(banner, contains('android:src="@drawable/ic_launcher_emblem"'));
+      expect(banner, contains('android:src="@drawable/tv_launcher_emblem"'));
       expect(banner, contains('android:fillColor="#071F32"'));
       expect(banner, isNot(contains('android_adaptive_icon_foreground.svg')));
       expect(banner, isNot(contains('M84,132')));
@@ -65,6 +65,41 @@ void main() {
       expect(RegExp('<path\\b').allMatches(banner).length, 2);
       expect(banner, isNot(contains('android:src="http')));
     }
+  });
+
+  test('TV emblem is prefiltered from master at each 64dp density', () {
+    for (final density in {
+      'mdpi': 64,
+      'hdpi': 96,
+      'xhdpi': 128,
+      'xxhdpi': 192,
+      'xxxhdpi': 256,
+    }.entries) {
+      final bytes = File(
+        'android/app/src/main/res/drawable-${density.key}/tv_launcher_emblem.png',
+      ).readAsBytesSync();
+      expect(bytes.take(8), [137, 80, 78, 71, 13, 10, 26, 10]);
+      int dimension(int offset) =>
+          bytes[offset] * 0x1000000 +
+          bytes[offset + 1] * 0x10000 +
+          bytes[offset + 2] * 0x100 +
+          bytes[offset + 3];
+      expect(dimension(16), density.value);
+      expect(dimension(20), density.value);
+    }
+    final generator = File(
+      'android/tools/Generate-TvBanner.ps1',
+    ).readAsStringSync();
+    expect(generator, contains('assets/app/slovofon_icon.png'));
+    expect(generator, contains('HighQualityBicubic'));
+    expect(generator, contains('Stale TV emblem:'));
+    expect(
+      File(
+        'android/app/src/main/res/drawable-nodpi/ic_launcher_emblem.png',
+      ).readAsBytesSync(),
+      File('assets/app/slovofon_icon.png').readAsBytesSync(),
+      reason: 'Phone adaptive icon must continue to use the unchanged master.',
+    );
   });
 
   test(

@@ -176,7 +176,7 @@ class AndroidMediaSessionEngine
   AndroidMediaSessionEngine({
     required AudioEngine delegate,
     required AndroidMediaSessionPlatform platform,
-    this.appName = 'Словофон',
+    this.appName = 'Slovofon',
     this.skipInterval = const Duration(seconds: 30),
     this.positionPublishInterval = const Duration(seconds: 5),
   }) : _delegate = delegate,

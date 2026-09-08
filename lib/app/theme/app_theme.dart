@@ -15,11 +15,13 @@ class AppTheme {
     final colorScheme = _accentedScheme(
       seed: accent,
       brightness: Brightness.light,
+      highContrast: highContrast,
     );
 
     return _buildTheme(
       colorScheme: colorScheme,
       colorTokens: _tokensFor(colorScheme, accent).copyWith(
+        highContrast: highContrast,
         success: const Color(0xFF1F7A4D),
         onSuccess: const Color(0xFFF8FAFC),
         warning: const Color(0xFF8A5B00),
@@ -42,6 +44,7 @@ class AppTheme {
     final colorScheme = _accentedScheme(
       seed: accent,
       brightness: Brightness.dark,
+      highContrast: highContrast,
     );
 
     final effectiveScheme = colorScheme.copyWith(
@@ -51,6 +54,7 @@ class AppTheme {
     return _buildTheme(
       colorScheme: effectiveScheme,
       colorTokens: _tokensFor(effectiveScheme, accent).copyWith(
+        highContrast: highContrast,
         background: amoled ? const Color(0xFF000000) : effectiveScheme.surface,
         backgroundAlt: amoled
             ? const Color(0xFF070707)
@@ -103,133 +107,337 @@ class AppTheme {
       displayColor: colorTokens.textPrimary,
     );
 
-    return base.copyWith(
-      textTheme: textTheme,
-      appBarTheme: AppBarTheme(
-        centerTitle: false,
-        backgroundColor: colorScheme.surface,
-        foregroundColor: colorScheme.onSurface,
-        surfaceTintColor: Colors.transparent,
-      ),
-      bottomNavigationBarTheme: BottomNavigationBarThemeData(
-        backgroundColor: colorScheme.surface,
-        selectedItemColor: colorScheme.primary,
-        unselectedItemColor: colorScheme.onSurfaceVariant,
-        type: BottomNavigationBarType.fixed,
-      ),
-      navigationBarTheme: NavigationBarThemeData(
-        backgroundColor: colorScheme.surface,
-        indicatorColor: colorTokens.selected,
-        labelTextStyle: WidgetStateProperty.resolveWith((states) {
-          final color = states.contains(WidgetState.selected)
-              ? colorScheme.onSecondaryContainer
-              : colorScheme.onSurfaceVariant;
-          return textTheme.labelMedium?.copyWith(color: color);
-        }),
-      ),
-      cardTheme: CardThemeData(
-        color: colorScheme.surfaceContainer,
-        surfaceTintColor: Colors.transparent,
-        margin: EdgeInsets.zero,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(radii.md),
+    return withAccentComponents(
+      base.copyWith(
+        textTheme: textTheme,
+        appBarTheme: AppBarTheme(
+          centerTitle: false,
+          backgroundColor: colorScheme.surface,
+          foregroundColor: colorScheme.onSurface,
+          surfaceTintColor: Colors.transparent,
         ),
-      ),
-      chipTheme: base.chipTheme.copyWith(
-        backgroundColor: colorScheme.surfaceContainerHighest,
-        selectedColor: colorScheme.secondaryContainer,
-        labelStyle: base.textTheme.labelLarge?.copyWith(
-          color: colorScheme.onSurface,
+        bottomNavigationBarTheme: BottomNavigationBarThemeData(
+          backgroundColor: colorScheme.surface,
+          selectedItemColor: colorScheme.primary,
+          unselectedItemColor: colorScheme.onSurfaceVariant,
+          type: BottomNavigationBarType.fixed,
         ),
-        secondaryLabelStyle: base.textTheme.labelLarge?.copyWith(
-          color: colorScheme.onSecondaryContainer,
+        navigationBarTheme: NavigationBarThemeData(
+          backgroundColor: colorScheme.surface,
+          indicatorColor: colorTokens.selected,
+          labelTextStyle: WidgetStateProperty.resolveWith((states) {
+            final color = states.contains(WidgetState.selected)
+                ? colorScheme.onSecondaryContainer
+                : colorScheme.onSurfaceVariant;
+            return textTheme.labelMedium?.copyWith(color: color);
+          }),
         ),
-        side: BorderSide(color: colorScheme.outlineVariant),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(radii.pill),
-        ),
-      ),
-      filledButtonTheme: FilledButtonThemeData(
-        style: FilledButton.styleFrom(
-          minimumSize: minimumInteractiveSize,
-          padding: EdgeInsets.symmetric(horizontal: spacing.lg),
-          shape: controlShape,
-        ),
-      ),
-      outlinedButtonTheme: OutlinedButtonThemeData(
-        style: OutlinedButton.styleFrom(
-          minimumSize: minimumInteractiveSize,
-          padding: EdgeInsets.symmetric(horizontal: spacing.lg),
-          shape: controlShape,
-          side: BorderSide(color: colorTokens.border),
-        ),
-      ),
-      textButtonTheme: TextButtonThemeData(
-        style: TextButton.styleFrom(
-          minimumSize: minimumInteractiveSize,
-          padding: EdgeInsets.symmetric(horizontal: spacing.md),
-          shape: controlShape,
-        ),
-      ),
-      iconButtonTheme: IconButtonThemeData(
-        style: IconButton.styleFrom(
-          minimumSize: minimumInteractiveSize,
+        cardTheme: CardThemeData(
+          color: colorScheme.surfaceContainer,
+          surfaceTintColor: Colors.transparent,
+          margin: EdgeInsets.zero,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(radii.md),
           ),
         ),
-      ),
-      dialogTheme: DialogThemeData(
-        backgroundColor: colorScheme.surfaceContainerHigh,
-        surfaceTintColor: Colors.transparent,
-        titleTextStyle: base.textTheme.titleLarge?.copyWith(
-          color: colorScheme.onSurface,
+        chipTheme: base.chipTheme.copyWith(
+          backgroundColor: colorScheme.surfaceContainerHighest,
+          selectedColor: colorScheme.secondaryContainer,
+          labelStyle: base.textTheme.labelLarge?.copyWith(
+            color: colorScheme.onSurface,
+          ),
+          secondaryLabelStyle: base.textTheme.labelLarge?.copyWith(
+            color: colorScheme.onSecondaryContainer,
+          ),
+          side: BorderSide(color: colorScheme.outlineVariant),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(radii.pill),
+          ),
         ),
-        contentTextStyle: base.textTheme.bodyMedium?.copyWith(
-          color: colorScheme.onSurface,
+        filledButtonTheme: FilledButtonThemeData(
+          style: FilledButton.styleFrom(
+            minimumSize: minimumInteractiveSize,
+            padding: EdgeInsets.symmetric(horizontal: spacing.lg),
+            shape: controlShape,
+          ),
+        ),
+        outlinedButtonTheme: OutlinedButtonThemeData(
+          style: OutlinedButton.styleFrom(
+            minimumSize: minimumInteractiveSize,
+            padding: EdgeInsets.symmetric(horizontal: spacing.lg),
+            shape: controlShape,
+            side: BorderSide(color: colorTokens.border),
+          ),
+        ),
+        textButtonTheme: TextButtonThemeData(
+          style: TextButton.styleFrom(
+            minimumSize: minimumInteractiveSize,
+            padding: EdgeInsets.symmetric(horizontal: spacing.md),
+            shape: controlShape,
+          ),
+        ),
+        iconButtonTheme: IconButtonThemeData(
+          style: IconButton.styleFrom(
+            minimumSize: minimumInteractiveSize,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(radii.md),
+            ),
+          ),
+        ),
+        dialogTheme: DialogThemeData(
+          backgroundColor: colorScheme.surfaceContainerHigh,
+          surfaceTintColor: Colors.transparent,
+          titleTextStyle: base.textTheme.titleLarge?.copyWith(
+            color: colorScheme.onSurface,
+          ),
+          contentTextStyle: base.textTheme.bodyMedium?.copyWith(
+            color: colorScheme.onSurface,
+          ),
+        ),
+        snackBarTheme: SnackBarThemeData(
+          backgroundColor: colorScheme.inverseSurface,
+          contentTextStyle: base.textTheme.bodyMedium?.copyWith(
+            color: colorScheme.onInverseSurface,
+          ),
+          actionTextColor: colorScheme.inversePrimary,
+          behavior: SnackBarBehavior.floating,
+        ),
+        bottomSheetTheme: BottomSheetThemeData(
+          backgroundColor: colorScheme.surfaceContainerHigh,
+          surfaceTintColor: Colors.transparent,
+          modalBackgroundColor: colorScheme.surfaceContainerHigh,
+        ),
+        inputDecorationTheme: InputDecorationTheme(
+          filled: true,
+          fillColor: colorScheme.surfaceContainerHighest,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(radii.md),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(radii.md),
+            borderSide: BorderSide(color: focusTokens.color, width: 2),
+          ),
+        ),
+        listTileTheme: ListTileThemeData(
+          iconColor: colorScheme.primary,
+          textColor: colorScheme.onSurface,
+          selectedColor: colorScheme.onSecondaryContainer,
+          selectedTileColor: colorTokens.selected,
+        ),
+        progressIndicatorTheme: ProgressIndicatorThemeData(
+          color: colorScheme.primary,
+          circularTrackColor: colorScheme.surfaceContainerHighest,
+          linearTrackColor: colorScheme.surfaceContainerHighest,
+        ),
+        tooltipTheme: TooltipThemeData(
+          decoration: BoxDecoration(
+            color: colorScheme.inverseSurface,
+            borderRadius: BorderRadius.circular(radii.sm),
+          ),
+          textStyle: TextStyle(color: colorScheme.onInverseSurface),
         ),
       ),
-      snackBarTheme: SnackBarThemeData(
-        backgroundColor: colorScheme.inverseSurface,
-        contentTextStyle: base.textTheme.bodyMedium?.copyWith(
-          color: colorScheme.onInverseSurface,
+    );
+  }
+
+  /// Color-only component layer. Platform geometry/typography is preserved.
+  /// Primary = action; secondaryContainer = selection; surfaces stay neutral.
+  static ThemeData withAccentComponents(ThemeData base) {
+    final colors = base.colorScheme;
+    final disabled = colors.onSurface.withValues(alpha: 0.38);
+    final transparent = colors.surface.withValues(alpha: 0);
+    Color? interactionBackground(Set<WidgetState> states) {
+      if (states.contains(WidgetState.disabled)) return null;
+      if (states.contains(WidgetState.focused) ||
+          states.contains(WidgetState.pressed)) {
+        return colors.primary;
+      }
+      if (states.contains(WidgetState.hovered)) {
+        return colors.secondaryContainer;
+      }
+      return null;
+    }
+
+    Color? interactionForeground(Set<WidgetState> states) {
+      if (states.contains(WidgetState.disabled)) return disabled;
+      if (states.contains(WidgetState.focused) ||
+          states.contains(WidgetState.pressed)) {
+        return colors.onPrimary;
+      }
+      if (states.contains(WidgetState.hovered)) {
+        return colors.onSecondaryContainer;
+      }
+      return null;
+    }
+
+    final quietInteraction = ButtonStyle(
+      backgroundColor: WidgetStateProperty.resolveWith(interactionBackground),
+      foregroundColor: WidgetStateProperty.resolveWith(interactionForeground),
+      // A second tinted overlay must not compromise the resolved color pair.
+      overlayColor: WidgetStatePropertyAll(transparent),
+    );
+    final iconInteraction = quietInteraction.copyWith(
+      backgroundColor: WidgetStateProperty.resolveWith((states) {
+        if (!states.contains(WidgetState.disabled) &&
+            states.contains(WidgetState.selected)) {
+          return colors.primary;
+        }
+        return interactionBackground(states);
+      }),
+      foregroundColor: WidgetStateProperty.resolveWith((states) {
+        if (!states.contains(WidgetState.disabled) &&
+            states.contains(WidgetState.selected)) {
+          return colors.onPrimary;
+        }
+        return interactionForeground(states);
+      }),
+    );
+    Color selectionControl(Set<WidgetState> states) {
+      if (states.contains(WidgetState.disabled)) return disabled;
+      return states.contains(WidgetState.selected)
+          ? colors.primary
+          : colors.onSurfaceVariant;
+    }
+
+    return base.copyWith(
+      focusColor: colors.primary.withValues(alpha: 0.16),
+      hoverColor: colors.primary.withValues(alpha: 0.08),
+      navigationBarTheme: base.navigationBarTheme.copyWith(
+        indicatorColor: colors.secondaryContainer,
+        iconTheme: WidgetStateProperty.resolveWith(
+          (states) => IconThemeData(
+            color: states.contains(WidgetState.selected)
+                ? colors.onSecondaryContainer
+                : colors.onSurfaceVariant,
+          ),
         ),
-        actionTextColor: colorScheme.inversePrimary,
-        behavior: SnackBarBehavior.floating,
-      ),
-      bottomSheetTheme: BottomSheetThemeData(
-        backgroundColor: colorScheme.surfaceContainerHigh,
-        surfaceTintColor: Colors.transparent,
-        modalBackgroundColor: colorScheme.surfaceContainerHigh,
-      ),
-      inputDecorationTheme: InputDecorationTheme(
-        filled: true,
-        fillColor: colorScheme.surfaceContainerHighest,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(radii.md),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(radii.md),
-          borderSide: BorderSide(color: focusTokens.color, width: 2),
+        // Labels sit on the neutral bar, outside the colored indicator.
+        labelTextStyle: WidgetStateProperty.resolveWith(
+          (states) => base.textTheme.labelMedium?.copyWith(
+            color: states.contains(WidgetState.selected)
+                ? colors.primary
+                : colors.onSurfaceVariant,
+          ),
         ),
       ),
-      listTileTheme: ListTileThemeData(
-        iconColor: colorScheme.primary,
-        textColor: colorScheme.onSurface,
-        selectedColor: colorScheme.onSecondaryContainer,
-        selectedTileColor: colorTokens.selected,
-      ),
-      progressIndicatorTheme: ProgressIndicatorThemeData(
-        color: colorScheme.primary,
-        circularTrackColor: colorScheme.surfaceContainerHighest,
-        linearTrackColor: colorScheme.surfaceContainerHighest,
-      ),
-      tooltipTheme: TooltipThemeData(
-        decoration: BoxDecoration(
-          color: colorScheme.inverseSurface,
-          borderRadius: BorderRadius.circular(radii.sm),
+      navigationRailTheme: base.navigationRailTheme.copyWith(
+        backgroundColor: colors.surface,
+        indicatorColor: colors.secondaryContainer,
+        selectedIconTheme: IconThemeData(color: colors.onSecondaryContainer),
+        unselectedIconTheme: IconThemeData(color: colors.onSurfaceVariant),
+        selectedLabelTextStyle: base.textTheme.labelMedium?.copyWith(
+          color: colors.primary,
         ),
-        textStyle: TextStyle(color: colorScheme.onInverseSurface),
+        unselectedLabelTextStyle: base.textTheme.labelMedium?.copyWith(
+          color: colors.onSurfaceVariant,
+        ),
+      ),
+      tabBarTheme: base.tabBarTheme.copyWith(
+        labelColor: colors.primary,
+        unselectedLabelColor: colors.onSurfaceVariant,
+        indicatorColor: colors.primary,
+        dividerColor: colors.outlineVariant,
+      ),
+      listTileTheme: base.listTileTheme.copyWith(
+        iconColor: colors.primary,
+        selectedColor: colors.onSecondaryContainer,
+        selectedTileColor: colors.secondaryContainer,
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: quietInteraction.merge(base.outlinedButtonTheme.style),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: quietInteraction.merge(base.textButtonTheme.style),
+      ),
+      iconButtonTheme: IconButtonThemeData(
+        style: iconInteraction.merge(base.iconButtonTheme.style),
+      ),
+      chipTheme: base.chipTheme.copyWith(
+        selectedColor: colors.secondaryContainer,
+        checkmarkColor: colors.onSecondaryContainer,
+        secondaryLabelStyle: base.textTheme.labelLarge?.copyWith(
+          color: colors.onSecondaryContainer,
+        ),
+      ),
+      checkboxTheme: base.checkboxTheme.copyWith(
+        fillColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.disabled)) {
+            return states.contains(WidgetState.selected)
+                ? disabled
+                : transparent;
+          }
+          return states.contains(WidgetState.selected)
+              ? colors.primary
+              : transparent;
+        }),
+        checkColor: WidgetStatePropertyAll(colors.onPrimary),
+        side: WidgetStateBorderSide.resolveWith(
+          (states) => BorderSide(
+            color: selectionControl(states),
+            width: states.contains(WidgetState.focused) ? 2.5 : 2,
+          ),
+        ),
+      ),
+      radioTheme: base.radioTheme.copyWith(
+        fillColor: WidgetStateProperty.resolveWith(selectionControl),
+      ),
+      switchTheme: base.switchTheme.copyWith(
+        trackColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.disabled)) {
+            return colors.surfaceContainerHighest;
+          }
+          return states.contains(WidgetState.selected)
+              ? colors.primary
+              : colors.surfaceContainerHighest;
+        }),
+        thumbColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.disabled)) return disabled;
+          return states.contains(WidgetState.selected)
+              ? colors.onPrimary
+              : colors.onSurfaceVariant;
+        }),
+        trackOutlineColor: WidgetStateProperty.resolveWith(
+          (states) =>
+              states.contains(WidgetState.selected) &&
+                  !states.contains(WidgetState.disabled)
+              ? transparent
+              : selectionControl(states),
+        ),
+      ),
+      sliderTheme: base.sliderTheme.copyWith(
+        activeTrackColor: colors.primary,
+        inactiveTrackColor: colors.secondaryContainer,
+        thumbColor: colors.primary,
+        overlayColor: colors.primary.withValues(alpha: 0.12),
+        activeTickMarkColor: colors.onPrimary,
+        inactiveTickMarkColor: colors.onSecondaryContainer,
+        valueIndicatorColor: colors.primary,
+        valueIndicatorTextStyle: base.textTheme.labelLarge?.copyWith(
+          color: colors.onPrimary,
+        ),
+      ),
+      textSelectionTheme: base.textSelectionTheme.copyWith(
+        cursorColor: colors.primary,
+        selectionHandleColor: colors.primary,
+        selectionColor: colors.primary.withValues(alpha: 0.22),
+      ),
+      progressIndicatorTheme: base.progressIndicatorTheme.copyWith(
+        color: colors.primary,
+        circularTrackColor: colors.surfaceContainerHighest,
+        linearTrackColor: colors.surfaceContainerHighest,
+      ),
+      floatingActionButtonTheme: base.floatingActionButtonTheme.copyWith(
+        backgroundColor: colors.primary,
+        foregroundColor: colors.onPrimary,
+      ),
+      scrollbarTheme: base.scrollbarTheme.copyWith(
+        thumbColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.dragged) ||
+              states.contains(WidgetState.hovered)) {
+            return colors.primary;
+          }
+          return colors.onSurfaceVariant.withValues(alpha: 0.45);
+        }),
       ),
     );
   }
@@ -260,7 +468,7 @@ class AppTheme {
       overlay: colorScheme.scrim.withValues(alpha: 0.12),
       focus: colorScheme.primary,
       hover: colorScheme.primary.withValues(alpha: 0.08),
-      selected: colorScheme.primaryContainer,
+      selected: colorScheme.secondaryContainer,
       playerSurface: colorScheme.surfaceContainerHigh,
       onPlayerSurface: colorScheme.onSurface,
     );
@@ -269,31 +477,72 @@ class AppTheme {
   static ColorScheme _accentedScheme({
     required Color seed,
     required Brightness brightness,
+    required bool highContrast,
   }) {
-    final accent = _accentForBrightness(seed, brightness);
     final neutral = _withNeutralSurfaces(
-      ColorScheme.fromSeed(seedColor: accent, brightness: brightness),
+      ColorScheme.fromSeed(seedColor: seed, brightness: brightness),
+    );
+    return accentedSchemeFor(neutral, accent: seed, highContrast: highContrast);
+  }
+
+  /// Re-derive accent roles after a platform changes its neutral surfaces.
+  /// Windows must not retain the mobile tone in component themes/extensions.
+  static ColorScheme accentedSchemeFor(
+    ColorScheme neutral, {
+    required Color accent,
+    bool highContrast = false,
+  }) {
+    final brightness = neutral.brightness;
+    final surfaces = [
+      neutral.surface,
+      neutral.surfaceBright,
+      neutral.surfaceDim,
+      neutral.surfaceContainerLowest,
+      neutral.surfaceContainerLow,
+      neutral.surfaceContainer,
+      neutral.surfaceContainerHigh,
+      neutral.surfaceContainerHighest,
+    ];
+    final tone = AppColorTokens.accessibleAccent(
+      accent,
+      surfaces,
+      minimumContrast: highContrast ? 7 : 4.5,
     );
     final primaryContainer = _accentContainer(
-      accent: accent,
-      surface: neutral.surfaceContainerHigh,
+      accent: tone,
+      surface: neutral.surfaceContainerLow,
       brightness: brightness,
     );
     final secondaryContainer = _accentContainer(
-      accent: accent,
-      surface: neutral.surfaceContainerHighest,
+      accent: tone,
+      surface: neutral.surfaceContainerLow,
       brightness: brightness,
       darkAlpha: 0.18,
-      lightAlpha: 0.12,
+      lightAlpha: 0.10,
     );
 
     return neutral.copyWith(
-      primary: accent,
-      onPrimary: AppColorTokens.readableOn(accent),
+      onSurface: highContrast
+          ? AppColorTokens.accessibleAccent(
+              neutral.onSurface,
+              surfaces,
+              minimumContrast: 7,
+            )
+          : neutral.onSurface,
+      onSurfaceVariant: highContrast
+          ? AppColorTokens.accessibleAccent(
+              neutral.onSurfaceVariant,
+              surfaces,
+              minimumContrast: 7,
+            )
+          : neutral.onSurfaceVariant,
+      outlineVariant: highContrast ? neutral.outline : neutral.outlineVariant,
+      primary: tone,
+      onPrimary: AppColorTokens.readableOn(tone),
       primaryContainer: primaryContainer,
       onPrimaryContainer: AppColorTokens.readableOn(primaryContainer),
-      secondary: accent,
-      onSecondary: AppColorTokens.readableOn(accent),
+      secondary: tone,
+      onSecondary: AppColorTokens.readableOn(tone),
       secondaryContainer: secondaryContainer,
       onSecondaryContainer: AppColorTokens.readableOn(secondaryContainer),
       error: brightness == Brightness.dark
@@ -308,31 +557,18 @@ class AppTheme {
       onErrorContainer: brightness == Brightness.dark
           ? const Color(0xFFFFDAD6)
           : const Color(0xFF5F0B08),
-      surfaceTint: accent,
-      inversePrimary: _accentForBrightness(
-        seed,
-        brightness == Brightness.dark ? Brightness.light : Brightness.dark,
-      ),
+      surfaceTint: tone,
+      inversePrimary: AppColorTokens.accessibleAccent(accent, [
+        neutral.inverseSurface,
+      ], minimumContrast: highContrast ? 7 : 4.5),
     );
-  }
-
-  static Color _accentForBrightness(Color seed, Brightness brightness) {
-    if (brightness == Brightness.light) {
-      return seed;
-    }
-
-    final hsv = HSVColor.fromColor(seed);
-    return hsv
-        .withSaturation(hsv.saturation.clamp(0.68, 1).toDouble())
-        .withValue(hsv.value.clamp(0.78, 1).toDouble())
-        .toColor();
   }
 
   static Color _accentContainer({
     required Color accent,
     required Color surface,
     required Brightness brightness,
-    double darkAlpha = 0.12,
+    double darkAlpha = 0.26,
     double lightAlpha = 0.14,
   }) {
     return Color.alphaBlend(

@@ -1,7 +1,9 @@
+import '../motion/motion_tooltip.dart';
 import 'package:flutter/material.dart';
 import '../adaptive/television_layout.dart';
 
 import '../icons/app_icons.dart';
+import '../motion/app_motion.dart';
 
 class AppPrimaryButton extends StatelessWidget {
   const AppPrimaryButton({
@@ -106,7 +108,7 @@ class AppIconActionButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (TelevisionLayout.isActive(context)) {
-      return IconButton(
+      return AppIconButton(
         key: buttonKey,
         tooltip: tooltip,
         onPressed: onPressed,
@@ -114,20 +116,51 @@ class AppIconActionButton extends StatelessWidget {
       );
     }
     final colorScheme = Theme.of(context).colorScheme;
-    return IconButton(
+    return AppIconButton(
       key: buttonKey,
       tooltip: tooltip,
       onPressed: onPressed,
-      style: IconButton.styleFrom(
-        minimumSize: Size.square(buttonSize),
-        fixedSize: Size.square(buttonSize),
-        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        shape: const CircleBorder(),
-        backgroundColor: backgroundColor ?? Colors.transparent,
-        foregroundColor: foregroundColor ?? colorScheme.onSurfaceVariant,
-        overlayColor: Colors.transparent,
-        disabledForegroundColor: colorScheme.onSurface.withValues(alpha: 0.38),
-      ),
+      style:
+          IconButton.styleFrom(
+            minimumSize: Size.square(buttonSize),
+            fixedSize: Size.square(buttonSize),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            shape: const CircleBorder(),
+            backgroundColor: backgroundColor ?? Colors.transparent,
+            foregroundColor: foregroundColor ?? colorScheme.primary,
+            overlayColor: Colors.transparent,
+            disabledForegroundColor: colorScheme.onSurface.withValues(
+              alpha: 0.38,
+            ),
+          ).copyWith(
+            animationDuration: AppMotion.of(context).duration(),
+            backgroundColor: WidgetStateProperty.resolveWith((states) {
+              if (states.contains(WidgetState.disabled)) {
+                return backgroundColor ?? Colors.transparent;
+              }
+              if (states.contains(WidgetState.focused) ||
+                  states.contains(WidgetState.pressed)) {
+                return colorScheme.primary;
+              }
+              if (states.contains(WidgetState.hovered)) {
+                return colorScheme.secondaryContainer;
+              }
+              return backgroundColor ?? Colors.transparent;
+            }),
+            foregroundColor: WidgetStateProperty.resolveWith((states) {
+              if (states.contains(WidgetState.disabled)) {
+                return colorScheme.onSurface.withValues(alpha: 0.38);
+              }
+              if (states.contains(WidgetState.focused) ||
+                  states.contains(WidgetState.pressed)) {
+                return colorScheme.onPrimary;
+              }
+              if (states.contains(WidgetState.hovered)) {
+                return colorScheme.onSecondaryContainer;
+              }
+              return foregroundColor ?? colorScheme.primary;
+            }),
+          ),
       icon: AppIcon(iconAsset, size: iconSize),
     );
   }

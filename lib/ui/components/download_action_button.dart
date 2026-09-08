@@ -1,3 +1,5 @@
+import '../motion/motion_tooltip.dart';
+import '../motion/motion_progress_indicator.dart';
 import 'package:flutter/material.dart';
 
 import '../../app/localization/app_strings.dart';
@@ -37,7 +39,7 @@ class DownloadActionButton extends StatelessWidget {
     final colorScheme = Theme.of(context).colorScheme;
 
     if (isResolving) {
-      return Tooltip(
+      return AppTooltip(
         message: strings.download,
         child: SizedBox.square(
           key: buttonKey,
@@ -46,7 +48,7 @@ class DownloadActionButton extends StatelessWidget {
             child: SizedBox.square(
               key: const ValueKey('download-action-resolving'),
               dimension: 22,
-              child: CircularProgressIndicator(
+              child: AppCircularProgressIndicator(
                 strokeWidth: 2.6,
                 color: colorScheme.primary,
               ),
@@ -69,7 +71,7 @@ class DownloadActionButton extends StatelessWidget {
           children: [
             SizedBox.square(
               dimension: size - 8,
-              child: CircularProgressIndicator(
+              child: AppCircularProgressIndicator(
                 key: const ValueKey('download-action-progress'),
                 value: isIndeterminate ? null : boundedProgress,
                 strokeWidth: 3,

@@ -1,6 +1,10 @@
+import '../motion/app_motion.dart';
+import '../motion/motion_progress_indicator.dart';
 import 'package:flutter/material.dart';
 
 import '../../app/theme/app_color_tokens.dart';
+import '../../app/localization/app_strings.dart';
+import '../../app/localization/duration_label.dart';
 import 'download_action_button.dart';
 
 class ChapterTile extends StatelessWidget {
@@ -40,6 +44,10 @@ class ChapterTile extends StatelessWidget {
     return Card(
       color: isCurrent ? tokens.selected : null,
       child: InkWell(
+        hoverDuration: AppMotion.of(context).duration(
+          full: const Duration(milliseconds: 50),
+          reduced: const Duration(milliseconds: 40),
+        ),
         borderRadius: BorderRadius.circular(8),
         onTap: onTap,
         child: Padding(
@@ -89,14 +97,14 @@ class ChapterTile extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      durationLabel,
+                      context.strings.formatDurationLabel(durationLabel),
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: colorScheme.onSurfaceVariant,
                       ),
                     ),
                     if (boundedProgress > 0) ...[
                       const SizedBox(height: 8),
-                      LinearProgressIndicator(
+                      AppLinearProgressIndicator(
                         value: boundedProgress,
                         minHeight: 5,
                         borderRadius: BorderRadius.circular(999),

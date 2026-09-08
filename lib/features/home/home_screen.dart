@@ -1,3 +1,4 @@
+import '../../ui/motion/app_motion.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -21,6 +22,7 @@ import '../../services/sources/source_access_policy_provider.dart';
 import '../../ui/adaptive/desktop_layout.dart';
 import '../../ui/adaptive/television_layout.dart';
 import '../../ui/components/book_card.dart';
+import '../../ui/components/active_listenable_builder.dart';
 import '../../ui/components/responsive_tile_grid.dart';
 import '../../ui/components/section_header.dart';
 import '../../ui/icons/app_icons.dart';
@@ -36,7 +38,7 @@ final _homeListeningHistoryProvider =
         return const [];
       }
 
-      final books = await ref.watch(libraryPlaybackBooksProvider.future);
+      final books = await ref.watch(historyPlaybackBooksProvider.future);
       final booksByVersionId = {for (final book in books) book.versionId: book};
 
       final entries = <_StoredListeningEntry>[];
@@ -59,12 +61,19 @@ class HomeScreen extends ConsumerWidget {
     final desktop = DesktopLayout.isActive(context);
     final television = TelevisionLayout.isActive(context);
     final playbackController = ref.watch(playbackControllerProvider);
-    final downloadManager = ref.watch(downloadManagerProvider);
+    final downloadManager = ref.watch(downloadManagerProvider.notifier);
     final libraryStore = ref.watch(libraryStoreProvider);
     final history = ref.watch(_homeListeningHistoryProvider);
     final visibilityStore = ref.watch(homeListeningVisibilityStoreProvider);
 
+    final storedEntries =
+        history.asData?.value ?? const <_StoredListeningEntry>[];
+    // Shared once, not copied for every card on every playback notification.
+    final progressSnapshots = storedEntries
+        .map((entry) => entry.progress)
+        .toList(growable: false);
     return CustomScrollView(
+      key: const PageStorageKey('home-catalog-scroll'),
       slivers: [
         SliverPadding(
           padding: desktop
@@ -72,109 +81,113 @@ class HomeScreen extends ConsumerWidget {
               : television
               ? const EdgeInsets.fromLTRB(12, 4, 12, 16)
               : const EdgeInsets.fromLTRB(16, 18, 16, 24),
-          sliver: SliverList(
-            delegate: SliverChildListDelegate([
-              if (desktop) DesktopPageHeader(title: strings.home),
-              ListenableBuilder(
-                listenable: playbackController,
-                builder: (context, _) {
-                  final state = playbackController.state;
-                  final entries = _homeEntries(
-                    state: state,
-                    storedEntries:
-                        history.asData?.value ??
-                        const <_StoredListeningEntry>[],
-                    visibilityStore: visibilityStore,
-                  );
-
-                  if (entries.isEmpty) {
-                    final prompt = _SourceSearchCard(strings: strings);
-                    return desktop
-                        ? DesktopWorkspaceColumns(
-                            key: const ValueKey('desktop-home-workspace'),
-                            primary: KeyedSubtree(
-                              key: const ValueKey('desktop-home-search-prompt'),
-                              child: prompt,
-                            ),
-                            secondary: const _HomeCollectionLinks(),
-                          )
-                        : prompt;
-                  }
-
-                  Widget historyCard(
-                    _HomeListeningEntry entry, {
-                    DesktopBookPresentation presentation =
-                        DesktopBookPresentation.card,
-                  }) => _HistoryBookCard(
-                    entry: entry,
-                    desktopPresentation: presentation,
-                    playbackController: playbackController,
-                    downloadManager: downloadManager,
-                    libraryStore: libraryStore,
-                    visibilityStore: visibilityStore,
-                    progressSnapshots:
-                        history.asData?.value
-                            .map((entry) => entry.progress)
-                            .toList() ??
-                        const <PlaybackProgressSnapshot>[],
-                    onProgressChanged: () {
-                      ref.invalidate(playbackProgressSnapshotsProvider);
-                      ref.invalidate(_homeListeningHistoryProvider);
-                    },
-                  );
-
-                  if (desktop) {
-                    return Column(
+          sliver: ActiveListenableBuilder(
+            listenable: Listenable.merge([playbackController, downloadManager]),
+            builder: (context, _) {
+              final state = playbackController.state;
+              final entries = _homeEntries(
+                state: state,
+                storedEntries: storedEntries,
+                visibilityStore: visibilityStore,
+              );
+              Widget historyCard(
+                _HomeListeningEntry entry, {
+                DesktopBookPresentation presentation =
+                    DesktopBookPresentation.card,
+              }) => _HistoryBookCard(
+                entry: entry,
+                desktopPresentation: presentation,
+                playbackController: playbackController,
+                downloadManager: downloadManager,
+                libraryStore: libraryStore,
+                visibilityStore: visibilityStore,
+                progressSnapshots: progressSnapshots,
+                onProgressChanged: () {
+                  ref.invalidate(playbackProgressSnapshotsProvider);
+                  ref.invalidate(_homeListeningHistoryProvider);
+                },
+              );
+              if (entries.isEmpty) {
+                final prompt = _SourceSearchCard(strings: strings);
+                return SliverToBoxAdapter(
+                  child: Column(
+                    children: [
+                      if (desktop) DesktopPageHeader(title: strings.home),
+                      desktop
+                          ? DesktopWorkspaceColumns(
+                              key: const ValueKey('desktop-home-workspace'),
+                              primary: KeyedSubtree(
+                                key: const ValueKey(
+                                  'desktop-home-search-prompt',
+                                ),
+                                child: prompt,
+                              ),
+                              secondary: const _HomeCollectionLinks(),
+                            )
+                          : prompt,
+                    ],
+                  ),
+                );
+              }
+              return SliverMainAxisGroup(
+                slivers: [
+                  SliverToBoxAdapter(
+                    child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
+                        if (desktop) DesktopPageHeader(title: strings.home),
                         SectionHeader(title: strings.continueListening),
-                        const SizedBox(height: 16),
-                        DesktopWorkspaceColumns(
-                          key: const ValueKey('desktop-home-workspace'),
-                          primary: KeyedSubtree(
-                            key: const ValueKey('desktop-home-feature'),
-                            child: historyCard(
-                              entries.first,
-                              presentation: DesktopBookPresentation.feature,
-                            ),
-                          ),
-                          secondary:
-                              entries.first.isCurrent &&
-                                  state.book!.chapters.isNotEmpty
-                              ? _HomeChapterRail(controller: playbackController)
-                              : const _HomeCollectionLinks(),
+                        SizedBox(
+                          height: desktop
+                              ? 16
+                              : television
+                              ? 4
+                              : 12,
                         ),
-                        if (entries.length > 1) ...[
-                          const SizedBox(height: 24),
-                          SectionHeader(title: strings.startedBooks),
-                          const SizedBox(height: 12),
-                          for (final entry in entries.skip(1)) ...[
-                            historyCard(
-                              entry,
-                              presentation: DesktopBookPresentation.row,
+                        if (desktop) ...[
+                          DesktopWorkspaceColumns(
+                            key: const ValueKey('desktop-home-workspace'),
+                            primary: KeyedSubtree(
+                              key: const ValueKey('desktop-home-feature'),
+                              child: historyCard(
+                                entries.first,
+                                presentation: DesktopBookPresentation.feature,
+                              ),
                             ),
+                            secondary:
+                                entries.first.isCurrent &&
+                                    state.book!.chapters.isNotEmpty
+                                ? _HomeChapterRail(
+                                    controller: playbackController,
+                                  )
+                                : const _HomeCollectionLinks(),
+                          ),
+                          if (entries.length > 1) ...[
+                            const SizedBox(height: 24),
+                            SectionHeader(title: strings.startedBooks),
                             const SizedBox(height: 12),
                           ],
                         ],
                       ],
-                    );
-                  }
-
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      SectionHeader(title: strings.continueListening),
-                      SizedBox(height: television ? 4 : 12),
-                      ResponsiveTileGrid(
-                        children: [
-                          for (final entry in entries) historyCard(entry),
-                        ],
-                      ),
-                    ],
-                  );
-                },
-              ),
-            ]),
+                    ),
+                  ),
+                  SliverResponsiveTileGrid.builder(
+                    itemCount: entries.length - (desktop ? 1 : 0),
+                    singleColumn: desktop,
+                    itemKeyBuilder: (index) =>
+                        ValueKey(entries[index + (desktop ? 1 : 0)].key),
+                    itemBuilder: (context, index) => historyCard(
+                      entries[index + (desktop ? 1 : 0)],
+                      presentation: desktop
+                          ? DesktopBookPresentation.row
+                          : DesktopBookPresentation.card,
+                    ),
+                  ),
+                  if (desktop && entries.length > 1)
+                    const SliverToBoxAdapter(child: SizedBox(height: 12)),
+                ],
+              );
+            },
           ),
         ),
       ],
@@ -207,7 +220,11 @@ class _HistoryBookCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final colorScheme = Theme.of(context).colorScheme;
     final book = entry.book;
-    final audioBook = _audioBookForPlayback(book, entry.progressValue);
+    final audioBook = _audioBookForPlayback(
+      context.strings,
+      book,
+      entry.progressValue,
+    );
 
     return Dismissible(
       key: ValueKey('home-history-${entry.key}'),
@@ -243,7 +260,7 @@ class _HistoryBookCard extends ConsumerWidget {
             await libraryStore.toggleLater(audioBook);
           } catch (_) {
             if (context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
+              ScaffoldMessenger.of(context).showMotionSnackBar(
                 SnackBar(content: Text(context.strings.libraryActionError)),
               );
             }
@@ -336,7 +353,7 @@ class _HistoryBookCard extends ConsumerWidget {
 
   void _showActionError(BuildContext context) {
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showMotionSnackBar(
         SnackBar(content: Text(context.strings.libraryActionError)),
       );
     }
@@ -402,8 +419,8 @@ class _HomeChapterRail extends StatelessWidget {
                     padding: const EdgeInsets.only(top: 6),
                     child: Text(
                       index == 0
-                          ? '${state.isPlaying ? strings.nowPlaying : strings.paused} · ${_formatDuration(chapters[index].duration)}'
-                          : _formatDuration(chapters[index].duration),
+                          ? '${state.isPlaying ? strings.nowPlaying : strings.paused} · ${strings.formatDuration(chapters[index].duration)}'
+                          : strings.formatDuration(chapters[index].duration),
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: index == 0
                             ? theme.colorScheme.onPrimaryContainer
@@ -520,7 +537,11 @@ class _SourceSearchCard extends StatelessWidget {
   }
 }
 
-AudioBook _audioBookForPlayback(AudioPlaybackBook book, double progress) {
+AudioBook _audioBookForPlayback(
+  AppStrings strings,
+  AudioPlaybackBook book,
+  double progress,
+) {
   return AudioBook(
     id: book.id,
     sourceBookId: book.sourceBookId,
@@ -529,7 +550,7 @@ AudioBook _audioBookForPlayback(AudioPlaybackBook book, double progress) {
     narrator: book.narrator,
     sourceId: book.sourceId,
     sourceName: book.sourceName,
-    durationLabel: _formatDuration(book.totalDuration),
+    durationLabel: strings.formatDuration(book.totalDuration),
     chapterCount: book.chapters.length,
     progress: progress,
     access: BookAccess.unknown,
@@ -556,15 +577,6 @@ void _openBook(BuildContext context, AudioPlaybackBook book) {
   }
 
   unawaited(context.push('/player'));
-}
-
-String _formatDuration(Duration duration) {
-  final hours = duration.inHours;
-  final minutes = duration.inMinutes.remainder(60);
-  if (hours > 0) {
-    return minutes > 0 ? '$hours ч $minutes мин' : '$hours ч';
-  }
-  return '$minutes мин';
 }
 
 List<_HomeListeningEntry> _homeEntries({

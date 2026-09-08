@@ -49,6 +49,10 @@ class DownloadManager extends ChangeNotifier {
   final _activeFutures = <String, Future<void>>{};
 
   bool _disposed = false;
+  bool _shuttingDown = false;
+  Future<void>? _shutdownFuture;
+  final _pendingMutations = <Future<void>>{};
+  final _pendingShutdownCheckpoints = <String>{};
   Future<void>? _loadFuture;
   Future<void> _writes = Future<void>.value();
   final _protectedBooks = <(String, String)>{};
@@ -88,7 +92,30 @@ class DownloadManager extends ChangeNotifier {
     }
   }
 
-  Future<void> cacheBookMetadata(AudioPlaybackBook book) async {
+  Future<void> cacheBookMetadata(AudioPlaybackBook book) =>
+      _acceptMutation(() => _cacheBookMetadata(book));
+
+  /// Admits an entire metadata refresh before it starts asynchronous source or
+  /// cover work. Its writer remains valid during shutdown only until the
+  /// accepted refresh completes, so no new metadata can escape the drain.
+  Future<T> runMetadataOperation<T>(
+    Future<T> Function(Future<void> Function(AudioPlaybackBook) writeMetadata)
+    operation,
+  ) => _acceptMutation(() async {
+    var active = true;
+    try {
+      return await operation((book) {
+        if (!active) {
+          return Future.error(StateError('Metadata operation has completed.'));
+        }
+        return _trackMutation(() => _cacheBookMetadata(book));
+      });
+    } finally {
+      active = false;
+    }
+  });
+
+  Future<void> _cacheBookMetadata(AudioPlaybackBook book) async {
     await _storage.writeMetadata(book);
     attachBookContext(book);
     for (final task in _tasks.values) {
@@ -163,41 +190,49 @@ class DownloadManager extends ChangeNotifier {
     _notify();
   }
 
-  Future<List<DownloadTask>> enqueueBook(AudioPlaybackBook book) async {
-    await loadPersistedTasks();
-    _protectBook(book.sourceId, book.versionId);
-    await _storage.writeMetadata(book);
-    final completed = await _storage.completedChapterFiles(book);
-    final queued = <DownloadTask>[];
-    for (final chapter in book.chapters) {
-      queued.add(
-        await _enqueueChapter(
-          book,
-          chapter,
-          existingFile: completed[chapter.index],
-        ),
-      );
-    }
-    return queued;
-  }
+  Future<List<DownloadTask>> enqueueBook(AudioPlaybackBook book) =>
+      _acceptMutation(() async {
+        await loadPersistedTasks();
+        _protectBook(book.sourceId, book.versionId);
+        await _storage.writeMetadata(book);
+        final completed = await _storage.completedChapterFiles(book);
+        final queued = <DownloadTask>[];
+        for (final chapter in book.chapters) {
+          queued.add(
+            await _enqueueChapter(
+              book,
+              chapter,
+              existingFile: completed[chapter.index],
+            ),
+          );
+        }
+        return queued;
+      });
 
-  Future<List<DownloadTask>> enqueueMissingChapters(
-    AudioPlaybackBook book,
-  ) async {
-    await loadPersistedTasks();
-    _protectBook(book.sourceId, book.versionId);
-    await _storage.writeMetadata(book);
-    final completed = await _storage.completedChapterFiles(book);
-    final queued = <DownloadTask>[];
-    for (final chapter in book.chapters) {
-      if (!completed.containsKey(chapter.index)) {
-        queued.add(await _enqueueChapter(book, chapter));
-      }
-    }
-    return queued;
-  }
+  Future<List<DownloadTask>> enqueueMissingChapters(AudioPlaybackBook book) =>
+      _acceptMutation(() async {
+        await loadPersistedTasks();
+        _protectBook(book.sourceId, book.versionId);
+        await _storage.writeMetadata(book);
+        final completed = await _storage.completedChapterFiles(book);
+        final queued = <DownloadTask>[];
+        for (final chapter in book.chapters) {
+          if (!completed.containsKey(chapter.index)) {
+            queued.add(await _enqueueChapter(book, chapter));
+          }
+        }
+        return queued;
+      });
 
   Future<DownloadTask> enqueueChapter(
+    AudioPlaybackBook book,
+    AudioPlaybackChapter chapter, {
+    bool writeMetadata = true,
+  }) => _acceptMutation(
+    () => _prepareChapterEnqueue(book, chapter, writeMetadata: writeMetadata),
+  );
+
+  Future<DownloadTask> _prepareChapterEnqueue(
     AudioPlaybackBook book,
     AudioPlaybackChapter chapter, {
     bool writeMetadata = true,
@@ -279,7 +314,9 @@ class DownloadManager extends ChangeNotifier {
     return nextTask;
   }
 
-  Future<void> pause(String taskId) async {
+  Future<void> pause(String taskId) => _acceptMutation(() => _pause(taskId));
+
+  Future<void> _pause(String taskId) async {
     await loadPersistedTasks();
     final task = _tasks[taskId];
     if (task == null) {
@@ -307,11 +344,11 @@ class DownloadManager extends ChangeNotifier {
   Future<void> retryChapter(
     AudioPlaybackBook book,
     AudioPlaybackChapter chapter,
-  ) async {
+  ) => _acceptMutation(() async {
     await loadPersistedTasks();
     final current = taskForBookChapter(book, chapter);
     if (current == null) {
-      await enqueueChapter(book, chapter);
+      await _prepareChapterEnqueue(book, chapter);
       return;
     }
 
@@ -338,9 +375,11 @@ class DownloadManager extends ChangeNotifier {
     );
     await _saveTask(retry);
     _schedule();
-  }
+  });
 
-  Future<void> cancel(String taskId) async {
+  Future<void> cancel(String taskId) => _acceptMutation(() => _cancel(taskId));
+
+  Future<void> _cancel(String taskId) async {
     await loadPersistedTasks();
     final task = _tasks[taskId];
     final job = _jobs[taskId];
@@ -367,6 +406,11 @@ class DownloadManager extends ChangeNotifier {
   }
 
   Future<void> deleteChapter(
+    AudioPlaybackBook book,
+    AudioPlaybackChapter chapter,
+  ) => _acceptMutation(() => _deleteChapter(book, chapter));
+
+  Future<void> _deleteChapter(
     AudioPlaybackBook book,
     AudioPlaybackChapter chapter,
   ) async {
@@ -399,7 +443,10 @@ class DownloadManager extends ChangeNotifier {
     _notify();
   }
 
-  Future<void> deleteBook(AudioPlaybackBook book) async {
+  Future<void> deleteBook(AudioPlaybackBook book) =>
+      _acceptMutation(() => _deleteBook(book));
+
+  Future<void> _deleteBook(AudioPlaybackBook book) async {
     await loadPersistedTasks();
     // The current source chapter list may have shrunk. Remove every persisted
     // task of this version, including chapters no longer present in metadata.
@@ -429,30 +476,106 @@ class DownloadManager extends ChangeNotifier {
       }
     }
     for (final chapter in book.chapters) {
-      await deleteChapter(book, chapter);
+      await _deleteChapter(book, chapter);
     }
     await _storage.deleteBook(book);
     _releaseBook(book.sourceId, book.versionId);
     _notify();
   }
 
-  Future<void> cancelAndDeleteBook(AudioPlaybackBook book) async {
+  Future<void> cancelAndDeleteBook(AudioPlaybackBook book) =>
+      _acceptMutation(() => _cancelAndDeleteBook(book));
+
+  Future<void> _cancelAndDeleteBook(AudioPlaybackBook book) async {
     await loadPersistedTasks();
     final taskIds = _tasks.values
         .where((task) => taskMatchesBook(task, book))
         .map((task) => task.id)
         .toList();
     for (final taskId in taskIds) {
-      await cancel(taskId);
+      await _cancel(taskId);
     }
     for (final taskId in taskIds) {
       await _activeFutures[taskId]?.catchError((_) {});
     }
-    await deleteBook(book);
+    await _deleteBook(book);
   }
 
   Future<AudioPlaybackBook> offlinePlaybackBook(AudioPlaybackBook book) {
     return _storage.offlinePlaybackBook(book);
+  }
+
+  Future<T> _acceptMutation<T>(Future<T> Function() operation) {
+    if (_disposed || _shuttingDown) {
+      return Future.error(StateError('Download manager is shutting down.'));
+    }
+    return _trackMutation(operation);
+  }
+
+  Future<T> _trackMutation<T>(Future<T> Function() operation) {
+    // Register before invoking even a synchronous callback: it can re-enter
+    // shutdown, which must already see this accepted operation in its drain.
+    final pending = Completer<void>();
+    final tracked = pending.future;
+    _pendingMutations.add(tracked);
+    final result = Future<T>.sync(operation);
+    void complete() {
+      _pendingMutations.remove(tracked);
+      pending.complete();
+    }
+
+    result.then<void>(
+      (_) => complete(),
+      onError: (Object _, StackTrace _) => complete(),
+    );
+    return result;
+  }
+
+  /// Quiesces the queue without deleting resumable files. Call before closing
+  /// the database; unlike dispose, this awaits accepted mutations and final state.
+  /// This instance does not accept further downloads after shutdown starts.
+  Future<void> shutdown() {
+    final existing = _shutdownFuture;
+    if (existing != null) return existing;
+    _shuttingDown = true;
+    final result = _shutdown();
+    _shutdownFuture = result;
+    result.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {
+        if (identical(_shutdownFuture, result)) _shutdownFuture = null;
+      },
+    );
+    return result;
+  }
+
+  Future<void> _shutdown() async {
+    for (final token in _activeTokens.values.toList()) {
+      token.cancel();
+    }
+    await _loadFuture;
+    while (_pendingMutations.isNotEmpty) {
+      await Future.wait(_pendingMutations.toList());
+    }
+    await waitForIdle();
+    for (final task in _tasks.values.toList()) {
+      if (task.status != DownloadTaskStatus.running &&
+          task.status != DownloadTaskStatus.queued &&
+          !_pendingShutdownCheckpoints.contains(task.id)) {
+        continue;
+      }
+      _pendingShutdownCheckpoints.add(task.id);
+      final paused = _copyTask(
+        task,
+        status: DownloadTaskStatus.paused,
+        speedBytesPerSecond: 0,
+        updatedAt: _clock(),
+      );
+      await _saveTask(paused);
+      await _persistChapter(paused);
+      _pendingShutdownCheckpoints.remove(task.id);
+    }
+    await _writes;
   }
 
   Future<void> waitForIdle() async {
@@ -482,7 +605,7 @@ class DownloadManager extends ChangeNotifier {
   }
 
   void _schedule() {
-    if (_disposed) {
+    if (_disposed || _shuttingDown) {
       return;
     }
 
@@ -741,8 +864,10 @@ class DownloadManager extends ChangeNotifier {
 
       var downloaded = response.shouldAppend ? startByte : 0;
       final total = response.totalBytes;
+      // UI and disk checkpoints have independent time caps. Byte thresholds
+      // cannot bound work on a fast connection (or a frozen test clock).
       var lastProgressSaveAt = startedAt;
-      var lastProgressSaveBytes = downloaded;
+      var lastProgressNotifyAt = lastProgressSaveAt;
       try {
         await for (final chunk in token.bindStream(response.bytes)) {
           if (token.isCanceled) {
@@ -751,29 +876,33 @@ class DownloadManager extends ChangeNotifier {
           sink.add(chunk);
           downloaded += chunk.length;
           final now = _clock();
-          if (_shouldSaveProgress(
+          final current = _tasks[taskId];
+          if (current == null || current.status != DownloadTaskStatus.running) {
+            break;
+          }
+          final progress = _copyTask(
+            current,
+            progress: _progress(downloaded, total),
             downloadedBytes: downloaded,
             totalBytes: total,
-            lastSavedBytes: lastProgressSaveBytes,
-            lastSavedAt: lastProgressSaveAt,
-            now: now,
-          )) {
-            await _saveTask(
-              _copyTask(
-                _tasks[taskId]!,
-                status: DownloadTaskStatus.running,
-                progress: _progress(downloaded, total),
-                downloadedBytes: downloaded,
-                totalBytes: total,
-                speedBytesPerSecond: _speed(
-                  downloaded - (response.shouldAppend ? startByte : 0),
-                  startedAt,
-                ),
-                updatedAt: now,
-              ),
-            );
+            speedBytesPerSecond: _speed(
+              downloaded - (response.shouldAppend ? startByte : 0),
+              startedAt,
+            ),
+            updatedAt: now,
+          );
+          // Keep the latest byte count even between notifications/checkpoints:
+          // pause, failures and shutdown must flush the actual current state.
+          _tasks[taskId] = progress;
+          if (now.difference(lastProgressNotifyAt) >=
+              const Duration(milliseconds: 250)) {
+            lastProgressNotifyAt = now;
+            _notify();
+          }
+          if (now.difference(lastProgressSaveAt) >=
+              const Duration(seconds: 1)) {
             lastProgressSaveAt = now;
-            lastProgressSaveBytes = downloaded;
+            await _write(() => _persistence.saveTask(progress));
           }
         }
       } finally {
@@ -836,6 +965,19 @@ class DownloadManager extends ChangeNotifier {
       if (token.isCanceled &&
           _tasks[taskId]?.status == DownloadTaskStatus.canceled) {
         await _storage.resetPart(job.book, job.chapter);
+      } else if (token.isCanceled &&
+          _disposed &&
+          _tasks[taskId]?.status == DownloadTaskStatus.running) {
+        // dispose cannot await; waitForIdle still drains this terminal write
+        // after the canceled stream has flushed its resumable part file.
+        final paused = _copyTask(
+          _tasks[taskId]!,
+          status: DownloadTaskStatus.paused,
+          speedBytesPerSecond: 0,
+          updatedAt: _clock(),
+        );
+        await _saveTask(paused);
+        await _persistChapter(paused);
       }
     }
   }
@@ -956,24 +1098,6 @@ class DownloadManager extends ChangeNotifier {
       return 0;
     }
     return (downloadedBytes / totalBytes).clamp(0, 1).toDouble();
-  }
-
-  bool _shouldSaveProgress({
-    required int downloadedBytes,
-    required int? totalBytes,
-    required int lastSavedBytes,
-    required DateTime lastSavedAt,
-    required DateTime now,
-  }) {
-    const minBytesBetweenSaves = 1024 * 1024;
-    const minDurationBetweenSaves = Duration(seconds: 1);
-
-    final completed =
-        totalBytes != null && totalBytes > 0 && downloadedBytes >= totalBytes;
-    final enoughBytes =
-        downloadedBytes - lastSavedBytes >= minBytesBetweenSaves;
-    final enoughTime = now.difference(lastSavedAt) >= minDurationBetweenSaves;
-    return completed || enoughBytes || enoughTime;
   }
 
   int _speed(int downloadedBytes, DateTime startedAt) {

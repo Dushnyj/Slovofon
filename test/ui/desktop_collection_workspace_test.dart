@@ -133,7 +133,16 @@ void main() {
             const ValueKey('desktop-download-transfer-knigoblud:version-0'),
           );
           if (scale > 1) {
-            await tester.ensureVisible(transfer);
+            await tester.scrollUntilVisible(
+              transfer,
+              180,
+              scrollable: find
+                  .descendant(
+                    of: find.byKey(const PageStorageKey('downloads-scroll')),
+                    matching: find.byType(Scrollable),
+                  )
+                  .first,
+            );
             await tester.pumpAndSettle();
           }
           expect(
@@ -249,10 +258,33 @@ void main() {
         await _revealFirstRow(tester, downloads: downloads);
         _expectRowsFillWidth(tester, fixture, downloads: downloads);
         expect(find.byType(ResponsiveTileGrid), findsNothing);
-        if (downloads) {
-          expect(find.byType(ExpansionTile), findsNWidgets(count));
-        } else {
-          expect(find.byType(BookCard), findsNWidgets(count));
+        expect(
+          find.byType(downloads ? ExpansionTile : BookCard).evaluate().length,
+          inInclusiveRange(1, count),
+        );
+        // A lazy collection no longer mounts every item simultaneously. Visit
+        // every identity and retain the full-width geometry assertions there.
+        for (var index = 0; index < count; index++) {
+          tester
+              .state<ScrollableState>(find.byType(Scrollable).first)
+              .position
+              .jumpTo(0);
+          await tester.pump();
+          final row = downloads
+              ? _downloadRow(index)
+              : find.byWidgetPredicate(
+                  (widget) =>
+                      widget is BookCard &&
+                      widget.book.title == _book(index).title,
+                );
+          await tester.scrollUntilVisible(
+            row,
+            300,
+            scrollable: find.byType(Scrollable).first,
+          );
+          await tester.pumpAndSettle();
+          expect(row, findsOneWidget);
+          _expectRowsFillWidth(tester, fixture, downloads: downloads);
         }
         expect(tester.takeException(), isNull);
         await tester.pumpWidget(const SizedBox.shrink());
@@ -468,10 +500,27 @@ void main() {
           width: profile.$2,
         );
         final desktop = profile.$1 == TargetPlatform.windows;
-        expect(
-          find.byType(ResponsiveTileGrid),
-          desktop ? findsNothing : findsOneWidget,
-        );
+        expect(find.byType(ResponsiveTileGrid), findsNothing);
+        if (downloads) {
+          expect(
+            find.descendant(
+              of: find.byKey(const PageStorageKey('downloads-scroll')),
+              matching: find.byType(SliverList),
+            ),
+            findsOneWidget,
+            reason: 'One lazy list owns all section offsets during resize.',
+          );
+        } else {
+          expect(find.byType(SliverResponsiveTileGrid), findsOneWidget);
+          expect(
+            tester
+                .widget<SliverResponsiveTileGrid>(
+                  find.byType(SliverResponsiveTileGrid),
+                )
+                .singleColumn,
+            desktop,
+          );
+        }
         expect(
           find.byKey(const ValueKey('desktop-library-rows')),
           desktop && !downloads ? findsOneWidget : findsNothing,

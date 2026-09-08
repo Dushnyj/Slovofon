@@ -127,7 +127,7 @@ jobs:
       - name: Test
         run: flutter test
 
-      - name: Test Windows update native policies
+      - name: Test Windows portable native policies
         shell: bash
         run: |
           c++ -std=c++17 -Wall -Wextra -Werror -UNDEBUG \
@@ -142,6 +142,14 @@ jobs:
             windows/runner/tests/windows_close_request_test.cpp \
             -o "$RUNNER_TEMP/windows-close-request-test"
           "$RUNNER_TEMP/windows-close-request-test"
+          c++ -std=c++17 -Wall -Wextra -Werror -UNDEBUG \
+            windows/runner/tests/windows_activation_test.cpp \
+            -o "$RUNNER_TEMP/windows-activation-test"
+          "$RUNNER_TEMP/windows-activation-test"
+          c++ -std=c++17 -Wall -Wextra -Werror -UNDEBUG \
+            windows/runner/tests/window_size_policy_test.cpp \
+            -o "$RUNNER_TEMP/window-size-policy-test"
+          "$RUNNER_TEMP/window-size-policy-test"
 
   android-release:
     name: Android signed release
@@ -270,6 +278,38 @@ jobs:
 
       - name: Install dependencies
         run: flutter pub get --enforce-lockfile
+
+      - name: Test Windows single-instance native fixture
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $installation = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if ($LASTEXITCODE -ne 0 -or -not $installation) { throw 'MSVC installation not found.' }
+          $developerCommand = Join-Path $installation 'Common7/Tools/VsDevCmd.bat'
+          $environment = & $env:ComSpec /d /s /c "`"$developerCommand`" -arch=x64 -host_arch=x64 >nul && set"
+          if ($LASTEXITCODE -ne 0) { throw 'MSVC environment initialization failed.' }
+          foreach ($line in $environment) {
+            if ($line -match '^([^=]+)=(.*)$') {
+              [Environment]::SetEnvironmentVariable($Matches[1], $Matches[2], 'Process')
+            }
+          }
+          # Standalone test HWND/processes use a unique namespace, never the app or its data.
+          $out = Join-Path $env:RUNNER_TEMP 'windows-single-instance-test'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          Push-Location $out
+          try {
+            & cl.exe /nologo /std:c++17 /EHsc /utf-8 /W4 /WX /UNDEBUG /DNOMINMAX `
+              "$env:GITHUB_WORKSPACE/windows/runner/tests/windows_single_instance_test.cpp" `
+              "$env:GITHUB_WORKSPACE/windows/runner/windows_single_instance.cpp" `
+              /Fe:windows-single-instance-test.exe /link user32.lib advapi32.lib shell32.lib
+            if ($LASTEXITCODE -ne 0) { throw "Native fixture compilation failed ($LASTEXITCODE)." }
+            & .\windows-single-instance-test.exe
+            if ($LASTEXITCODE -ne 0) { throw "Native fixture failed ($LASTEXITCODE)." }
+          } finally {
+            Pop-Location
+          }
 
       - name: Build Windows release bundle
         run: flutter build windows --release

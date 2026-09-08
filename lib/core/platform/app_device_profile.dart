@@ -25,6 +25,10 @@ class AppDeviceProfile {
   final bool? hasTouchscreen;
 
   static const channelName = 'com.slovofon.app/device_profile';
+  // The channel is attached before Dart starts, but a cold Android TV emulator
+  // can keep its platform thread busy for several seconds. Do not permanently
+  // choose the phone layout merely because that first reply took over 2 s.
+  static const nativeProfileTimeout = Duration(seconds: 10);
 
   static Future<AppDeviceProfile> detect({
     MethodChannel channel = const MethodChannel(channelName),
@@ -37,7 +41,7 @@ class AppDeviceProfile {
     try {
       final data = await channel
           .invokeMethod<Object?>('getDeviceProfile')
-          .timeout(const Duration(seconds: 2));
+          .timeout(nativeProfileTimeout);
       if (data is! Map<Object?, Object?>) {
         return const AppDeviceProfile();
       }

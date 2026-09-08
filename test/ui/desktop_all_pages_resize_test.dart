@@ -109,7 +109,11 @@ void main() {
                 expect(tester.widget<Text>(title).data, _book.title);
               }
               if (route.$2 == SearchScreen) {
-                expect(find.byType(BookCard), findsNWidgets(15));
+                expect(
+                  find.byType(BookCard).evaluate().length,
+                  inInclusiveRange(1, 15),
+                  reason: 'Only the visible/cache result rows should mount.',
+                );
               }
               for (final size in _sizes) {
                 tester.view.physicalSize = size;
@@ -121,7 +125,11 @@ void main() {
                 );
                 expect(appRouter.state.uri.path, Uri.parse(route.$1).path);
                 // Inspect lower sections as well as the first viewport.
-                await _visitScrollRange(tester, route.$2);
+                await _visitScrollRange(
+                  tester,
+                  route.$2,
+                  expectedBookCount: route.$2 == SearchScreen ? 15 : null,
+                );
                 expect(
                   tester.takeException(),
                   isNull,
@@ -400,12 +408,32 @@ Finder _contentScrollable(Type pageType) => find
     )
     .last;
 
-Future<void> _visitScrollRange(WidgetTester tester, Type pageType) async {
+Future<void> _visitScrollRange(
+  WidgetTester tester,
+  Type pageType, {
+  int? expectedBookCount,
+}) async {
   final scrollable = _contentScrollable(pageType);
   expect(scrollable, findsOneWidget);
   var position = tester.state<ScrollableState>(scrollable).position;
   position.jumpTo(0);
   await tester.pump();
+  _expectScrollLayout(tester, pageType, position, 'return to top');
+  final seenBooks = <String>{};
+  void collectBooks() {
+    seenBooks.addAll(
+      tester
+          .widgetList<BookCard>(
+            find.descendant(
+              of: find.byType(pageType),
+              matching: find.byType(BookCard),
+            ),
+          )
+          .map((card) => card.book.id),
+    );
+  }
+
+  collectBooks();
   var visits = 0;
   while (position.pixels < position.maxScrollExtent && visits < 400) {
     final step = (position.viewportDimension * .8).clamp(48.0, 800.0);
@@ -413,15 +441,32 @@ Future<void> _visitScrollRange(WidgetTester tester, Type pageType) async {
       (position.pixels + step).clamp(0, position.maxScrollExtent),
     );
     await tester.pump();
-    expect(
-      tester.takeException(),
-      isNull,
-      reason: '$pageType scroll visit $visits at ${position.pixels}',
-    );
+    _expectScrollLayout(tester, pageType, position, 'scroll visit $visits');
+    collectBooks();
     position = tester.state<ScrollableState>(scrollable).position;
     visits++;
   }
   expect(visits, lessThan(400), reason: '$pageType scroll extent converges');
+  if (expectedBookCount != null) {
+    expect(
+      seenBooks,
+      hasLength(expectedBookCount),
+      reason: 'Every lazy result remains reachable after resize.',
+    );
+  }
+}
+
+void _expectScrollLayout(
+  WidgetTester tester,
+  Type pageType,
+  ScrollPosition position,
+  String reason,
+) {
+  expect(
+    tester.takeException(),
+    isNull,
+    reason: '$pageType $reason at ${position.pixels}',
+  );
 }
 
 Future<void> _returnToTop(WidgetTester tester, Type pageType) async {
@@ -511,7 +556,11 @@ class _ResizeCatalog extends SourceCatalogService {
   Completer<SourceBookSnapshot>? detailsGate;
 
   @override
-  Future<SourceSearchResponse> search(SearchRequest request) async {
+  Future<SourceSearchResponse> search(
+    SearchRequest request, {
+    void Function(SourceSearchResponse response)? onUpdate,
+    SourceSearchCancellation? cancellation,
+  }) async {
     searchRequests++;
     if (searchGate case final gate?) return gate.future;
     return SourceSearchResponse(

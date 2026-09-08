@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../motion/app_motion.dart';
 import 'television_focus.dart';
-import 'television_metrics.dart';
 
 /// A device capability, not a width breakpoint: a large tablet is not a TV.
 class TelevisionLayout extends InheritedWidget {
@@ -20,8 +20,9 @@ class TelevisionLayout extends InheritedWidget {
       enabled != oldWidget.enabled;
 }
 
-/// Keeps all routes (including dialogs) away from overscan, and maps the remote
-/// centre key to the same activation action as Enter. Media keys stay native.
+/// Keeps the actual full-screen viewport and maps the remote centre key to the
+/// same activation action as Enter. Routes own their content padding; media
+/// keys stay native.
 class TelevisionViewport extends StatefulWidget {
   const TelevisionViewport({required this.child, super.key});
   final Widget child;
@@ -45,31 +46,21 @@ class _TelevisionViewportState extends State<TelevisionViewport> {
   @override
   Widget build(BuildContext context) {
     final media = MediaQuery.of(context);
-    final insets = TelevisionMetrics.safeInsetsFor(media.size);
     return ColoredBox(
       color: Theme.of(context).colorScheme.surface,
-      child: Padding(
-        padding: insets,
-        child: MediaQuery(
-          data: media.copyWith(
-            size: Size(
-              media.size.width - insets.horizontal,
-              media.size.height - insets.vertical,
-            ),
-            padding: EdgeInsets.zero,
-            viewPadding: EdgeInsets.zero,
-            // Left/right edit a slider; up/down leave it. Keep the actual DPR
-            // and system/user text scaler unchanged.
-            navigationMode: NavigationMode.directional,
-          ),
-          child: Shortcuts(
-            shortcuts: const {
-              SingleActivator(LogicalKeyboardKey.select): ActivateIntent(),
-            },
-            child: FocusTraversalGroup(
-              policy: ReadingOrderTraversalPolicy(),
-              child: widget.child,
-            ),
+      child: MediaQuery(
+        data: media.copyWith(
+          // Left/right edit a slider; up/down leave it. Preserve real viewport,
+          // safe areas, DPR and the system/user text scaler without shrinking.
+          navigationMode: NavigationMode.directional,
+        ),
+        child: Shortcuts(
+          shortcuts: const {
+            SingleActivator(LogicalKeyboardKey.select): ActivateIntent(),
+          },
+          child: FocusTraversalGroup(
+            policy: ReadingOrderTraversalPolicy(),
+            child: widget.child,
           ),
         ),
       ),
@@ -102,9 +93,16 @@ class _TelevisionFocusFrameState extends State<TelevisionFocusFrame> {
     onFocusChange: (focused) {
       setState(() => _focused = focused);
       if (focused) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
+        WidgetsBinding.instance.addPostFrameCallback((_) async {
           if (mounted && _focused) {
-            Scrollable.ensureVisible(
+            // Reveal the complete frame in either direction. End-only
+            // alignment leaves the top border cut when moving upwards.
+            await Scrollable.ensureVisible(
+              context,
+              alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtStart,
+            );
+            if (!mounted || !context.mounted || !_focused) return;
+            await Scrollable.ensureVisible(
               context,
               alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtEnd,
             );
@@ -112,19 +110,27 @@ class _TelevisionFocusFrameState extends State<TelevisionFocusFrame> {
         });
       }
     },
-    child: DecoratedBox(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(widget.radius),
-        border: Border.all(
-          width: _focused ? 2 : (widget.showRestingOutline ? 1 : 0),
-          color: _focused
-              ? Theme.of(context).colorScheme.primary
-              : Theme.of(context).colorScheme.outlineVariant.withValues(
-                  alpha: widget.showRestingOutline ? 1 : 0,
-                ),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Material(
+        animationDuration: AppMotion.of(context).duration(),
+        // Ink from ListTile (selected, focus, hover and press) must paint on
+        // this same rounded surface, not on a distant rectangular ancestor.
+        color: Theme.of(context).colorScheme.surface.withValues(alpha: 0),
+        clipBehavior: Clip.antiAlias,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(widget.radius),
+          side: BorderSide(
+            width: _focused ? 2 : (widget.showRestingOutline ? 1 : 0),
+            color: _focused
+                ? Theme.of(context).colorScheme.primary
+                : Theme.of(context).colorScheme.outlineVariant.withValues(
+                    alpha: widget.showRestingOutline ? 1 : 0,
+                  ),
+          ),
         ),
+        child: widget.child,
       ),
-      child: Padding(padding: const EdgeInsets.all(2), child: widget.child),
     ),
   );
 }

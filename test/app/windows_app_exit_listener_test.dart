@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:ui' show AppExitResponse, AppExitType;
 
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart' show MaterialApp, Scaffold, FilledButton;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:slovofon/app/windows_app_exit_listener.dart';
 import 'package:slovofon/services/audio/playback_controller.dart';
@@ -39,6 +41,235 @@ Future<String> _platformExit(WidgetTester tester) async {
 }
 
 void main() {
+  final binding = _ExitProbeBinding();
+  testWidgets(
+    'hidden Windows still runs its final provider-unmount frame',
+    (tester) async {
+      var disposed = false;
+      var closed = false;
+      var disposedAtClose = false;
+      await tester.pumpWidget(
+        WindowsAppExitListener(
+          onExitRequested: () async {},
+          onExitReady: () async {
+            disposedAtClose = disposed;
+            closed = true;
+          },
+          child: _DisposeProbe(onDispose: () => disposed = true),
+        ),
+      );
+      await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+        SystemChannels.lifecycle.name,
+        SystemChannels.lifecycle.codec.encodeMessage(
+          'AppLifecycleState.hidden',
+        ),
+        null,
+      );
+      expect(tester.binding.framesEnabled, isFalse);
+      final response = _nativeExit(tester);
+      await tester.pump();
+      await tester.pump();
+      expect(await response, isTrue);
+      expect(closed, isTrue);
+      expect(disposedAtClose, isTrue);
+      await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+        SystemChannels.lifecycle.name,
+        SystemChannels.lifecycle.codec.encodeMessage(
+          'AppLifecycleState.resumed',
+        ),
+        null,
+      );
+      await tester.pumpWidget(const SizedBox());
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.windows),
+  );
+
+  testWidgets(
+    'irreversible close failure blocks app and exposes keyboard retry',
+    (tester) async {
+      var attempts = 0;
+      var userActions = 0;
+      var nativeRetryRequests = 0;
+      var producerDisposals = 0;
+      var producerInitializations = 0;
+      binding.onExitRequested = (type, code) {
+        nativeRetryRequests++;
+        expectSync(type, AppExitType.cancelable);
+        expectSync(code, 0);
+      };
+      addTearDown(() => binding.onExitRequested = null);
+      await tester.pumpWidget(
+        WindowsAppExitListener(
+          retryOnlyOnFailure: true,
+          onExitRequested: () async {
+            if (++attempts == 1) throw StateError('private disk exception');
+          },
+          child: _DisposeProbe(
+            onInit: () => producerInitializations++,
+            onDispose: () => producerDisposals++,
+            child: MaterialApp(
+              home: Builder(
+                builder: (context) {
+                  WindowsAppExitListener.capturePresentation(
+                    context,
+                    errorTitle: 'Ошибка',
+                    errorMessage: 'Не удалось сохранить изменение',
+                    retryLabel: 'Повторить',
+                    pendingLabel: 'Загрузка',
+                  );
+                  return Scaffold(
+                    body: FilledButton(
+                      onPressed: () => userActions++,
+                      child: const Text('Underlying action'),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      );
+      final first = _nativeExit(tester);
+      await tester.pump();
+      expect(await first, isFalse);
+      expect(tester.takeException(), isStateError);
+      await tester.pumpAndSettle();
+      expect(find.text('Ошибка'), findsOneWidget);
+      expect(producerDisposals, 0);
+      expect(producerInitializations, 1);
+      expect(find.textContaining('private disk'), findsNothing);
+      expect(
+        tester
+            .widget<AbsorbPointer>(find.byType(AbsorbPointer).first)
+            .absorbing,
+        isTrue,
+      );
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+      expect(nativeRetryRequests, 1);
+      expect(attempts, 1);
+      // The native System.exitApplication handler starts a fresh cancelable
+      // System.requestAppExit handshake, whose exit reply actually quits Win32.
+      final retried = _platformExit(tester);
+      await tester.pumpAndSettle();
+      expect(await retried, 'exit');
+      expect(attempts, 2);
+      expect(userActions, 0);
+      await tester.pumpWidget(const SizedBox());
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.windows),
+  );
+
+  testWidgets(
+    'unmounts producers only after checkpoint and awaits database close',
+    (tester) async {
+      final events = <String>[];
+      final checkpoint = Completer<void>();
+      final database = Completer<void>();
+      var approved = false;
+      await tester.pumpWidget(
+        WindowsAppExitListener(
+          onExitRequested: () async {
+            events.add('checkpoint-start');
+            await checkpoint.future;
+            events.add('checkpoint-end');
+          },
+          onExitReady: () async {
+            events.add('database-close-start');
+            await database.future;
+            events.add('database-close-end');
+          },
+          child: _DisposeProbe(
+            onDispose: () => events.add('producers-disposed'),
+          ),
+        ),
+      );
+      final response = _nativeExit(tester).then((value) {
+        approved = value == true;
+      });
+      await tester.pump();
+      expect(events, ['checkpoint-start']);
+      expect(find.byType(_DisposeProbe), findsOneWidget);
+      expect(
+        tester.widget<AbsorbPointer>(find.byType(AbsorbPointer)).absorbing,
+        isTrue,
+      );
+      checkpoint.complete();
+      await tester.pump();
+      await tester.pump();
+      expect(events, [
+        'checkpoint-start',
+        'checkpoint-end',
+        'producers-disposed',
+        'database-close-start',
+      ]);
+      expect(approved, isFalse);
+      database.complete();
+      await tester.pump();
+      await response;
+      expect(approved, isTrue);
+      expect(events.last, 'database-close-end');
+      await tester.pumpWidget(const SizedBox());
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.windows),
+  );
+
+  testWidgets(
+    'failed checkpoint keeps producers mounted and input available',
+    (tester) async {
+      var disposed = false;
+      var databaseClosed = false;
+      await tester.pumpWidget(
+        WindowsAppExitListener(
+          onExitRequested: () async => throw StateError('checkpoint failed'),
+          onExitReady: () async => databaseClosed = true,
+          child: _DisposeProbe(onDispose: () => disposed = true),
+        ),
+      );
+      final response = _nativeExit(tester);
+      await tester.pump();
+      expect(await response, isFalse);
+      expect(tester.takeException(), isStateError);
+      expect(disposed, isFalse);
+      expect(databaseClosed, isFalse);
+      expect(
+        tester.widget<AbsorbPointer>(find.byType(AbsorbPointer)).absorbing,
+        isFalse,
+      );
+      await tester.pumpWidget(const SizedBox());
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.windows),
+  );
+
+  testWidgets(
+    'database-close retry does not recreate or redrain producers',
+    (tester) async {
+      var checkpoints = 0;
+      var disposals = 0;
+      var closes = 0;
+      await tester.pumpWidget(
+        WindowsAppExitListener(
+          onExitRequested: () async => checkpoints++,
+          onExitReady: () async {
+            if (++closes == 1) throw StateError('close failed');
+          },
+          child: _DisposeProbe(onDispose: () => disposals++),
+        ),
+      );
+      final first = _nativeExit(tester);
+      await tester.pump();
+      await tester.pump();
+      expect(await first, isFalse);
+      expect(tester.takeException(), isStateError);
+      final second = _nativeExit(tester);
+      await tester.pump();
+      expect(await second, isTrue);
+      expect([checkpoints, disposals, closes], [1, 1, 2]);
+      await tester.pumpWidget(const SizedBox());
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.windows),
+  );
+
   testWidgets(
     'Windows native close and framework exit await the same native disposal',
     (tester) async {
@@ -218,5 +449,51 @@ void main() {
       },
       variant: TargetPlatformVariant.only(platform),
     );
+  }
+}
+
+class _DisposeProbe extends StatefulWidget {
+  const _DisposeProbe({
+    required this.onDispose,
+    this.onInit,
+    this.child = const SizedBox(),
+  });
+  final VoidCallback onDispose;
+  final VoidCallback? onInit;
+  final Widget child;
+  @override
+  State<_DisposeProbe> createState() => _DisposeProbeState();
+}
+
+class _DisposeProbeState extends State<_DisposeProbe> {
+  @override
+  void initState() {
+    super.initState();
+    widget.onInit?.call();
+  }
+
+  @override
+  void dispose() {
+    widget.onDispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
+}
+
+/// The stock test binding intentionally returns cancel without ever sending
+/// System.exitApplication to a platform channel. Observe its public native-exit
+/// entry point instead of mistaking that test-only suppression for a UI failure.
+class _ExitProbeBinding extends AutomatedTestWidgetsFlutterBinding {
+  void Function(AppExitType type, int code)? onExitRequested;
+
+  @override
+  Future<AppExitResponse> exitApplication(
+    AppExitType exitType, [
+    int exitCode = 0,
+  ]) {
+    onExitRequested?.call(exitType, exitCode);
+    return super.exitApplication(exitType, exitCode);
   }
 }

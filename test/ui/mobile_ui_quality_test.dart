@@ -30,6 +30,7 @@ import 'package:slovofon/ui/adaptive/adaptive_sheet.dart';
 import 'package:slovofon/ui/adaptive/desktop_layout.dart';
 import 'package:slovofon/ui/components/book_card.dart';
 import 'package:slovofon/ui/components/filter_picker_sheet.dart';
+import 'package:slovofon/ui/motion/motion_tooltip.dart';
 
 const _book = AudioBook(
   id: 'phone-book',
@@ -183,30 +184,27 @@ void main() {
         final actions = find.byKey(
           const ValueKey('mobile-download-actions-missing-version'),
         );
-        final buttons = tester.widgetList<IconButton>(
-          find.descendant(of: actions, matching: find.byType(IconButton)),
-        );
-        expect(
-          buttons
-              .where((button) => button.tooltip == _strings.play)
-              .single
-              .onPressed,
-          isNull,
-        );
-        expect(
-          buttons
-              .where((button) => button.tooltip == _strings.retry)
-              .single
-              .onPressed,
-          isNull,
-        );
-        expect(
-          buttons
-              .where((button) => button.tooltip == _strings.deleteDownloaded)
-              .single
-              .onPressed,
-          isNotNull,
-        );
+        IconButton buttonWithLabel(String label) {
+          // The public wrapper owns the label in every motion mode; the
+          // inner Material button retains the actual enabled/disabled state.
+          final tooltip = find.descendant(
+            of: actions,
+            matching: find.byWidgetPredicate(
+              (widget) => widget is AppTooltip && widget.message == label,
+            ),
+          );
+          expect(tooltip, findsOneWidget, reason: label);
+          final button = find.descendant(
+            of: tooltip,
+            matching: find.byType(IconButton),
+          );
+          expect(button, findsOneWidget, reason: label);
+          return tester.widget<IconButton>(button);
+        }
+
+        expect(buttonWithLabel(_strings.play).onPressed, isNull);
+        expect(buttonWithLabel(_strings.retry).onPressed, isNull);
+        expect(buttonWithLabel(_strings.deleteDownloaded).onPressed, isNotNull);
         final recover = find.text(_strings.openSearch);
         await _reveal(tester, recover);
         await tester.tap(recover);
@@ -289,6 +287,21 @@ void main() {
         final actions = find.byKey(
           const ValueKey('mobile-download-actions-phone-version'),
         );
+        // At 300% text the page/section headings can fill the viewport. The
+        // lazy download row must be scrolled into the cache before inspecting
+        // its controls; do not require offscreen rows to be eagerly mounted.
+        await tester.scrollUntilVisible(
+          actions,
+          200,
+          scrollable: find
+              .descendant(
+                of: find.byKey(const PageStorageKey('downloads-scroll')),
+                matching: find.byType(Scrollable),
+              )
+              .first,
+          maxScrolls: 30,
+        );
+        await tester.pumpAndSettle();
         expect(actions, findsOneWidget);
         for (final label in [
           _strings.pauseDownload,
@@ -762,6 +775,9 @@ Future<({LibraryStore library, BookmarkStore bookmarks})> _library(
         bookmarkStoreProvider.overrideWith((ref) => bookmarks),
         playbackControllerProvider.overrideWith((ref) => playback),
         libraryPlaybackBooksProvider.overrideWith(
+          (ref) async => [_playbackBook],
+        ),
+        historyPlaybackBooksProvider.overrideWith(
           (ref) async => [_playbackBook],
         ),
         playbackProgressSnapshotsProvider.overrideWith((ref) async => []),

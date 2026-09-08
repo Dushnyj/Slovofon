@@ -1,3 +1,4 @@
+import '../motion/motion_tooltip.dart';
 import 'package:flutter/material.dart';
 
 import 'package:go_router/go_router.dart';
@@ -5,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import '../../app/localization/app_strings.dart';
 
 import '../icons/app_icons.dart';
+import 'television_metrics.dart';
 import 'television_transport.dart';
 export 'television_transport.dart';
 
@@ -73,7 +75,15 @@ class _TelevisionShellState extends State<TelevisionShell> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Expanded(child: FocusTraversalGroup(child: widget.child)),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.only(
+                    top: TelevisionMetrics.contentInset,
+                    right: TelevisionMetrics.contentInset,
+                  ),
+                  child: FocusTraversalGroup(child: widget.child),
+                ),
+              ),
               const TelevisionTransport(),
             ],
           ),
@@ -162,31 +172,46 @@ class _TelevisionStandaloneShellState extends State<TelevisionStandaloneShell> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Row(
-                children: [
-                  widget.leading ??
-                      IconButton(
-                        key: const ValueKey('tv-standalone-back'),
-                        focusNode: _backFocus,
-                        tooltip: MaterialLocalizations.of(
-                          context,
-                        ).backButtonTooltip,
-                        onPressed: _back,
-                        icon: const AppIcon(AppIconAssets.systemBack, size: 22),
-                      ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      widget.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.only(
+                    top: TelevisionMetrics.contentInset,
+                    right: TelevisionMetrics.contentInset,
                   ),
-                ],
+                  child: Column(
+                    children: [
+                      Row(
+                        children: [
+                          widget.leading ??
+                              AppIconButton(
+                                key: const ValueKey('tv-standalone-back'),
+                                focusNode: _backFocus,
+                                tooltip: MaterialLocalizations.of(
+                                  context,
+                                ).backButtonTooltip,
+                                onPressed: _back,
+                                icon: const AppIcon(
+                                  AppIconAssets.systemBack,
+                                  size: 22,
+                                ),
+                              ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              widget.title,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Expanded(child: widget.child),
+                    ],
+                  ),
+                ),
               ),
-              const SizedBox(height: 8),
-              Expanded(child: widget.child),
               if (widget.showTransport) const TelevisionTransport(),
             ],
           ),
@@ -219,53 +244,60 @@ class _TelevisionNavigation extends StatelessWidget {
       (strings.downloads, AppIconAssets.navDownloads),
       (strings.settings, AppIconAssets.navSettings),
     ];
-    return SizedBox(
-      width: 56,
-      child: SingleChildScrollView(
-        child: Column(
-          children: [
-            for (final (index, item) in items.indexed) ...[
-              if (index > 0) const SizedBox(height: 8),
-              Semantics(
-                selected: index == selectedIndex,
-                child: Tooltip(
-                  message: item.$1,
-                  child: IconButton(
-                    key: ValueKey('$keyPrefix-$index'),
-                    focusNode: focusNodes[index],
-                    onPressed: () => onSelected(index),
-                    style: ButtonStyle(
-                      minimumSize: const WidgetStatePropertyAll(Size(48, 48)),
-                      foregroundColor: WidgetStatePropertyAll(
-                        index == selectedIndex
-                            ? colors.onSecondaryContainer
-                            : colors.onSurfaceVariant,
+    return Padding(
+      padding: const EdgeInsets.only(
+        left: TelevisionMetrics.contentInset,
+        top: TelevisionMetrics.contentInset,
+        bottom: TelevisionMetrics.contentInset,
+      ),
+      child: SizedBox(
+        width: 56,
+        child: SingleChildScrollView(
+          child: Column(
+            children: [
+              for (final (index, item) in items.indexed) ...[
+                if (index > 0) const SizedBox(height: 8),
+                Semantics(
+                  selected: index == selectedIndex,
+                  child: AppTooltip(
+                    message: item.$1,
+                    child: AppIconButton(
+                      key: ValueKey('$keyPrefix-$index'),
+                      focusNode: focusNodes[index],
+                      onPressed: () => onSelected(index),
+                      style: ButtonStyle(
+                        minimumSize: const WidgetStatePropertyAll(Size(48, 48)),
+                        foregroundColor: WidgetStatePropertyAll(
+                          index == selectedIndex
+                              ? colors.onSecondaryContainer
+                              : colors.onSurfaceVariant,
+                        ),
+                        backgroundColor: WidgetStateProperty.resolveWith((
+                          states,
+                        ) {
+                          if (index == selectedIndex) {
+                            return colors.secondaryContainer;
+                          }
+                          return states.contains(WidgetState.focused)
+                              ? colors.surfaceContainerHigh
+                              : colors.surface;
+                        }),
+                        side: WidgetStateProperty.resolveWith(
+                          (states) => states.contains(WidgetState.focused)
+                              ? BorderSide(color: colors.primary, width: 2)
+                              : BorderSide(
+                                  color: colors.surface.withValues(alpha: 0),
+                                  width: 2,
+                                ),
+                        ),
                       ),
-                      backgroundColor: WidgetStateProperty.resolveWith((
-                        states,
-                      ) {
-                        if (index == selectedIndex) {
-                          return colors.secondaryContainer;
-                        }
-                        return states.contains(WidgetState.focused)
-                            ? colors.surfaceContainerHigh
-                            : colors.surface;
-                      }),
-                      side: WidgetStateProperty.resolveWith(
-                        (states) => states.contains(WidgetState.focused)
-                            ? BorderSide(color: colors.primary, width: 2)
-                            : BorderSide(
-                                color: colors.surface.withValues(alpha: 0),
-                                width: 2,
-                              ),
-                      ),
+                      icon: AppIcon(item.$2, size: 22),
                     ),
-                    icon: AppIcon(item.$2, size: 22),
                   ),
                 ),
-              ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );

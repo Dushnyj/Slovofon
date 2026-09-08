@@ -111,7 +111,7 @@ data class SlovofonMediaSessionState(
     companion object {
         fun idle(): SlovofonMediaSessionState {
             return SlovofonMediaSessionState(
-                appName = "Словофон",
+                appName = "Slovofon",
                 bookTitle = "",
                 chapterTitle = "",
                 sourceName = "",
@@ -129,7 +129,7 @@ data class SlovofonMediaSessionState(
         fun from(value: Any?): SlovofonMediaSessionState? {
             val map = value as? Map<*, *> ?: return null
             return SlovofonMediaSessionState(
-                appName = map.stringValue("appName") ?: "Словофон",
+                appName = map.stringValue("appName") ?: "Slovofon",
                 bookTitle = map.stringValue("bookTitle") ?: return null,
                 chapterTitle = map.stringValue("chapterTitle") ?: "",
                 sourceName = map.stringValue("sourceName") ?: "",

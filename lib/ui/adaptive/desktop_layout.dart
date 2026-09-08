@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../motion/app_motion.dart';
+
 /// Windows presentation stays desktop even on a small, high-DPI work area.
 /// Width controls the desktop arrangement, not the choice of platform shell.
 /// All dimensions below are Flutter logical pixels. Windows PerMonitorV2 and
@@ -23,9 +25,7 @@ abstract final class DesktopLayout {
       );
 
   static Duration motionDuration(BuildContext context) =>
-      MediaQuery.disableAnimationsOf(context)
-      ? Duration.zero
-      : const Duration(milliseconds: 160);
+      AppMotion.of(context).duration();
 }
 
 /// Related content shares the window rather than leaving an unused right half.

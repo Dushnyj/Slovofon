@@ -108,7 +108,7 @@ void main() {
 
           for (final scale in [0.75, 1.0, 2.0]) {
             final savesBeforeDrag = fixture.persistence.saveCount;
-            final slider = tester.widget<Slider>(find.byKey(_sliderKey));
+            final slider = _readSlider(tester, find.byKey(_sliderKey));
             expect(slider.min, 0.75);
             expect(slider.max, 2);
             expect(slider.divisions, 25);
@@ -124,7 +124,7 @@ void main() {
             expect(fixture.settings.settings.textScale, committedScale);
             expect(fixture.persistence.saveCount, savesBeforeDrag);
 
-            tester.widget<Slider>(find.byKey(_sliderKey)).onChangeEnd!(scale);
+            _readSlider(tester, find.byKey(_sliderKey)).onChangeEnd!(scale);
             await _frames(tester);
             committedScale = scale;
             expect(fixture.settings.settings.textScale, scale);
@@ -140,7 +140,7 @@ void main() {
               ),
               systemScale * scale,
             );
-            expect(tester.widget<Slider>(find.byKey(_sliderKey)).value, scale);
+            expect(_readSlider(tester, find.byKey(_sliderKey)).value, scale);
             expect(tester.takeException(), isNull);
           }
 
@@ -161,7 +161,7 @@ void main() {
           expect(fixture.persistence.saved.textScale, 1);
           _expectScale(tester, find.byKey(_previewKey), systemScale);
           _expectScale(tester, find.text('Theme'), systemScale);
-          expect(tester.widget<Slider>(find.byKey(_sliderKey)).value, 1);
+          expect(_readSlider(tester, find.byKey(_sliderKey)).value, 1);
           expect(tester.takeException(), isNull);
         },
       );
@@ -185,7 +185,7 @@ void main() {
       final gesture = await tester.startGesture(thumb);
       await gesture.moveTo(Offset(sliderRect.right - 2, sliderRect.center.dy));
       await _frames(tester);
-      expect(tester.widget<Slider>(find.byKey(_sliderKey)).value, 2);
+      expect(_readSlider(tester, find.byKey(_sliderKey)).value, 2);
       _expectScale(tester, find.byKey(_previewKey), 2);
       expect(fixture.settings.settings.textScale, 1);
       expect(fixture.persistence.saveCount, savesBefore);
@@ -207,22 +207,22 @@ void main() {
       await _openAppearance(tester);
       final saveGate = Completer<void>();
       persistence.saveGate = saveGate;
-      tester.widget<Slider>(find.byKey(_sliderKey)).onChanged!(1.5);
+      _readSlider(tester, find.byKey(_sliderKey)).onChanged!(1.5);
       await _frames(tester);
-      tester.widget<Slider>(find.byKey(_sliderKey)).onChangeEnd!(1.5);
+      _readSlider(tester, find.byKey(_sliderKey)).onChangeEnd!(1.5);
       await tester.pump();
       expect(persistence.saveCount, 1);
 
-      tester.widget<Slider>(find.byKey(_sliderKey)).onChanged!(2);
+      _readSlider(tester, find.byKey(_sliderKey)).onChanged!(2);
       await _frames(tester);
       _expectScale(tester, find.byKey(_previewKey), 2);
       saveGate.complete();
       await _frames(tester);
       expect(fixture.settings.settings.textScale, 1.5);
-      expect(tester.widget<Slider>(find.byKey(_sliderKey)).value, 2);
+      expect(_readSlider(tester, find.byKey(_sliderKey)).value, 2);
       _expectScale(tester, find.byKey(_previewKey), 2);
 
-      tester.widget<Slider>(find.byKey(_sliderKey)).onChangeEnd!(2);
+      _readSlider(tester, find.byKey(_sliderKey)).onChangeEnd!(2);
       await _frames(tester);
       expect(persistence.saveCount, 2);
       expect(persistence.saved.textScale, 2);
@@ -242,9 +242,9 @@ void main() {
       await _openAppearance(tester);
       final saveGate = Completer<void>();
       persistence.saveGate = saveGate;
-      tester.widget<Slider>(find.byKey(_sliderKey)).onChanged!(1.5);
+      _readSlider(tester, find.byKey(_sliderKey)).onChanged!(1.5);
       await _frames(tester);
-      tester.widget<Slider>(find.byKey(_sliderKey)).onChangeEnd!(1.5);
+      _readSlider(tester, find.byKey(_sliderKey)).onChangeEnd!(1.5);
       await tester.pump();
       expect(persistence.saveCount, 1);
       expect(fixture.settings.settings.textScale, 1);
@@ -271,7 +271,7 @@ void main() {
       );
       await gesture.moveTo(Offset(rect.right - 2, rect.center.dy));
       await _frames(tester);
-      expect(tester.widget<Slider>(slider).value, 2);
+      expect(_readSlider(tester, slider).value, 2);
       _expectScale(tester, find.byKey(_previewKey), 2);
       expect(persistence.saveCount, 1);
 
@@ -286,7 +286,7 @@ void main() {
         reason:
             'Finishing the earlier save must reflow the workspace to Column',
       );
-      expect(tester.widget<Slider>(slider).value, 2);
+      expect(_readSlider(tester, slider).value, 2);
       _expectScale(tester, find.byKey(_previewKey), 2);
 
       await gesture.up();
@@ -294,7 +294,7 @@ void main() {
       expect(persistence.saveCount, 2);
       expect(persistence.saved.textScale, 2);
       expect(fixture.settings.settings.textScale, 2);
-      expect(tester.widget<Slider>(slider).value, 2);
+      expect(_readSlider(tester, slider).value, 2);
       _expectScale(tester, find.byKey(_previewKey), 2);
       expect(tester.takeException(), isNull);
     },
@@ -308,10 +308,10 @@ void main() {
       await _openAppearance(tester);
       final saveGate = Completer<void>();
       persistence.saveGate = saveGate;
-      var slider = tester.widget<Slider>(find.byKey(_sliderKey));
+      var slider = _readSlider(tester, find.byKey(_sliderKey));
       slider.onChanged!(2);
       await _frames(tester);
-      slider = tester.widget<Slider>(find.byKey(_sliderKey));
+      slider = _readSlider(tester, find.byKey(_sliderKey));
       slider.onChangeEnd!(2);
       await tester.pump();
       expect(persistence.saveCount, 1);
@@ -336,9 +336,9 @@ void main() {
       await _openAppearance(tester);
       final saveGate = Completer<void>();
       persistence.saveGate = saveGate;
-      tester.widget<Slider>(find.byKey(_sliderKey)).onChanged!(2);
+      _readSlider(tester, find.byKey(_sliderKey)).onChanged!(2);
       await _frames(tester);
-      tester.widget<Slider>(find.byKey(_sliderKey)).onChangeEnd!(2);
+      _readSlider(tester, find.byKey(_sliderKey)).onChangeEnd!(2);
       await tester.pump();
       expect(persistence.saveCount, 1);
 
@@ -488,4 +488,12 @@ class _MemoryDownloadStorage extends FileDownloadStorage {
   @override
   Future<CardCacheStats> cardCacheStats() async =>
       const CardCacheStats(bytes: 0, bookCount: 0);
+}
+
+Slider _readSlider(WidgetTester tester, Finder root) {
+  final widget = tester.widget(root);
+  if (widget is Slider) return widget;
+  return tester.widget<Slider>(
+    find.descendant(of: root, matching: find.byType(Slider)),
+  );
 }

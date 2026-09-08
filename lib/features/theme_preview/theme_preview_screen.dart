@@ -1,3 +1,4 @@
+import '../../ui/motion/motion_tooltip.dart';
 import 'package:flutter/material.dart';
 
 import '../../app/localization/app_strings.dart';
@@ -10,6 +11,8 @@ import '../../ui/components/book_card.dart';
 import '../../ui/components/chapter_tile.dart';
 import '../../ui/components/state_placeholder.dart';
 import '../../ui/icons/app_icons.dart';
+import '../../ui/motion/app_motion.dart';
+import '../../ui/motion/motion_progress_indicator.dart';
 
 class ThemePreviewScreen extends StatelessWidget {
   const ThemePreviewScreen({super.key});
@@ -67,7 +70,7 @@ class ThemePreviewScreen extends StatelessWidget {
                 icon: const AppIcon(AppIconAssets.systemInfo),
                 label: Text(strings.details),
               ),
-              IconButton.filled(
+              AppIconButton.filled(
                 tooltip: strings.pause,
                 onPressed: () {},
                 icon: const AppIcon(AppIconAssets.playerPause),
@@ -150,7 +153,23 @@ class ThemePreviewScreen extends StatelessWidget {
             style: Theme.of(context).textTheme.titleLarge,
           ),
           const SizedBox(height: 12),
-          LinearProgressIndicator(
+          Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Switch(value: true, onChanged: (_) {}),
+              Switch(value: false, onChanged: (_) {}),
+              Checkbox(value: true, onChanged: (_) {}),
+              Checkbox(value: false, onChanged: (_) {}),
+              SizedBox(
+                width: 240,
+                child: Slider(value: 0.42, onChanged: (_) {}),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          AppLinearProgressIndicator(
             value: 0.42,
             minHeight: 8,
             borderRadius: BorderRadius.circular(99),
@@ -194,7 +213,7 @@ class ThemePreviewScreen extends StatelessWidget {
         onPressed: () {
           ScaffoldMessenger.of(
             context,
-          ).showSnackBar(SnackBar(content: Text(strings.mockDataNotice)));
+          ).showMotionSnackBar(SnackBar(content: Text(strings.mockDataNotice)));
         },
         child: const AppIcon(AppIconAssets.systemNotification),
       ),

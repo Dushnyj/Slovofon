@@ -174,9 +174,20 @@ void main() {
           matching: find.text(
             source
                 ? 'Александр Константинович'
-                : '${activeMockBook.narrator} · ${activeMockBook.durationLabel}',
+                : '${activeMockBook.narrator} · 15 h 42 min',
           ),
         );
+        if (!source) {
+          // The fixture remains in its stored canonical format; only the
+          // English interface translates duration units, never the narrator.
+          expect(activeMockBook.durationLabel, '15 ч 42 мин');
+          expect(
+            find.text(
+              '${activeMockBook.narrator} · ${activeMockBook.durationLabel}',
+            ),
+            findsNothing,
+          );
+        }
         final play = find.byKey(
           ValueKey(source ? 'source-details-play' : 'legacy-details-play'),
         );

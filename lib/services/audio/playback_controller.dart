@@ -71,7 +71,13 @@ class PlaybackController extends ChangeNotifier {
   Future<void>? _shutdownOperation;
   Future<void> _engineOperations = Future<void>.value();
   Future<void> _persistenceOperations = Future<void>.value();
+  Future<void> _metadataOperations = Future<void>.value();
   final _metadataWrites = <Future<void>>{};
+  Future<void>? _volumeEnginePump;
+  int _volumeRevision = 0;
+  Timer? _volumeSaveTimer;
+  bool _volumeSessionDirty = false;
+  static const _volumeSaveDelay = Duration(milliseconds: 250);
   AudioEngineSnapshot? _snapshotDuringLoad;
   final _progressChanges = StreamController<int>.broadcast();
   int _progressRevision = 0;
@@ -164,7 +170,7 @@ class PlaybackController extends ChangeNotifier {
       return;
     }
 
-    await _persistMetadata(_state.book!);
+    _saveMetadata(_state.book!);
     if (!await _configureEngine(generation)) return;
 
     if (autoPlay) {
@@ -245,7 +251,7 @@ class PlaybackController extends ChangeNotifier {
       return;
     }
 
-    await _persistMetadata(_state.book!);
+    _saveMetadata(_state.book!);
     if (!await _configureEngine(generation)) return;
 
     if (session.isPlaying) {
@@ -366,9 +372,11 @@ class PlaybackController extends ChangeNotifier {
     await _persistPlayback(force: true);
   }
 
+  /// Update UI immediately, coalescing a burst to the newest engine value.
+  /// Session writes are leading/trailing debounced; explicit checkpoints and
+  /// shutdown always flush the final value. Volume is not listening progress.
   Future<void> setVolume(double volume) async {
     if (_unavailable) return;
-    final generation = _operationGeneration;
     final normalized = _normalizeVolume(volume);
     _state = _state.copyWith(
       volume: normalized,
@@ -376,14 +384,99 @@ class PlaybackController extends ChangeNotifier {
           ? normalized
           : _state.lastNonMutedVolume,
     );
+    _volumeRevision++;
     notifyListeners();
-    if (!await _runEngineOperation(
-      generation,
-      () => _engine.setVolume(normalized),
-    )) {
-      return;
+    // An owner may request shutdown from a synchronous state listener. Do not
+    // create a fresh debounce timer or native operation after that boundary.
+    if (_unavailable) return;
+    final persistence = _scheduleVolumeSessionSave();
+    final engine = _volumeEnginePump ??= _drainVolumeEngine();
+    // Disk latency must not stop the engine drain accepting a newer value.
+    await Future.wait([engine, persistence]);
+  }
+
+  Future<void> _drainVolumeEngine() async {
+    try {
+      while (!_unavailable) {
+        final generation = _operationGeneration;
+        var appliedRevision = -1;
+        final applied = await _runEngineOperation(generation, () async {
+          // Read at execution time, not enqueue time: intermediate drag values
+          // must not form a FIFO in front of Pause or a chapter switch.
+          appliedRevision = _volumeRevision;
+          await _engine.setVolume(_state.volume);
+        });
+        if (_unavailable) return;
+        if (generation != _operationGeneration) {
+          // Volume is global, not chapter-scoped. A seek/pause invalidates the
+          // stale queued operation, but the newest requested volume still wins.
+          continue;
+        }
+        if (!applied || appliedRevision == _volumeRevision) return;
+      }
+    } finally {
+      // Clear before completing the future, so a new event in the following
+      // microtask cannot attach to an already-finished pump and lose its value.
+      _volumeEnginePump = null;
     }
-    await _persistPlayback(force: true);
+  }
+
+  Future<void> _scheduleVolumeSessionSave() {
+    if (_persistence == null || !_state.hasBook) return Future<void>.value();
+    final leading = _volumeSaveTimer == null;
+    _volumeSessionDirty = true;
+    _volumeSaveTimer?.cancel();
+    _volumeSaveTimer = Timer(_volumeSaveDelay, () {
+      _volumeSaveTimer = null;
+      if (_volumeSessionDirty && !_unavailable) {
+        unawaited(_persistVolumeSession());
+      }
+    });
+    return leading ? _persistVolumeSession() : Future<void>.value();
+  }
+
+  /// Optional end-of-drag checkpoint; also useful before a platform handoff.
+  /// Unlike flushPlayback this writes no progress row/history revision.
+  Future<void> flushVolume({bool requireSuccess = false}) async {
+    _volumeSaveTimer?.cancel();
+    _volumeSaveTimer = null;
+    await _volumeEnginePump;
+    await _persistenceOperations;
+    if (_volumeSessionDirty) {
+      await _persistVolumeSession(requireSuccess: requireSuccess);
+    } else {
+      await _persistenceOperations;
+    }
+  }
+
+  Future<void> _persistVolumeSession({bool requireSuccess = false}) async {
+    final persistence = _persistence;
+    if (persistence == null || !_state.hasBook) return;
+    _volumeSessionDirty = false;
+    final revision = _volumeRevision;
+    final session = toPlaybackSession(updatedAt: _clock());
+    final pending = _persistenceOperations.then(
+      (_) => persistence.saveSession(session),
+    );
+    _persistenceOperations = pending.catchError((
+      Object error,
+      StackTrace stack,
+    ) {
+      // Keep the latest value eligible for a retry/required final checkpoint.
+      _volumeSessionDirty = true;
+      if (!requireSuccess) {
+        FlutterError.reportError(
+          FlutterErrorDetails(
+            exception: error,
+            stack: stack,
+            library: 'slovofon playback',
+            context: ErrorDescription('while saving playback volume'),
+          ),
+        );
+      }
+    });
+    await (requireSuccess ? pending : _persistenceOperations);
+    if (revision != _volumeRevision) _volumeSessionDirty = true;
   }
 
   Future<void> toggleMute() => setVolume(
@@ -538,20 +631,26 @@ class PlaybackController extends ChangeNotifier {
   /// Await before closing the database on a graceful application shutdown.
   /// Required checkpoints (for example, installer handoff) surface storage
   /// failures to their caller. Ordinary playback retains best-effort reporting.
-  Future<void> flushPlayback({bool requireSuccess = false}) =>
-      _persistPlayback(force: true, requireSuccess: requireSuccess);
+  Future<void> flushPlayback({bool requireSuccess = false}) async {
+    await _volumeEnginePump;
+    await Future.wait(_metadataWrites.toList());
+    await _persistPlayback(force: true, requireSuccess: requireSuccess);
+  }
 
   /// Completes while the platform engine and its messenger are still alive.
   /// Windows must await this before acknowledging a cancelable close request:
   /// ChangeNotifier.dispose alone cannot await native disposePlayer.
   ///
-  /// A failed pause/checkpoint leaves the player available for retry. Once
+  /// A failed pause/checkpoint leaves teardown available for retry, but never
+  /// re-enables playback commands after the close boundary. Once
   /// native teardown starts, its result is retained: a failure must not be
   /// mistaken for successful teardown by a second close request.
   Future<void> shutdown() {
     final pending = _shutdownOperation;
     if (pending != null) return pending;
     _shuttingDown = true;
+    _volumeSaveTimer?.cancel();
+    _volumeSaveTimer = null;
     _operationGeneration++;
     _pendingPlayRequest = false;
     return _shutdownOperation = _shutdown();
@@ -562,6 +661,7 @@ class PlaybackController extends ChangeNotifier {
       // Invalidate queued/stale work, but allow the currently running finite
       // load/seek to finish before disposing the same native player.
       await _engineOperations;
+      await _volumeEnginePump;
       await Future.wait(_metadataWrites.toList());
       if (_state.hasBook) {
         await _engine.pause();
@@ -573,7 +673,6 @@ class PlaybackController extends ChangeNotifier {
       await _persistPlayback(force: true, requireSuccess: !_notifierDisposed);
     } catch (error, stack) {
       if (!_notifierDisposed) {
-        _shuttingDown = false;
         _shutdownOperation = null;
         rethrow;
       }
@@ -1025,7 +1124,12 @@ class PlaybackController extends ChangeNotifier {
   }
 
   Future<void> _persistMetadata(AudioPlaybackBook book) {
-    final pending = _writeMetadata(book);
+    // Runtime duration enrichment can arrive while an earlier cache write is
+    // still pending. Preserve submission order so stale metadata cannot win.
+    final pending = _metadataOperations.then((_) => _writeMetadata(book));
+    _metadataOperations = pending.catchError(
+      (Object error, StackTrace stack) {},
+    );
     _metadataWrites.add(pending);
     return pending.whenComplete(() => _metadataWrites.remove(pending));
   }
@@ -1213,6 +1317,11 @@ class PlaybackController extends ChangeNotifier {
       return;
     }
 
+    if (force) {
+      _volumeSaveTimer?.cancel();
+      _volumeSaveTimer = null;
+      _volumeSessionDirty = false;
+    }
     final now = _clock();
     final lastPersistedAt = _lastPersistedAt;
     if (!force &&
@@ -1239,6 +1348,10 @@ class PlaybackController extends ChangeNotifier {
       Object error,
       StackTrace stack,
     ) {
+      // A forced checkpoint replaces a pending volume debounce. If storage
+      // rejects that checkpoint, a later required volume flush must retry the
+      // latest state instead of treating the canceled debounce as durable.
+      _volumeSessionDirty = true;
       if (!requireSuccess) {
         FlutterError.reportError(
           FlutterErrorDetails(

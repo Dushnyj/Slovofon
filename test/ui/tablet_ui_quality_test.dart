@@ -170,7 +170,7 @@ void main() {
               const ValueKey('appearance-text-scale-slider'),
             );
             await _reveal(tester, slider);
-            expect(tester.widget<Slider>(slider).value, scale);
+            expect(_readSlider(tester, slider).value, scale);
             _expectClean(tester, 'touch appearance sheet');
             Navigator.of(tester.element(slider)).pop();
             await tester.pumpAndSettle();
@@ -399,6 +399,7 @@ Future<_Downloads> _pumpApp(
         }),
         playbackProgressSnapshotsProvider.overrideWith((ref) async => []),
         libraryPlaybackBooksProvider.overrideWith((ref) async => [_book]),
+        historyPlaybackBooksProvider.overrideWith((ref) async => [_book]),
         downloadManagerProvider.overrideWith((ref) => downloads),
         downloadStorageProvider.overrideWith((ref) => _MemoryStorage()),
         searchHistoryStoreProvider.overrideWith((ref) => history),
@@ -502,26 +503,29 @@ class _MemoryStorage extends FileDownloadStorage {
 class _Catalog extends SourceCatalogService {
   _Catalog() : super(registry: SourceRegistry([]));
   @override
-  Future<SourceSearchResponse> search(SearchRequest request) async =>
-      SourceSearchResponse(
-        results: [
-          BookSearchResult(
-            ref: SourceBookRef(
-              sourceId: _book.sourceId,
-              sourceBookId: _book.sourceBookId!,
-            ),
-            sourceName: _book.sourceName,
-            title: _book.title,
-            author: _book.author,
-            narrator: _book.narrator,
-            duration: _book.totalDuration,
-            chapterCount: _book.chapters.length,
-            isFree: true,
-            isFull: true,
-            accessType: AccessType.free,
-          ),
-        ],
-      );
+  Future<SourceSearchResponse> search(
+    SearchRequest request, {
+    void Function(SourceSearchResponse response)? onUpdate,
+    SourceSearchCancellation? cancellation,
+  }) async => SourceSearchResponse(
+    results: [
+      BookSearchResult(
+        ref: SourceBookRef(
+          sourceId: _book.sourceId,
+          sourceBookId: _book.sourceBookId!,
+        ),
+        sourceName: _book.sourceName,
+        title: _book.title,
+        author: _book.author,
+        narrator: _book.narrator,
+        duration: _book.totalDuration,
+        chapterCount: _book.chapters.length,
+        isFree: true,
+        isFull: true,
+        accessType: AccessType.free,
+      ),
+    ],
+  );
   @override
   Future<List<BookSearchResult>> findOtherNarrations(
     SourceBookSnapshot snapshot, {
@@ -570,5 +574,13 @@ class _Catalog extends SourceCatalogService {
     ],
     audioBook: libraryCardBook(_book),
     playbackBook: _book,
+  );
+}
+
+Slider _readSlider(WidgetTester tester, Finder root) {
+  final widget = tester.widget(root);
+  if (widget is Slider) return widget;
+  return tester.widget<Slider>(
+    find.descendant(of: root, matching: find.byType(Slider)),
   );
 }

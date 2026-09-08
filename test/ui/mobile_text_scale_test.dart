@@ -230,7 +230,7 @@ void main() {
           expect(sliderRect.right, lessThanOrEqualTo(text.left - 7));
           await tester.tapAt(sliderRect.center);
           await tester.pumpAndSettle();
-          final changedVolume = tester.widget<Slider>(slider).value;
+          final changedVolume = _readSlider(tester, slider).value;
           expect(changedVolume, greaterThan(0));
           expect(changedVolume, lessThan(1));
           expect(
@@ -492,3 +492,10 @@ const _book = AudioPlaybackBook(
     ),
   ],
 );
+Slider _readSlider(WidgetTester tester, Finder root) {
+  final widget = tester.widget(root);
+  if (widget is Slider) return widget;
+  return tester.widget<Slider>(
+    find.descendant(of: root, matching: find.byType(Slider)),
+  );
+}

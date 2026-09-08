@@ -74,7 +74,7 @@ void main() {
 
     expect(find.text('1'), findsOneWidget);
     expect(find.text('Глава 1'), findsOneWidget);
-    expect(find.text('12 мин'), findsOneWidget);
+    expect(find.text('12 min'), findsOneWidget);
     expect(find.byType(LinearProgressIndicator), findsOneWidget);
     expect(find.byTooltip('Delete downloaded'), findsOneWidget);
   });
@@ -205,10 +205,10 @@ void main() {
       find.textContaining('Очень длинное название').first,
     );
     expect(title.maxLines, 2);
-    expect(find.text('Первый Автор, Второй Автор и др.'), findsOneWidget);
-    expect(find.text('Первый Чтец, Второй Чтец и др.'), findsOneWidget);
+    expect(find.text('Первый Автор, Второй Автор et al.'), findsOneWidget);
+    expect(find.text('Первый Чтец, Второй Чтец et al.'), findsOneWidget);
     expect(find.text('S.T.A.L.K.E.R.'), findsOneWidget);
-    expect(find.text('4.6 из 5'), findsOneWidget);
+    expect(find.text('4.6 out of 5'), findsOneWidget);
     expect(find.text('2019'), findsOneWidget);
     expect(find.byTooltip('Details'), findsNothing);
     expect(find.byType(LinearProgressIndicator), findsNothing);
@@ -268,12 +268,12 @@ void main() {
       find.byKey(const ValueKey('book-card-desktop-layout')),
       findsNothing,
     );
-    expect(find.text('Первый Автор, Второй Автор и др.'), findsOneWidget);
-    expect(find.text('Первый Чтец, Второй Чтец и др.'), findsOneWidget);
+    expect(find.text('Первый Автор, Второй Автор et al.'), findsOneWidget);
+    expect(find.text('Первый Чтец, Второй Чтец et al.'), findsOneWidget);
     expect(find.text('S.T.A.L.K.E.R.'), findsOneWidget);
-    expect(find.text('11 ч 49 мин'), findsOneWidget);
+    expect(find.text('11 h 49 min'), findsOneWidget);
     expect(find.text('2019'), findsOneWidget);
-    expect(find.text('4.6 из 5'), findsOneWidget);
+    expect(find.text('4.6 out of 5'), findsOneWidget);
   });
 
   testWidgets('book card pins colored source label under the cover', (

@@ -31,6 +31,13 @@ class LibraryStore extends ChangeNotifier {
         ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
   bool isLater(AudioBook book) => _laterEntries.containsKey(_bookKey(book));
 
+  /// Includes edits accepted while initial favorites/Later hydration was pending.
+  Future<void> flushPendingWrites() async {
+    await _loadFuture;
+    await _laterLoadFuture;
+    await _operations;
+  }
+
   Future<T> _serialize<T>(Future<T> Function() operation) {
     final result = _operations.then((_) => operation());
     _operations = result.then<void>(
@@ -155,38 +162,42 @@ class LibraryStore extends ChangeNotifier {
     return nextFavorite;
   });
 
-  Future<void> refreshFavoriteMetadata(AudioBook book) => _serialize(() async {
-    await load();
-    if (error != null) throw StateError('Library has not loaded');
-    final key = _bookKey(book);
-    final currentLater = _laterEntries[key];
-    if (currentLater != null) {
-      final next = Map<String, LibraryBookEntry>.of(_laterEntries);
-      next[key] = LibraryBookEntry(
-        book: book,
-        isFavorite: false,
-        updatedAt: currentLater.updatedAt,
-      );
-      await _laterPersistence.save(next.values.toList());
-      _laterEntries
-        ..clear()
-        ..addAll(next);
-      _notify();
-    }
-    final current = _entries[key];
-    if (current == null || !current.isFavorite) {
-      return;
-    }
+  Future<void> refreshFavoriteMetadata(AudioBook book) {
+    // A source-cover request can finish after its provider scope is gone.
+    if (_disposed) return Future<void>.value();
+    return _serialize(() async {
+      await load();
+      if (error != null) throw StateError('Library has not loaded');
+      final key = _bookKey(book);
+      final currentLater = _laterEntries[key];
+      if (currentLater != null) {
+        final next = Map<String, LibraryBookEntry>.of(_laterEntries);
+        next[key] = LibraryBookEntry(
+          book: book,
+          isFavorite: false,
+          updatedAt: currentLater.updatedAt,
+        );
+        await _laterPersistence.save(next.values.toList());
+        _laterEntries
+          ..clear()
+          ..addAll(next);
+        _notify();
+      }
+      final current = _entries[key];
+      if (current == null || !current.isFavorite) {
+        return;
+      }
 
-    final refreshed = LibraryBookEntry(
-      book: book,
-      isFavorite: true,
-      updatedAt: current.updatedAt,
-    );
-    await _persistence.saveFavorite(refreshed);
-    _entries[key] = refreshed;
-    _notify();
-  });
+      final refreshed = LibraryBookEntry(
+        book: book,
+        isFavorite: true,
+        updatedAt: current.updatedAt,
+      );
+      await _persistence.saveFavorite(refreshed);
+      _entries[key] = refreshed;
+      _notify();
+    });
+  }
 
   static String _bookKey(AudioBook book) {
     return '${book.sourceId}:${book.sourceBookId ?? book.id}';

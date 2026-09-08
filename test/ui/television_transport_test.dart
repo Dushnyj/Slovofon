@@ -15,10 +15,10 @@ import 'package:slovofon/services/audio/audio_state.dart';
 import 'package:slovofon/services/audio/playback_controller.dart';
 import 'package:slovofon/services/audio/playback_controller_provider.dart';
 import 'package:slovofon/ui/adaptive/television_layout.dart';
-import 'package:slovofon/ui/adaptive/television_metrics.dart';
 import 'package:slovofon/ui/adaptive/television_shell.dart';
 import 'package:slovofon/ui/components/book_cover.dart';
 import 'package:slovofon/ui/components/playback_source_label.dart';
+import 'package:slovofon/ui/motion/motion_controls.dart';
 
 const _book = AudioPlaybackBook(
   id: 'tv-transport-book',
@@ -64,13 +64,13 @@ void main() {
         (tester) async {
           final controller = await _pump(tester, dark: dark, scale: scale);
           final transport = find.byType(TelevisionTransport);
-          final safe = TelevisionMetrics.safeInsetsFor(
-            const Size(960, 540),
-          ).deflateRect(const Rect.fromLTWH(0, 0, 960, 540));
+          const safe = Rect.fromLTWH(0, 0, 960, 540);
           final bounds = tester.getRect(transport);
           expect(bounds.left, greaterThanOrEqualTo(safe.left - .01));
           expect(bounds.right, lessThanOrEqualTo(safe.right + .01));
           expect(bounds.bottom, lessThanOrEqualTo(safe.bottom + .01));
+          expect(bounds.right, safe.right);
+          expect(bounds.bottom, safe.bottom);
           expect(bounds.height, greaterThan(50));
           expect(bounds.height, lessThan(250));
           expect(
@@ -214,7 +214,10 @@ void main() {
       await tester.pumpAndSettle();
       expect(controller.state.position, const Duration(seconds: 75));
       expect(_focusedWithin(slider), isTrue);
-      expect(tester.widget<Slider>(slider).value, closeTo(75 / 6000, .00001));
+      expect(
+        tester.widget<AppSlider>(slider).value,
+        closeTo(75 / 6000, .00001),
+      );
       await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
       await tester.pumpAndSettle();
       expect(_focusedWithin(slider), isFalse);
@@ -298,6 +301,143 @@ void main() {
     expect(find.byType(BookCover), findsNothing);
     expect(tester.takeException(), isNull);
   });
+
+  for (final forward in [false, true]) {
+    testWidgets(
+      'TV repeated ${forward ? 'forward' : 'rewind'} keeps selection through buffering and progress updates',
+      (tester) async {
+        final engine = _BufferingEngine();
+        final controller = await _pump(tester, engine: engine);
+        final action = find.byKey(
+          ValueKey(forward ? 'tv-forward-15' : 'tv-rewind-15'),
+        );
+        final initialNode = tester.widget<IconButton>(action).focusNode;
+        expect(initialNode, isNotNull);
+        _focus(tester, action);
+        await tester.pumpAndSettle();
+        for (var press = 1; press <= 3; press++) {
+          await tester.sendKeyEvent(LogicalKeyboardKey.select);
+          await tester.pump();
+          await tester.pump();
+          expect(controller.state.status, AudioPlaybackStatus.buffering);
+          expect(
+            controller.state.position,
+            Duration(seconds: 60 + (forward ? 15 : -15) * press),
+          );
+          expect(_focusedWithin(action), isTrue);
+          expect(
+            tester.widget<IconButton>(action).focusNode,
+            same(initialNode),
+          );
+          expect(tester.widget<IconButton>(action).onPressed, isNotNull);
+          // Completion/progress notifications also must not focus Play/Pause.
+          engine.finishBuffering();
+          await tester.pumpAndSettle();
+          expect(_focusedWithin(action), isTrue);
+        }
+        expect(engine.seekCount, 3);
+        expect(engine.pauseCount, 0);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  testWidgets('TV can repeat OK while the decoder is still buffering', (
+    tester,
+  ) async {
+    final engine = _BufferingEngine();
+    final controller = await _pump(tester, engine: engine);
+    final forward = find.byKey(const ValueKey('tv-forward-15'));
+    _focus(tester, forward);
+    await tester.pumpAndSettle();
+    for (var press = 1; press <= 3; press++) {
+      await tester.sendKeyEvent(LogicalKeyboardKey.select);
+      await tester.pump();
+      await tester.pump();
+      expect(controller.state.status, AudioPlaybackStatus.buffering);
+      expect(controller.state.position, Duration(seconds: 60 + 15 * press));
+      expect(_focusedWithin(forward), isTrue);
+    }
+    engine.finishBuffering();
+    await tester.pumpAndSettle();
+    expect(engine.seekCount, 3);
+    expect(engine.pauseCount, 0);
+    expect(_focusedWithin(forward), isTrue);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('TV Play/Pause retains selection when buffering becomes paused', (
+    tester,
+  ) async {
+    final engine = _BufferingEngine();
+    final controller = await _pump(tester, engine: engine);
+    final play = find.byKey(const ValueKey('tv-play-pause'));
+    _focus(tester, play);
+    await tester.pumpAndSettle();
+    await controller.skipBy(const Duration(seconds: 15));
+    await tester.pump();
+    await tester.pump();
+    expect(controller.state.status, AudioPlaybackStatus.buffering);
+    expect(_focusedWithin(play), isTrue);
+    await tester.sendKeyEvent(LogicalKeyboardKey.select);
+    await tester.pumpAndSettle();
+    expect(controller.state.status, AudioPlaybackStatus.paused);
+    expect(engine.pauseCount, 1);
+    expect(_focusedWithin(play), isTrue);
+    await tester.sendKeyEvent(LogicalKeyboardKey.select);
+    await tester.pumpAndSettle();
+    expect(controller.state.status, AudioPlaybackStatus.playing);
+    expect(_focusedWithin(play), isTrue);
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final forward in [false, true]) {
+    testWidgets(
+      'TV ${forward ? 'next' : 'previous'} keeps selection through chapter loading without double activation',
+      (tester) async {
+        final engine = _GatedEngine();
+        final controller = await _pump(
+          tester,
+          book: _navigationBook,
+          chapterIndex: forward ? 0 : 2,
+          engine: engine,
+        );
+        final action = find.byKey(
+          ValueKey(forward ? 'tv-next-chapter' : 'tv-previous-chapter'),
+        );
+        _focus(tester, action);
+        await tester.pumpAndSettle();
+        final node = tester.widget<IconButton>(action).focusNode;
+        engine.gate = Completer<void>();
+        try {
+          await tester.sendKeyEvent(LogicalKeyboardKey.select);
+          await tester.pump();
+          await tester.pump();
+          expect(controller.state.status, AudioPlaybackStatus.loading);
+          expect(controller.state.chapterIndex, 1);
+          expect(tester.widget<IconButton>(action).onPressed, isNull);
+          expect(_focusedWithin(action), isTrue);
+          await tester.sendKeyEvent(LogicalKeyboardKey.select);
+          await tester.pump();
+          expect(controller.state.chapterIndex, 1);
+        } finally {
+          engine.gate!.complete();
+          await tester.pumpAndSettle();
+        }
+        expect(tester.widget<IconButton>(action).focusNode, same(node));
+        expect(tester.widget<IconButton>(action).onPressed, isNotNull);
+        expect(_focusedWithin(action), isTrue);
+        // The next activation reaches a true book boundary: only then is this
+        // control disabled and removed from directional traversal.
+        await tester.sendKeyEvent(LogicalKeyboardKey.select);
+        await tester.pumpAndSettle();
+        expect(controller.state.chapterIndex, forward ? 2 : 0);
+        expect(tester.widget<IconButton>(action).onPressed, isNull);
+        expect(_focusedWithin(action), isFalse);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
 
   testWidgets(
     'TV previous and next chapters work with D-pad and respect book boundaries',
@@ -394,7 +534,9 @@ void main() {
         }
         expect(
           tester
-              .widget<Slider>(find.byKey(const ValueKey('tv-chapter-progress')))
+              .widget<AppSlider>(
+                find.byKey(const ValueKey('tv-chapter-progress')),
+              )
               .onChanged,
           isNull,
         );
@@ -436,7 +578,7 @@ void main() {
       final transport = find.byType(TelevisionTransport);
       final slider = find.byKey(const ValueKey('tv-chapter-progress'));
       expect(controller.state.chapterDuration, Duration.zero);
-      expect(tester.widget<Slider>(slider).onChanged, isNull);
+      expect(tester.widget<AppSlider>(slider).onChanged, isNull);
       expect(
         find.descendant(of: transport, matching: find.text('1:00')),
         findsOneWidget,
@@ -603,5 +745,53 @@ class _GatedEngine extends InMemoryAudioEngine {
   }) async {
     await gate?.future;
     await super.load(chapter, position: position, book: book);
+  }
+}
+
+/// A real seek can complete before the decoder has filled its network buffer.
+/// The synchronous in-memory engine alone cannot reproduce that UI state.
+class _BufferingEngine extends InMemoryAudioEngine {
+  _BufferingEngine() {
+    _subscription = super.snapshots.listen(_events.add);
+  }
+
+  final _events = StreamController<AudioEngineSnapshot>.broadcast();
+  late final StreamSubscription<AudioEngineSnapshot> _subscription;
+  int seekCount = 0;
+  int pauseCount = 0;
+
+  @override
+  Stream<AudioEngineSnapshot> get snapshots => _events.stream;
+
+  @override
+  Future<void> seek(Duration position) async {
+    seekCount++;
+    await super.seek(position);
+    _emitStatus(AudioEngineProcessingState.buffering);
+  }
+
+  @override
+  Future<void> pause() async {
+    pauseCount++;
+    await super.pause();
+  }
+
+  void finishBuffering() => _emitStatus(AudioEngineProcessingState.ready);
+
+  void _emitStatus(AudioEngineProcessingState status) {
+    _events.add(
+      AudioEngineSnapshot(
+        position: position,
+        processingState: status,
+        isPlaying: isPlaying,
+      ),
+    );
+  }
+
+  @override
+  Future<void> dispose() async {
+    await _subscription.cancel();
+    await super.dispose();
+    await _events.close();
   }
 }

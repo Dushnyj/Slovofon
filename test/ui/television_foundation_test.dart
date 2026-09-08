@@ -31,8 +31,7 @@ void main() {
                 expect(media.devicePixelRatio, dpr);
                 expect(media.textScaler.scale(16), 24);
                 expect(media.navigationMode, NavigationMode.directional);
-                expect(media.size.width, closeTo(883.2, .001));
-                expect(media.size.height, closeTo(496.8, .001));
+                expect(media.size, const Size(960, 540));
                 return const SizedBox.expand(key: ValueKey('working-area'));
               },
             ),
@@ -42,6 +41,7 @@ void main() {
         final bounds = tester.getRect(
           find.byKey(const ValueKey('working-area')),
         );
+        expect(bounds, const Rect.fromLTWH(0, 0, 960, 540));
         if (firstBounds != null) expect(bounds, firstBounds);
         firstBounds = bounds;
         expect(tester.takeException(), isNull);
@@ -52,9 +52,7 @@ void main() {
   test(
     'TV wider logical panels gain space, rather than changing the font scale',
     () {
-      final insets = TelevisionMetrics.safeInsetsFor(const Size(1920, 1080));
-      expect(insets.horizontal, 128);
-      expect(insets.vertical, 80);
+      expect(TelevisionMetrics.contentInsets, const EdgeInsets.all(16));
       final theme = TelevisionTheme.from(AppTheme.dark());
       expect(theme.textTheme.bodyMedium!.fontSize, 14);
       expect(theme.textTheme.titleLarge!.fontSize, 20);
@@ -71,6 +69,39 @@ void main() {
       );
     },
   );
+
+  testWidgets('TV preserves real system safe areas without adding a frame', (
+    tester,
+  ) async {
+    const data = MediaQueryData(
+      size: Size(1000, 600),
+      devicePixelRatio: 2,
+      padding: EdgeInsets.only(top: 8),
+      viewPadding: EdgeInsets.only(top: 8),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MediaQuery(
+          data: data,
+          child: TelevisionViewport(
+            child: Builder(
+              builder: (context) {
+                final media = MediaQuery.of(context);
+                expect(media.size, data.size);
+                expect(media.devicePixelRatio, data.devicePixelRatio);
+                expect(media.padding, data.padding);
+                expect(media.viewPadding, data.viewPadding);
+                expect(media.navigationMode, NavigationMode.directional);
+                return const SizedBox.expand();
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('TV highlight is deterministic and restores the prior strategy', (
     tester,

@@ -32,7 +32,6 @@ import 'package:slovofon/services/updates/update_installer.dart';
 import 'package:slovofon/services/updates/update_service.dart';
 import 'package:slovofon/sources/sources.dart';
 import 'package:slovofon/ui/adaptive/television_layout.dart';
-import 'package:slovofon/ui/adaptive/television_metrics.dart';
 import 'package:slovofon/ui/adaptive/television_shell.dart';
 import 'package:slovofon/ui/components/book_card.dart';
 import 'package:slovofon/ui/components/playback_source_label.dart';
@@ -109,15 +108,14 @@ void main() {
           tester,
         ) async {
           await _realApp(tester, size: size, scale: scale, dark: dark);
-          final safe = TelevisionMetrics.safeInsetsFor(
-            size,
-          ).deflateRect(Offset.zero & size);
+          final safe = Offset.zero & size;
           final shellBounds = tester.getRect(
             find.byKey(const ValueKey('television-shell')),
           );
           _inside(shellBounds, safe);
           expect(shellBounds.width, closeTo(safe.width, .01));
           expect(shellBounds.height, closeTo(safe.height, .01));
+          expect(shellBounds.topLeft, Offset.zero);
           for (var index = 0; index < 5; index++) {
             final control = find.byKey(ValueKey('tv-nav-$index'));
             // The icon rail has a vertical traversal axis.
@@ -185,21 +183,14 @@ void main() {
         await tester.pumpAndSettle();
         final frame = find.byType(TelevisionFocusFrame);
         expect(_focusedWithin(frame), isTrue);
-        final decoration =
-            tester
-                    .widget<DecoratedBox>(
-                      find
-                          .descendant(
-                            of: frame,
-                            matching: find.byType(DecoratedBox),
-                          )
-                          .first,
-                    )
-                    .decoration
-                as BoxDecoration;
+        final material = tester.widget<Material>(
+          find.descendant(of: frame, matching: find.byType(Material)).first,
+        );
+        final shape = material.shape! as RoundedRectangleBorder;
         final colors = Theme.of(tester.element(frame)).colorScheme;
-        expect((decoration.border! as Border).top.color, colors.primary);
-        expect((decoration.border! as Border).top.width, equals(2));
+        expect(shape.side.color, colors.primary);
+        expect(shape.side.width, equals(2));
+        expect(material.clipBehavior, Clip.antiAlias);
         await tester.sendKeyEvent(LogicalKeyboardKey.select);
         await tester.pumpAndSettle();
         expect(fixture.actions, ['details']);
@@ -357,6 +348,9 @@ Future<void> _realApp(
         playbackControllerProvider.overrideWith((ref) => playback),
         playbackProgressSnapshotsProvider.overrideWith((ref) async => []),
         libraryPlaybackBooksProvider.overrideWith(
+          (ref) async => [_playbackBook],
+        ),
+        historyPlaybackBooksProvider.overrideWith(
           (ref) async => [_playbackBook],
         ),
         downloadManagerProvider.overrideWith((ref) => _EmptyDownloads()),

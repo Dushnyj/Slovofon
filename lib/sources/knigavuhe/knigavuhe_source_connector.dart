@@ -4,6 +4,7 @@ import '../../services/audio/audio_state.dart';
 import '../source_connector.dart';
 import '../source_media_validator.dart';
 import '../source_models.dart';
+import '../source_html_parser.dart';
 import '../source_request_cache.dart';
 import 'knigavuhe_client.dart';
 import 'knigavuhe_mapper.dart';
@@ -15,12 +16,14 @@ class KnigavuheSourceConnector
     KnigavuheMapper? mapper,
     DateTime Function()? clock,
   }) : _client = client ?? KnigavuheClient(),
+       _useParserWorker = mapper == null,
        _mapper = mapper ?? KnigavuheMapper(clock: clock),
        _clock = clock ?? DateTime.now,
        _bookHtmlCache = SourceRequestCache(clock: clock);
 
   final KnigavuheClient _client;
   final KnigavuheMapper _mapper;
+  final bool _useParserWorker;
   final DateTime Function() _clock;
   final SourceRequestCache<String, String> _bookHtmlCache;
 
@@ -101,21 +104,27 @@ class KnigavuheSourceConnector
       query: request.query,
       page: request.page,
     );
-    return _mapper.searchResults(html);
+    return _useParserWorker
+        ? SourceHtmlParser.search(id, html)
+        : _mapper.searchResults(html);
   }
 
   @override
   Future<BookVersionDetails> getBookDetails(SourceBookRef ref) async {
     _validateRef(ref);
     final html = await _bookHtml(ref);
-    return _mapper.bookDetails(html, ref);
+    return _useParserWorker
+        ? SourceHtmlParser.details(id, html, ref, _clock())
+        : _mapper.bookDetails(html, ref);
   }
 
   @override
   Future<List<Chapter>> getChapters(SourceBookRef ref) async {
     _validateRef(ref);
     final html = await _bookHtml(ref);
-    return _mapper.chapters(html, ref);
+    return _useParserWorker
+        ? SourceHtmlParser.chapters(id, html, ref, _clock())
+        : _mapper.chapters(html, ref);
   }
 
   @override

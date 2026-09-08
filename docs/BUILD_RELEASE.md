@@ -180,11 +180,11 @@ Release workflow делает полный публичный релиз:
 
 ```text
 1. проверяет VERSION, pubspec.yaml и `lib/app/app_version.dart`;
-2. выполняет dart format, flutter analyze, flutter test и два C++ теста Windows update policies;
+2. выполняет dart format, flutter analyze, flutter test и пять portable C++ suites Windows: installation policy/task, close request, activation codec и window size policy;
 3. восстанавливает Android upload keystore из GitHub Secrets во временный файл runner;
 4. собирает signed Android universal APK, ABI APKs и AAB;
 5. проверяет APK через apksigner verify;
-6. проверяет Windows-only installer contracts и собирает Windows release bundle;
+6. выполняет изолированный Win32 single-instance fixture, собирает Windows release bundle и проверяет Windows-only installer contracts;
 7. при наличии Windows PFX secrets подписывает Slovofon.exe;
 8. собирает Windows portable ZIP;
 9. собирает Windows setup.exe через Inno Setup;
@@ -892,6 +892,32 @@ Storage permissions избегать.
 
 ## Проверка размеров Windows-окна после Debug-сборки
 
+### Измерение производительности
+
+Widget-тесты больших каталогов проверяют число смонтированных карточек,
+сохранение фокуса и подписки скрытых экранов, но их JIT-время не является FPS
+устройства. Плавность renderer проверять отдельно в `Profile`:
+
+```powershell
+flutter build windows --profile --no-pub
+```
+
+Записывать build/raster `FrameTiming` отдельно, различать холодный и повторный
+проход, указывать размер окна, refresh rate, настройки и размер реального каталога.
+Не складывать build и raster как последовательные стадии одного CPU-потока,
+не вычислять FPS делением числа кадров на интервал с паузами пользователя.
+Эмулятор Android TV не заменяет замеры физического телевизора.
+
+Если для уже настроенного локального CMake build directory используется
+прямая сборка `cmake --build`, сначала обновить Flutter configuration для
+текущего `lib/main.dart` и версии (`flutter build windows --profile --config-only
+--no-pub`). Проверить `windows/flutter/ephemeral/generated_config.cmake` и metadata
+полученного EXE: старый generated config может оставить прежнюю native-версию,
+даже если Dart-код уже новый. Не исправлять это bump версии или ручной заменой
+metadata в исходниках; не переносить локальный выбор VS toolset в release workflow.
+
+### Геометрия окна
+
 Основной runner использует 900×600 client DIPs как минимум и стартовые
 1280×720 client DIPs; это не внешние размеры вместе с рамкой. Чистая политика
 размеров тестируется в `windows/runner/tests/window_size_policy_test.cpp`,
@@ -907,3 +933,44 @@ PID относится к нужной локальной Debug-сборке Slo
 Временный DPI-контекст вызывающего потока предотвращает виртуализацию координат
 и также восстанавливается в `finally`. Snap-like rectangles и видимые DWM bounds
 проверяют геометрию у края, но не заменяют ручную проверку shell Snap Layouts.
+
+## Проверка повторного запуска Windows после Debug-сборки
+
+Штатно завершить старый runner, выполнить локальную Windows Debug-сборку и
+запустить новый `Slovofon.exe`. Старые сборки не владеют single-instance mutex:
+проверять новую защиту, оставив такую сборку работающей, некорректно. Не завершать
+процесс принудительно и не сбрасывать базу, настройки или библиотеку.
+
+```powershell
+flutter test test/services/deep_links/windows_activation_test.dart
+
+# Указать PID именно уже открытой новой локальной сборки.
+./tools/windows/Test-SingleInstance.ps1 -ProcessId 1234 `
+  -OutputPath ./artifacts/windows-single-instance/production-window-test.json
+```
+
+Скрипт требует marker нового runner для текущего пользователя **до** запуска
+дополнительных процессов. Он повторно запускает точный EXE указанного процесса
+в состояниях visible/minimized/hidden/maximized и проверяет, что вторичная копия
+быстро завершилась, а исходный HWND остался тем же, видимым и не свёрнутым.
+Maximized state должен сохраняться. Фактический foreground записывается отдельно:
+если Windows не разрешила передачу фокуса, проверить подсветку на панели задач и
+обычный пользовательский запуск ярлыком, не выдавая этот результат за foreground
+PASS. Placement/видимость восстанавливаются в `finally`. Скрипт не убивает
+процессы, не передаёт ссылки на книги, не изменяет настройки и не очищает данные.
+
+Дополнительные уровни проверки:
+
+- `windows/runner/tests/windows_activation_test.cpp` — чистый C++17 тест протокола,
+  malformed/truncated/oversized пакетов, UTF-8 и ограниченной FIFO.
+- `windows/runner/tests/windows_single_instance_test.cpp` вместе с
+  `windows/runner/windows_single_instance.cpp` — Windows-only native fixture
+  (линковка `user32`, `advapi32`, `shell32`). Его уникальный test namespace и свои
+  HWND/processes проверяют ранний старт, параллельные повторные запуски, аргументы,
+  restore, timeout и восстановление abandoned mutex без открытия настоящей БД.
+  Собирать C++17 с включёнными assertions (`-UNDEBUG` либо `/UNDEBUG`).
+- Dart bridge test проверяет начальную ссылку, отложенные ссылки, FIFO, фильтрацию
+  аргументов, отмену/смену подписчика и fallback. Он не заменяет Win32 fixture или
+  проверку настоящего окна.
+
+Эти проверки локальные; запуск нерелизных GitHub Actions для них не требуется.

@@ -119,7 +119,10 @@ class _EmptyCache extends FileDownloadStorage {
 
 class _DurableMetadata implements LibraryMetadataPersistence {
   @override
-  Future<List<AudioPlaybackBook>> loadPlaybackBooks() async => [_book];
+  Future<List<AudioPlaybackBook>> loadPlaybackBooks({
+    Set<String>? versionIds,
+  }) async =>
+      versionIds == null || versionIds.contains(_book.versionId) ? [_book] : [];
   @override
   Future<void> savePlaybackBook(AudioPlaybackBook book) async {}
 }

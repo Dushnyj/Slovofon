@@ -53,7 +53,7 @@ void main() {
           final textSlider = find.byKey(
             const ValueKey('appearance-text-scale-slider'),
           );
-          final slider = tester.widget<Slider>(textSlider);
+          final slider = _readSlider(tester, textSlider);
           expect(slider.min, .75);
           expect(slider.max, 2);
           expect(slider.value, scale);
@@ -152,13 +152,13 @@ void main() {
       await tester.pumpAndSettle();
       final hueRoot = find.byKey(const ValueKey('television-color-hue'));
       final hue = find.descendant(of: hueRoot, matching: find.byType(Slider));
-      final before = tester.widget<Slider>(hue).value;
+      final before = _readSlider(tester, hue).value;
       final hueFocus = _focusInside(hueRoot);
       hueFocus.requestFocus();
       await tester.pump();
       await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
       await tester.pumpAndSettle();
-      expect(tester.widget<Slider>(hue).value, greaterThan(before));
+      expect(_readSlider(tester, hue).value, greaterThan(before));
       await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
       await tester.pumpAndSettle();
       expect(
@@ -166,7 +166,7 @@ void main() {
         isFalse,
         reason: 'Down must leave the slider, not edit its value',
       );
-      expect(tester.widget<Slider>(hue).value, greaterThan(before));
+      expect(_readSlider(tester, hue).value, greaterThan(before));
       final apply = find.byKey(const ValueKey('custom-accent-apply'));
       expect(apply.hitTestable(), findsOneWidget);
       _focusInside(apply).requestFocus();
@@ -450,4 +450,12 @@ class _MemoryStorage extends FileDownloadStorage {
   @override
   Future<CardCacheStats> cardCacheStats() async =>
       const CardCacheStats(bytes: 0, bookCount: 0);
+}
+
+Slider _readSlider(WidgetTester tester, Finder root) {
+  final widget = tester.widget(root);
+  if (widget is Slider) return widget;
+  return tester.widget<Slider>(
+    find.descendant(of: root, matching: find.byType(Slider)),
+  );
 }

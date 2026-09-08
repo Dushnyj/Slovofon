@@ -1,3 +1,4 @@
+import '../motion/motion_tooltip.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
@@ -9,6 +10,8 @@ import 'television_layout.dart';
 import 'television_shell.dart';
 import '../components/mini_player_bar.dart';
 import '../icons/app_icons.dart';
+import '../motion/app_motion.dart';
+import '../motion/motion_reveal.dart';
 
 class SlovofonShell extends StatelessWidget {
   const SlovofonShell({required this.navigationShell, super.key});
@@ -44,7 +47,10 @@ class SlovofonShell extends StatelessWidget {
                 return TelevisionShell(
                   selectedIndex: navigationShell.currentIndex,
                   onSelected: (index) => _goToBranch(context, index),
-                  child: navigationShell,
+                  child: AppContentReveal(
+                    changeKey: navigationShell.currentIndex,
+                    child: navigationShell,
+                  ),
                 );
               }
               final body = GestureDetector(
@@ -57,7 +63,10 @@ class SlovofonShell extends StatelessWidget {
                           navigationShell.goBranch(0);
                         }
                       },
-                child: navigationShell,
+                child: AppContentReveal(
+                  changeKey: navigationShell.currentIndex,
+                  child: navigationShell,
+                ),
               );
 
               if (DesktopLayout.isActive(context) ||
@@ -328,7 +337,7 @@ class _WindowsCompactNavigationRail extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
           child: Column(
             children: [
-              Tooltip(
+              AppTooltip(
                 message: context.strings.appTitle,
                 child: Padding(
                   padding: const EdgeInsets.only(bottom: 20),
@@ -348,7 +357,7 @@ class _WindowsCompactNavigationRail extends StatelessWidget {
                 Semantics(
                   selected: selectedIndex == index,
                   label: destinations[index].label,
-                  child: IconButton(
+                  child: AppIconButton(
                     key: ValueKey('windows-navigation-$index'),
                     tooltip: '${destinations[index].label} · Ctrl+${index + 1}',
                     style: IconButton.styleFrom(
@@ -541,7 +550,7 @@ class _WindowsNavigationItemState extends State<_WindowsNavigationItem> {
         : scheme.onSurfaceVariant;
     return Semantics(
       selected: widget.selected,
-      child: Tooltip(
+      child: AppTooltip(
         message: '${widget.destination.label} · Ctrl+${widget.index + 1}',
         child: AnimatedContainer(
           duration: DesktopLayout.motionDuration(context),
@@ -558,6 +567,10 @@ class _WindowsNavigationItemState extends State<_WindowsNavigationItem> {
             ),
           ),
           child: InkWell(
+            hoverDuration: AppMotion.of(context).duration(
+              full: const Duration(milliseconds: 50),
+              reduced: const Duration(milliseconds: 40),
+            ),
             key: ValueKey('windows-navigation-${widget.index}'),
             onTap: widget.onSelected,
             onFocusChange: (value) => setState(() => _focused = value),
@@ -762,14 +775,18 @@ class _DesktopNavigationItem extends StatelessWidget {
       button: true,
       selected: selected,
       label: strings.navigationTabLabel(destination.label, index + 1, total),
-      child: Tooltip(
+      child: AppTooltip(
         message: destination.label,
         child: InkWell(
+          hoverDuration: AppMotion.of(context).duration(
+            full: const Duration(milliseconds: 50),
+            reduced: const Duration(milliseconds: 40),
+          ),
           key: ValueKey('wide-navigation-item-$index'),
           borderRadius: BorderRadius.circular(14),
           onTap: onSelected,
           child: AnimatedContainer(
-            duration: const Duration(milliseconds: 160),
+            duration: AppMotion.of(context).duration(),
             curve: Curves.easeOut,
             constraints: const BoxConstraints(minHeight: 48),
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -970,9 +987,13 @@ class _MobileNavigationItem extends StatelessWidget {
       button: true,
       selected: selected,
       label: strings.navigationTabLabel(destination.label, index + 1, total),
-      child: Tooltip(
+      child: AppTooltip(
         message: destination.label,
         child: InkWell(
+          hoverDuration: AppMotion.of(context).duration(
+            full: const Duration(milliseconds: 50),
+            reduced: const Duration(milliseconds: 40),
+          ),
           key: ValueKey('mobile-navigation-item-$index'),
           onTap: onSelected,
           child: Padding(
@@ -985,7 +1006,7 @@ class _MobileNavigationItem extends StatelessWidget {
                   height: 34,
                   child: Center(
                     child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 160),
+                      duration: AppMotion.of(context).duration(),
                       curve: Curves.easeOut,
                       width: selected ? 56 : 40,
                       height: 32,

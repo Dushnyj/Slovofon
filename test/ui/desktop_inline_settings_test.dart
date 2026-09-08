@@ -140,7 +140,7 @@ void main() {
           expect(find.byKey(_editorKey), findsOneWidget);
           expect(find.byKey(_sliderKey), findsOneWidget);
           expect(find.byType(BottomSheet), findsNothing);
-          expect(tester.widget<Slider>(find.byKey(_sliderKey)).value, scale);
+          expect(_readSlider(tester, find.byKey(_sliderKey)).value, scale);
           final editorTheme = Theme.of(tester.element(find.byKey(_editorKey)));
           expect(
             editorTheme.brightness,
@@ -233,7 +233,7 @@ void main() {
       final fixture = await _pumpApp(tester, width: 1920, scale: .9);
       await _reveal(tester, find.byKey(_sliderKey));
       final beforeSaves = fixture.persistence.saveCount;
-      final slider = tester.widget<Slider>(find.byKey(_sliderKey));
+      final slider = _readSlider(tester, find.byKey(_sliderKey));
       expect(slider.min, .75);
       expect(slider.max, 2);
       final rect = tester.getRect(find.byKey(_sliderKey));
@@ -249,7 +249,7 @@ void main() {
       );
       await gesture.moveTo(Offset(trackLeft + trackWidth, rect.center.dy));
       await tester.pump(const Duration(milliseconds: 100));
-      final previewScale = tester.widget<Slider>(find.byKey(_sliderKey)).value;
+      final previewScale = _readSlider(tester, find.byKey(_sliderKey)).value;
       expect(previewScale, greaterThan(.9));
       expect(fixture.store.settings.textScale, .9);
       expect(fixture.persistence.saveCount, beforeSaves);
@@ -273,7 +273,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(fixture.store.settings.textScale, 1);
       expect((await fixture.persistence.load())!.textScale, 1);
-      expect(tester.widget<Slider>(find.byKey(_sliderKey)).value, 1);
+      expect(_readSlider(tester, find.byKey(_sliderKey)).value, 1);
       expect(tester.takeException(), isNull);
     },
   );
@@ -458,4 +458,12 @@ class _MemoryStorage extends FileDownloadStorage {
   @override
   Future<CardCacheStats> cardCacheStats() async =>
       const CardCacheStats(bytes: 0, bookCount: 0);
+}
+
+Slider _readSlider(WidgetTester tester, Finder root) {
+  final widget = tester.widget(root);
+  if (widget is Slider) return widget;
+  return tester.widget<Slider>(
+    find.descendant(of: root, matching: find.byType(Slider)),
+  );
 }

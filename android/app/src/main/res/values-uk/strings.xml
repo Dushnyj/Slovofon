@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Slovofon</string>
+    <string name="playback_notification_channel_name">Відтворення Slovofon</string>
+    <string name="media_action_previous_chapter">Попередній розділ</string>
+    <string name="media_action_rewind_30">Назад на 30 секунд</string>
+    <string name="media_action_play">Відтворити</string>
+    <string name="media_action_pause">Призупинити</string>
+    <string name="media_action_stop">Зупинити</string>
+    <string name="media_action_forward_30">Уперед на 30 секунд</string>
+    <string name="media_action_next_chapter">Наступний розділ</string>
+</resources>

@@ -26,6 +26,12 @@ class AppSettingsStore extends ChangeNotifier {
 
   AppSettings get settings => _settings;
 
+  /// Drains already accepted preferences before the database owner closes.
+  Future<void> flushPendingWrites() async {
+    await _loadFuture;
+    await _updates;
+  }
+
   Future<void> load() {
     final pending = _loadFuture;
     if (pending != null) return pending;

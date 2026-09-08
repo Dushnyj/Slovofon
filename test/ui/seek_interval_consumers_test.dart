@@ -24,6 +24,7 @@ import 'package:slovofon/ui/adaptive/television_shell.dart';
 import 'package:slovofon/ui/components/mini_player_bar.dart';
 import 'package:slovofon/ui/components/seek_interval_icon.dart';
 import 'package:slovofon/ui/icons/app_icons.dart';
+import 'package:slovofon/ui/motion/motion_tooltip.dart';
 
 void main() {
   for (final dark in [false, true]) {
@@ -232,8 +233,13 @@ void main() {
               );
             }
             final strings = AppStrings.of(tester.element(button));
+            final tooltip = find.ancestor(
+              of: button,
+              matching: find.byType(AppTooltip),
+            );
+            expect(tooltip, findsOneWidget);
             expect(
-              tester.widget<IconButton>(button).tooltip,
+              tester.widget<AppTooltip>(tooltip).message,
               forward ? strings.forward15 : strings.rewind15,
             );
             await tester.ensureVisible(button);

@@ -11,6 +11,7 @@ import '../services/audio/audio_state.dart';
 import '../services/audio/playback_controller.dart';
 import '../services/audio/playback_controller_provider.dart';
 import '../services/downloads/download_manager_provider.dart';
+import '../services/downloads/download_manager.dart';
 import '../services/downloads/download_persistence.dart';
 import '../services/downloads/download_storage.dart';
 import '../services/deep_links/app_deep_links.dart';
@@ -74,70 +75,118 @@ Future<void> bootstrap() async {
     }
   });
   Future<void>? databaseClose;
+  ProviderContainer? providerContainer;
+  DownloadManager? downloadManager;
+  AppSettingsStore? appSettingsStore;
+  LibraryStore? libraryStore;
+  BookmarkStore? bookmarkStore;
+  var exitRequested = false;
+
+  Future<void> drainResources() async {
+    exitRequested = true;
+    final container = providerContainer;
+    if (container != null && container.exists(downloadManagerProvider)) {
+      downloadManager ??= container.read(downloadManagerProvider);
+    }
+    await playbackController.shutdown();
+    sleepTimerTicker.cancel();
+    await downloadManager?.shutdown();
+    await appSettingsStore?.flushPendingWrites();
+    await libraryStore?.flushPendingWrites();
+    await bookmarkStore?.flushPendingWrites();
+    await sourceSettings.flushPendingWrites();
+  }
 
   Future<void> finishDatabaseClose() async {
     // Provider disposal is synchronous. Do not race its final playback writes
     // or native cleanup by closing Drift from a different provider first.
+    // Normally drained before ProviderScope unmount. Keep the same ordering
+    // for disposal requested independently of the native WM_CLOSE bridge.
     await playbackController.shutdown();
+    await downloadManager?.shutdown();
+    await appSettingsStore?.flushPendingWrites();
+    await libraryStore?.flushPendingWrites();
+    await bookmarkStore?.flushPendingWrites();
+    await sourceSettings.flushPendingWrites();
     await appDatabase.close();
   }
 
-  Future<void> closeDatabase() => databaseClose ??= finishDatabaseClose();
+  Future<void> closeDatabase() {
+    final existing = databaseClose;
+    if (existing != null) return existing;
+    final closing = finishDatabaseClose();
+    databaseClose = closing;
+    closing.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {
+        if (identical(databaseClose, closing)) databaseClose = null;
+      },
+    );
+    return closing;
+  }
 
   runApp(
-    ProviderScope(
-      overrides: [
-        appDeviceProfileProvider.overrideWithValue(deviceProfile),
-        audioEngineProvider.overrideWith((ref) {
-          return audioEngine;
-        }),
-        playbackPersistenceStoreProvider.overrideWith((ref) {
-          ref.onDispose(() => unawaited(closeDatabase()));
-          return playbackPersistence;
-        }),
-        playbackControllerProvider.overrideWith((ref) {
-          ref.onDispose(sleepTimerTicker.cancel);
-          ref.onDispose(playbackController.dispose);
-          return playbackController;
-        }),
-        downloadStorageProvider.overrideWith((ref) => downloadStorage),
-        homeListeningVisibilityStoreProvider.overrideWith((ref) {
-          return homeVisibilityStore;
-        }),
-        downloadPersistenceStoreProvider.overrideWith((ref) {
-          return DriftDownloadPersistenceStore(appDatabase);
-        }),
-        libraryMetadataPersistenceProvider.overrideWith(
-          (ref) => libraryPersistence,
+    WindowsAppExitListener(
+      onExitRequested: drainResources,
+      onExitReady: closeDatabase,
+      retryOnlyOnFailure: true,
+      child: ProviderScope(
+        overrides: [
+          appDeviceProfileProvider.overrideWithValue(deviceProfile),
+          audioEngineProvider.overrideWith((ref) {
+            return audioEngine;
+          }),
+          playbackPersistenceStoreProvider.overrideWith((ref) {
+            ref.onDispose(() => unawaited(closeDatabase()));
+            return playbackPersistence;
+          }),
+          playbackControllerProvider.overrideWith((ref) {
+            ref.onDispose(sleepTimerTicker.cancel);
+            ref.onDispose(playbackController.dispose);
+            return playbackController;
+          }),
+          downloadStorageProvider.overrideWith((ref) => downloadStorage),
+          homeListeningVisibilityStoreProvider.overrideWith((ref) {
+            return homeVisibilityStore;
+          }),
+          downloadPersistenceStoreProvider.overrideWith((ref) {
+            return DriftDownloadPersistenceStore(appDatabase);
+          }),
+          libraryMetadataPersistenceProvider.overrideWith(
+            (ref) => libraryPersistence,
+          ),
+          bookmarkStoreProvider.overrideWith(
+            (ref) => bookmarkStore = BookmarkStore(
+              DriftBookmarkPersistence(appDatabase),
+            )..load(),
+          ),
+          libraryStoreProvider.overrideWith((ref) {
+            ref.onDispose(() => unawaited(closeDatabase()));
+            return libraryStore = LibraryStore(
+              libraryPersistence,
+              laterPersistence: laterPersistence,
+            )..load();
+          }),
+          appSettingsStoreProvider.overrideWith((ref) {
+            ref.onDispose(() => unawaited(closeDatabase()));
+            return appSettingsStore = AppSettingsStore(
+              DriftAppSettingsPersistenceStore(appDatabase),
+            )..load();
+          }),
+          sourceSettingsStoreProvider.overrideWith((ref) {
+            ref.onDispose(() => unawaited(closeDatabase()));
+            return sourceSettings;
+          }),
+        ],
+        child: Builder(
+          builder: (context) {
+            providerContainer = ProviderScope.containerOf(
+              context,
+              listen: false,
+            );
+            return SlovofonApp(deepLinks: PluginAppDeepLinkSource());
+          },
         ),
-        bookmarkStoreProvider.overrideWith(
-          (ref) => BookmarkStore(DriftBookmarkPersistence(appDatabase))..load(),
-        ),
-        libraryStoreProvider.overrideWith((ref) {
-          ref.onDispose(() => unawaited(closeDatabase()));
-          return LibraryStore(
-            libraryPersistence,
-            laterPersistence: laterPersistence,
-          )..load();
-        }),
-        appSettingsStoreProvider.overrideWith((ref) {
-          ref.onDispose(() => unawaited(closeDatabase()));
-          return AppSettingsStore(DriftAppSettingsPersistenceStore(appDatabase))
-            ..load();
-        }),
-        sourceSettingsStoreProvider.overrideWith((ref) {
-          ref.onDispose(() => unawaited(closeDatabase()));
-          return sourceSettings;
-        }),
-      ],
-      child: WindowsAppExitListener(
-        onExitRequested: () async {
-          await playbackController.shutdown();
-          sleepTimerTicker.cancel();
-          // Other stores/downloads still own this database while widgets live.
-          // Keep it open until process exit or ProviderScope disposal.
-        },
-        child: SlovofonApp(deepLinks: PluginAppDeepLinkSource()),
       ),
     ),
   );
@@ -151,6 +200,7 @@ Future<void> bootstrap() async {
       sourceRegistry: sourceRegistry,
       sourceCatalogService: sourceCatalogService,
       accessPolicy: accessPolicy,
+      shouldRestore: () => !exitRequested,
     ),
   );
 }
@@ -163,9 +213,11 @@ Future<void> _restoreSavedPlaybackSession({
   required SourceRegistry sourceRegistry,
   required SourceCatalogService sourceCatalogService,
   required SourceAccessPolicy accessPolicy,
+  required bool Function() shouldRestore,
 }) async {
   try {
     final savedSession = await persistence.loadSession();
+    if (!shouldRestore()) return;
     final savedSourceId = savedSession?.activeSourceId;
     final savedVersionId = savedSession?.activeBookVersionId;
     if (savedSourceId == null || savedVersionId == null) {
@@ -176,12 +228,14 @@ Future<void> _restoreSavedPlaybackSession({
       sourceId: savedSourceId,
       versionId: savedVersionId,
     );
+    if (!shouldRestore()) return;
     if (savedBook == null) {
       return;
     }
 
     final sourceBookId = savedBook.sourceBookId;
     savedBook = await downloadStorage.offlinePlaybackBook(savedBook);
+    if (!shouldRestore()) return;
     final savedChapter = savedBook.chapters
         .where((chapter) => chapter.id == savedSession?.activeChapterId)
         .firstOrNull;
@@ -207,6 +261,7 @@ Future<void> _restoreSavedPlaybackSession({
         (hasTemporaryUrls || missingMedia)) {
       try {
         await ensureRemotePlaybackAllowedByPolicy(accessPolicy, savedSourceId);
+        if (!shouldRestore()) return;
         savedBook = (await sourceCatalogService.loadBook(
           SourceBookRef(sourceId: savedSourceId, sourceBookId: sourceBookId),
         )).playbackBook;
@@ -216,18 +271,19 @@ Future<void> _restoreSavedPlaybackSession({
     }
 
     final cachedOrFreshBook = savedBook;
-    if (cachedOrFreshBook == null) {
+    if (!shouldRestore() || cachedOrFreshBook == null) {
       return;
     }
     final bookToRestore = await downloadStorage.offlinePlaybackBook(
       cachedOrFreshBook,
     );
-    if (playbackController.state.hasBook) {
+    if (!shouldRestore() || playbackController.state.hasBook) {
       // User selection wins over a late startup metadata/network response.
       return;
     }
     await playbackController.loadSavedSession(bookToRestore);
   } catch (error, stackTrace) {
+    if (!shouldRestore()) return;
     FlutterError.reportError(
       FlutterErrorDetails(
         exception: error,

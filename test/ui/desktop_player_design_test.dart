@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:slovofon/ui/motion/motion_tooltip.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -344,7 +345,7 @@ void main() {
         greaterThan(tester.getTopLeft(seek).dy),
       );
     }
-    tester.widget<Slider>(seek).onChangeEnd!(0.75);
+    _readSlider(tester, seek).onChangeEnd!(0.75);
     await tester.pumpAndSettle();
     expect(fixture.controller.state.position, const Duration(minutes: 15));
     expect(find.text('15:00'), findsOneWidget);
@@ -368,7 +369,8 @@ void main() {
       await tester.tap(find.byTooltip('Previous chapter'));
       await tester.pumpAndSettle();
       expect(fixture.controller.state.chapterIndex, 0);
-      final seek = tester.widget<Slider>(
+      final seek = _readSlider(
+        tester,
         find.byKey(const ValueKey('desktop-player-seek')),
       );
       seek.onChanged!(0.5);
@@ -379,7 +381,8 @@ void main() {
       expect(fixture.controller.state.position, const Duration(minutes: 10));
       await tester.tap(find.byTooltip('Volume'));
       await tester.pumpAndSettle();
-      final volume = tester.widget<Slider>(
+      final volume = _readSlider(
+        tester,
         find.byKey(const ValueKey('desktop-volume-slider')),
       );
       volume.onChanged!(0.35);
@@ -510,7 +513,8 @@ void main() {
       final colors = Theme.of(
         tester.element(find.byTooltip('Next chapter')),
       ).colorScheme;
-      expect(button.style!.animationDuration, Duration.zero);
+      // System reduced motion permits a short colour fade, never movement.
+      expect(button.style!.animationDuration, const Duration(milliseconds: 80));
       expect(
         button.style!.side!.resolve({WidgetState.focused})!.color,
         colors.primary,
@@ -527,7 +531,16 @@ void main() {
       final tab = tester.widget<TextButton>(
         find.byKey(const ValueKey('windows-player-tab-1')),
       );
-      expect(tab.style!.animationDuration, Duration.zero);
+      // The selected tab colour may fade briefly in Reduced; the page itself
+      // must still switch without horizontal movement.
+      expect(tab.style!.animationDuration, const Duration(milliseconds: 80));
+      expect(
+        tester
+            .widget<TabBarView>(find.byType(TabBarView))
+            .controller!
+            .animationDuration,
+        Duration.zero,
+      );
       await tester.tap(find.byKey(const ValueKey('windows-player-tab-1')));
       await tester.pump();
       expect(
@@ -568,7 +581,7 @@ void _expectSource(WidgetTester tester, String key, String label) {
     find.descendant(
       of: source,
       matching: find.byWidgetPredicate(
-        (widget) => widget is Tooltip && widget.message == label,
+        (widget) => widget is AppTooltip && widget.message == label,
       ),
     ),
     findsOneWidget,
@@ -738,4 +751,12 @@ Future<void> _capture(WidgetTester tester, String filename) async {
     await File('$directory/$filename').writeAsBytes(data!.buffer.asUint8List());
     image.dispose();
   });
+}
+
+Slider _readSlider(WidgetTester tester, Finder root) {
+  final widget = tester.widget(root);
+  if (widget is Slider) return widget;
+  return tester.widget<Slider>(
+    find.descendant(of: root, matching: find.byType(Slider)),
+  );
 }

@@ -3,6 +3,7 @@ import 'dart:io';
 
 import '../source_models.dart';
 import '../source_response_reader.dart';
+import '../source_search_cancellation.dart';
 import 'izib_signer.dart';
 
 const izibBookCommonFragment = '''fragment BookCommon on Book {
@@ -115,8 +116,11 @@ class DartIoIzibGraphQlTransport implements IzibGraphQlTransport {
     required String body,
     required Map<String, String> headers,
   }) async {
+    final cancellation = SourceSearchCancellation.current;
+    cancellation?.throwIfCancelled();
     final client = _httpClientFactory();
     client.connectionTimeout = _timeout;
+    final unlink = cancellation?.addListener(() => client.close(force: true));
 
     try {
       final request = await client.postUrl(uri).timeout(_timeout);
@@ -142,6 +146,7 @@ class DartIoIzibGraphQlTransport implements IzibGraphQlTransport {
         body: responseBody,
       );
     } finally {
+      unlink?.call();
       client.close(force: true);
     }
   }

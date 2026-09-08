@@ -1,3 +1,5 @@
+import '../motion/app_motion.dart';
+import '../motion/motion_tooltip.dart';
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -486,13 +488,17 @@ class _NotesLinkState extends State<_NotesLink> {
     final colors = Theme.of(context).colorScheme;
     return Semantics(
       link: true,
-      child: Tooltip(
+      child: AppTooltip(
         message: widget.uri.toString(),
         child: Shortcuts(
           shortcuts: const {
             SingleActivator(LogicalKeyboardKey.select): ActivateIntent(),
           },
           child: InkWell(
+            hoverDuration: AppMotion.of(context).duration(
+              full: const Duration(milliseconds: 50),
+              reduced: const Duration(milliseconds: 40),
+            ),
             onTap: () => widget.onOpen(widget.uri),
             onFocusChange: (focused) {
               setState(() => _focused = focused);

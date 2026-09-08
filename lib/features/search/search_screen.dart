@@ -1,6 +1,11 @@
+import '../../ui/motion/motion_tooltip.dart';
+import '../../ui/motion/motion_progress_indicator.dart';
+import '../../ui/motion/motion_controls.dart';
+import '../../ui/motion/app_motion.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -26,6 +31,7 @@ import '../../ui/adaptive/adaptive_sheet.dart';
 import '../../ui/adaptive/desktop_layout.dart';
 import '../../ui/adaptive/television_layout.dart';
 import '../../ui/components/book_card.dart';
+import '../../ui/components/active_listenable_builder.dart';
 import '../../ui/components/filter_picker_sheet.dart';
 import '../../ui/components/responsive_tile_grid.dart';
 import '../../ui/components/section_header.dart';
@@ -67,6 +73,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   SearchSort _selectedSort = SearchSort.relevance;
   String _activeQuery = '';
   Future<SourceSearchResponse>? _searchFuture;
+  final _searchUpdates = ValueNotifier<SourceSearchResponse?>(null);
+  SourceSearchCancellation? _searchCancellation;
   List<SearchHistoryEntry> _history = const [];
   bool _showResultsPage = false;
   final _playLoadingIds = <String>{};
@@ -89,6 +97,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 
   @override
   void dispose() {
+    _searchCancellation?.cancel();
+    _searchUpdates.dispose();
     _controller.dispose();
     _televisionEditorFocus.dispose();
     _televisionFiltersFocus.dispose();
@@ -165,36 +175,36 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                 toolbarHeight: appBarToolbarHeight(context),
                 floating: true,
                 automaticallyImplyLeading: false,
-                leading: IconButton(
+                leading: AppIconButton(
                   tooltip: MaterialLocalizations.of(context).backButtonTooltip,
                   onPressed: () => _handleResultsBack(context),
                   icon: const AppIcon(AppIconAssets.systemBack),
                 ),
                 title: preserveAppBarTextScale(
                   context,
-                  _SearchResultsTitle(searchFuture: _searchFuture),
+                  _SearchResultsTitle(
+                    searchFuture: _searchFuture,
+                    updates: _searchUpdates,
+                  ),
                 ),
               ),
               SliverPadding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                sliver: SliverList(
-                  delegate: SliverChildListDelegate([
-                    _SearchResults(
-                      query: _activeQuery,
-                      searchFuture: _searchFuture,
-                      libraryStore: libraryStore,
-                      playLoadingIds: _playLoadingIds,
-                      downloadLoadingIds: _downloadLoadingIds,
-                      history: _history,
-                      onHistoryTap: _runHistorySearch,
-                      onHistoryDelete: _deleteHistoryEntry,
-                      onFavoriteToggle: _toggleFavorite,
-                      onLaterToggle: _toggleLater,
-                      onRetry: () => _submitSearch(_activeQuery),
-                      onPlayPressed: _playResult,
-                      onDownloadPressed: _downloadResult,
-                    ),
-                  ]),
+                sliver: _SearchResults(
+                  query: _activeQuery,
+                  searchFuture: _searchFuture,
+                  updates: _searchUpdates,
+                  libraryStore: libraryStore,
+                  playLoadingIds: _playLoadingIds,
+                  downloadLoadingIds: _downloadLoadingIds,
+                  history: _history,
+                  onHistoryTap: _runHistorySearch,
+                  onHistoryDelete: _deleteHistoryEntry,
+                  onFavoriteToggle: _toggleFavorite,
+                  onLaterToggle: _toggleLater,
+                  onRetry: () => _submitSearch(_activeQuery),
+                  onPlayPressed: _playResult,
+                  onDownloadPressed: _downloadResult,
                 ),
               ),
             ],
@@ -212,41 +222,46 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         ),
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-          sliver: SliverList(
-            delegate: SliverChildListDelegate([
-              TextField(
-                controller: _controller,
-                textInputAction: TextInputAction.search,
-                onSubmitted: _submitSearch,
-                decoration: InputDecoration(
-                  prefixIcon: const Padding(
-                    padding: EdgeInsets.all(14),
-                    child: AppIcon(AppIconAssets.navSearch, size: 22),
+          sliver: SliverMainAxisGroup(
+            slivers: [
+              SliverList.list(
+                children: [
+                  TextField(
+                    controller: _controller,
+                    textInputAction: TextInputAction.search,
+                    onSubmitted: _submitSearch,
+                    decoration: InputDecoration(
+                      prefixIcon: const Padding(
+                        padding: EdgeInsets.all(14),
+                        child: AppIcon(AppIconAssets.navSearch, size: 22),
+                      ),
+                      suffixIcon: AppIconButton(
+                        key: const ValueKey('search-submit'),
+                        tooltip: strings.search,
+                        onPressed: _submitSearch,
+                        icon: const AppIcon(AppIconAssets.navSearch),
+                      ),
+                      hintText: strings.searchHint,
+                    ),
                   ),
-                  suffixIcon: IconButton(
-                    key: const ValueKey('search-submit'),
-                    tooltip: strings.search,
-                    onPressed: _submitSearch,
-                    icon: const AppIcon(AppIconAssets.navSearch),
+                  const SizedBox(height: 12),
+                  _SearchFilters(
+                    selectedKinds: _selectedKinds,
+                    selectedSort: _selectedSort,
+                    onKindsChanged: (kinds) {
+                      setState(() => _selectedKinds = kinds);
+                    },
+                    onSortChanged: (sort) {
+                      setState(() => _selectedSort = sort);
+                    },
                   ),
-                  hintText: strings.searchHint,
-                ),
+                  const SizedBox(height: 16),
+                ],
               ),
-              const SizedBox(height: 12),
-              _SearchFilters(
-                selectedKinds: _selectedKinds,
-                selectedSort: _selectedSort,
-                onKindsChanged: (kinds) {
-                  setState(() => _selectedKinds = kinds);
-                },
-                onSortChanged: (sort) {
-                  setState(() => _selectedSort = sort);
-                },
-              ),
-              const SizedBox(height: 16),
               _SearchResults(
                 query: _activeQuery,
                 searchFuture: _searchFuture,
+                updates: _searchUpdates,
                 libraryStore: libraryStore,
                 playLoadingIds: _playLoadingIds,
                 downloadLoadingIds: _downloadLoadingIds,
@@ -259,7 +274,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                 onPlayPressed: _playResult,
                 onDownloadPressed: _downloadResult,
               ),
-            ]),
+            ],
           ),
         ),
       ],
@@ -277,102 +292,123 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         _handleResultsBack(context);
         return true;
       },
-      child: ListView(
+      child: CustomScrollView(
         key: const ValueKey('tv-search-workspace'),
-        padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
-        children: [
-          _TelevisionSearchToolbar(
-            editor: TextField(
-              key: const ValueKey('tv-search-editor'),
-              controller: _controller,
-              focusNode: _televisionEditorFocus,
-              textInputAction: TextInputAction.search,
-              onSubmitted: _submitTelevisionSearch,
-              decoration: InputDecoration(
-                isDense: true,
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 8,
-                ),
-                prefixIconConstraints: const BoxConstraints(
-                  minWidth: 36,
-                  minHeight: 36,
-                ),
-                suffixIconConstraints: const BoxConstraints(
-                  minWidth: 36,
-                  minHeight: 36,
-                ),
-                prefixIcon: const Padding(
-                  padding: EdgeInsets.all(8),
-                  child: AppIcon(AppIconAssets.navSearch, size: 18),
-                ),
-                suffixIcon: IconButton(
-                  key: const ValueKey('search-submit'),
-                  tooltip: strings.search,
-                  // This is part of the input, not a separate dark TV card.
-                  // Keep the remote target and its focus outline without an
-                  // idle fill/border contrasting with the field's own surface.
-                  style: ButtonStyle(
-                    backgroundColor: const WidgetStatePropertyAll(
-                      Colors.transparent,
+        slivers: [
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
+            sliver: SliverMainAxisGroup(
+              slivers: [
+                SliverList.list(
+                  children: [
+                    _TelevisionSearchToolbar(
+                      editor: TextField(
+                        key: const ValueKey('tv-search-editor'),
+                        controller: _controller,
+                        focusNode: _televisionEditorFocus,
+                        textInputAction: TextInputAction.search,
+                        onSubmitted: _submitTelevisionSearch,
+                        decoration: InputDecoration(
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 8,
+                          ),
+                          prefixIconConstraints: const BoxConstraints(
+                            minWidth: 36,
+                            minHeight: 36,
+                          ),
+                          suffixIconConstraints: const BoxConstraints(
+                            minWidth: 36,
+                            minHeight: 36,
+                          ),
+                          prefixIcon: const Padding(
+                            padding: EdgeInsets.all(8),
+                            child: AppIcon(AppIconAssets.navSearch, size: 18),
+                          ),
+                          suffixIcon: AppIconButton(
+                            key: const ValueKey('search-submit'),
+                            tooltip: strings.search,
+                            // This is part of the input, not a separate dark TV card.
+                            // Keep the remote target and its focus outline without an
+                            // idle fill/border contrasting with the field's own surface.
+                            style: ButtonStyle(
+                              backgroundColor: const WidgetStatePropertyAll(
+                                Colors.transparent,
+                              ),
+                              foregroundColor: WidgetStatePropertyAll(
+                                Theme.of(context).colorScheme.onSurface,
+                              ),
+                              side: WidgetStateProperty.resolveWith(
+                                (states) => states.contains(WidgetState.focused)
+                                    ? BorderSide(
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.primary,
+                                        width: 2,
+                                      )
+                                    : BorderSide.none,
+                              ),
+                            ),
+                            constraints: const BoxConstraints(
+                              minWidth: 36,
+                              minHeight: 36,
+                            ),
+                            padding: const EdgeInsets.all(8),
+                            onPressed: _submitTelevisionSearch,
+                            icon: const AppIcon(
+                              AppIconAssets.navSearch,
+                              size: 18,
+                            ),
+                          ),
+                          hintText: strings.searchHint,
+                        ),
+                      ),
+                      filters: _SearchFilters(
+                        compactLabels: true,
+                        scopeFocusNode: _televisionFiltersFocus,
+                        selectedKinds: _selectedKinds,
+                        selectedSort: _selectedSort,
+                        onKindsChanged: (kinds) =>
+                            setState(() => _selectedKinds = kinds),
+                        onSortChanged: (sort) =>
+                            setState(() => _selectedSort = sort),
+                      ),
                     ),
-                    foregroundColor: WidgetStatePropertyAll(
-                      Theme.of(context).colorScheme.onSurface,
-                    ),
-                    side: WidgetStateProperty.resolveWith(
-                      (states) => states.contains(WidgetState.focused)
-                          ? BorderSide(
-                              color: Theme.of(context).colorScheme.primary,
-                              width: 2,
-                            )
-                          : BorderSide.none,
-                    ),
-                  ),
-                  constraints: const BoxConstraints(
-                    minWidth: 36,
-                    minHeight: 36,
-                  ),
-                  padding: const EdgeInsets.all(8),
-                  onPressed: _submitTelevisionSearch,
-                  icon: const AppIcon(AppIconAssets.navSearch, size: 18),
+                    if (_showResultsPage)
+                      Padding(
+                        key: const ValueKey('tv-search-result-count'),
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        child: DefaultTextStyle.merge(
+                          style: Theme.of(context).textTheme.bodySmall,
+                          child: _SearchResultsTitle(
+                            searchFuture: _searchFuture,
+                            updates: _searchUpdates,
+                          ),
+                        ),
+                      )
+                    else
+                      const SizedBox(height: 4),
+                  ],
                 ),
-                hintText: strings.searchHint,
-              ),
+                _SearchResults(
+                  query: _activeQuery,
+                  searchFuture: _searchFuture,
+                  updates: _searchUpdates,
+                  libraryStore: libraryStore,
+                  playLoadingIds: _playLoadingIds,
+                  downloadLoadingIds: _downloadLoadingIds,
+                  history: _history,
+                  onHistoryTap: _runHistorySearch,
+                  onHistoryDelete: _deleteHistoryEntry,
+                  onFavoriteToggle: _toggleFavorite,
+                  onLaterToggle: _toggleLater,
+                  onRetry: () => _submitSearch(_activeQuery),
+                  onPlayPressed: _playResult,
+                  onDownloadPressed: _downloadResult,
+                ),
+              ],
             ),
-            filters: _SearchFilters(
-              compactLabels: true,
-              scopeFocusNode: _televisionFiltersFocus,
-              selectedKinds: _selectedKinds,
-              selectedSort: _selectedSort,
-              onKindsChanged: (kinds) => setState(() => _selectedKinds = kinds),
-              onSortChanged: (sort) => setState(() => _selectedSort = sort),
-            ),
-          ),
-          if (_showResultsPage)
-            Padding(
-              key: const ValueKey('tv-search-result-count'),
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: DefaultTextStyle.merge(
-                style: Theme.of(context).textTheme.bodySmall,
-                child: _SearchResultsTitle(searchFuture: _searchFuture),
-              ),
-            )
-          else
-            const SizedBox(height: 4),
-          _SearchResults(
-            query: _activeQuery,
-            searchFuture: _searchFuture,
-            libraryStore: libraryStore,
-            playLoadingIds: _playLoadingIds,
-            downloadLoadingIds: _downloadLoadingIds,
-            history: _history,
-            onHistoryTap: _runHistorySearch,
-            onHistoryDelete: _deleteHistoryEntry,
-            onFavoriteToggle: _toggleFavorite,
-            onLaterToggle: _toggleLater,
-            onRetry: () => _submitSearch(_activeQuery),
-            onPlayPressed: _playResult,
-            onDownloadPressed: _downloadResult,
           ),
         ],
       ),
@@ -401,7 +437,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                 padding: EdgeInsets.all(14),
                 child: AppIcon(AppIconAssets.navSearch, size: 22),
               ),
-              suffixIcon: IconButton(
+              suffixIcon: AppIconButton(
                 key: const ValueKey('search-submit'),
                 tooltip: strings.search,
                 onPressed: _submitSearch,
@@ -424,36 +460,43 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         ],
       ),
     );
-    final primary = Column(
+    final primary = SliverMainAxisGroup(
       key: const ValueKey('desktop-search-primary'),
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
+      slivers: [
         if (_showResultsPage)
-          Padding(
-            key: const ValueKey('desktop-search-results-heading'),
-            padding: const EdgeInsets.only(bottom: 12),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                IconButton(
-                  tooltip: MaterialLocalizations.of(context).backButtonTooltip,
-                  onPressed: () => _handleResultsBack(context),
-                  icon: const AppIcon(AppIconAssets.systemBack),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: DefaultTextStyle.merge(
-                    style: Theme.of(context).textTheme.titleMedium,
-                    child: _SearchResultsTitle(searchFuture: _searchFuture),
+          SliverToBoxAdapter(
+            child: Padding(
+              key: const ValueKey('desktop-search-results-heading'),
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  AppIconButton(
+                    tooltip: MaterialLocalizations.of(
+                      context,
+                    ).backButtonTooltip,
+                    onPressed: () => _handleResultsBack(context),
+                    icon: const AppIcon(AppIconAssets.systemBack),
                   ),
-                ),
-              ],
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: DefaultTextStyle.merge(
+                      style: Theme.of(context).textTheme.titleMedium,
+                      child: _SearchResultsTitle(
+                        searchFuture: _searchFuture,
+                        updates: _searchUpdates,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         if (_activeQuery.isNotEmpty)
           _SearchResults(
             query: _activeQuery,
             searchFuture: _searchFuture,
+            updates: _searchUpdates,
             libraryStore: libraryStore,
             playLoadingIds: _playLoadingIds,
             downloadLoadingIds: _downloadLoadingIds,
@@ -490,7 +533,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                         onTap: () => _runHistorySearch(entry),
                       ),
                     ),
-                    IconButton(
+                    AppIconButton(
                       tooltip: strings.deleteSearchHistoryEntry,
                       onPressed: () => _deleteHistoryEntry(entry),
                       icon: const AppIcon(AppIconAssets.systemClose),
@@ -543,32 +586,45 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         _handleResultsBack(context);
         return true;
       },
-      child: ListView(
-        padding: DesktopLayout.pagePadding(context),
-        children: [
-          DesktopPageHeader(title: strings.search, bottomSpacing: 16),
-          controls,
-          SizedBox(height: _activeQuery.isEmpty ? 24 : 12),
-          if (_activeQuery.isEmpty)
-            _DesktopSearchContextPanels(
-              key: const ValueKey('desktop-search-secondary'),
-              children: contextPanels,
-            )
-          else
-            DesktopWorkspaceColumns(
-              key: const ValueKey('desktop-search-workspace'),
-              minimumPrimaryWidth: 620,
-              primary: primary,
-              secondary: Column(
-                key: const ValueKey('desktop-search-secondary'),
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  contextPanels[0],
-                  const SizedBox(height: 16),
-                  contextPanels[1],
-                ],
-              ),
+      child: CustomScrollView(
+        key: const PageStorageKey('desktop-search-scroll'),
+        slivers: [
+          SliverPadding(
+            padding: DesktopLayout.pagePadding(context),
+            sliver: SliverMainAxisGroup(
+              slivers: [
+                SliverList.list(
+                  children: [
+                    DesktopPageHeader(title: strings.search, bottomSpacing: 16),
+                    controls,
+                    SizedBox(height: _activeQuery.isEmpty ? 24 : 12),
+                  ],
+                ),
+                if (_activeQuery.isEmpty)
+                  SliverToBoxAdapter(
+                    child: _DesktopSearchContextPanels(
+                      key: const ValueKey('desktop-search-secondary'),
+                      children: contextPanels,
+                    ),
+                  )
+                else
+                  SliverWorkspaceColumns(
+                    key: const ValueKey('desktop-search-workspace'),
+                    minimumPrimaryWidth: 620,
+                    primary: primary,
+                    secondary: Column(
+                      key: const ValueKey('desktop-search-secondary'),
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        contextPanels[0],
+                        const SizedBox(height: 16),
+                        contextPanels[1],
+                      ],
+                    ),
+                  ),
+              ],
             ),
+          ),
         ],
       ),
     );
@@ -597,6 +653,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     }
     _appliedInitialRouteKey = routeKey;
     _searchRequestGeneration++;
+    _searchCancellation?.cancel();
+    _searchUpdates.value = null;
 
     void apply() {
       if (initialKinds != null && initialKinds.isNotEmpty) {
@@ -646,6 +704,10 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     Set<SearchKind>? searchKindsOverride,
   }) async {
     final generation = ++_searchRequestGeneration;
+    _searchCancellation?.cancel();
+    final cancellation = SourceSearchCancellation();
+    _searchCancellation = cancellation;
+    _searchUpdates.value = null;
     final query = (submittedQuery ?? _controller.text).trim();
     if (query.length < 2) {
       setState(() {
@@ -687,6 +749,15 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
               kinds: searchKinds,
               sort: sort,
             ),
+            cancellation: cancellation,
+            onUpdate: (response) {
+              if (!mounted ||
+                  generation != _searchRequestGeneration ||
+                  cancellation.isCancelled) {
+                return;
+              }
+              _searchUpdates.value = response;
+            },
           );
     });
   }
@@ -750,7 +821,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     if (!mounted) {
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(context).showMotionSnackBar(
       SnackBar(
         content: Text(
           added
@@ -766,7 +837,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       await ref.read(libraryStoreProvider).toggleLater(book);
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showMotionSnackBar(
         SnackBar(content: Text(context.strings.libraryActionError)),
       );
     }
@@ -816,7 +887,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       }
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showMotionSnackBar(
           SnackBar(
             content: Text('${context.strings.sourceSearchError}: $error'),
           ),
@@ -853,13 +924,13 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         added = true;
       }
       if (mounted && added) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showMotionSnackBar(
           SnackBar(content: Text(context.strings.downloadQueuedMessage)),
         );
       }
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showMotionSnackBar(
           SnackBar(content: Text('${context.strings.download}: $error')),
         );
       }
@@ -1076,7 +1147,7 @@ class _SearchFilters extends StatelessWidget {
                   child: Text(context.strings.selectAtLeastOneSearchKind),
                 ),
                 for (final kind in _searchKindOptions)
-                  CheckboxListTile(
+                  AppCheckboxListTile(
                     value: draft.contains(kind),
                     visualDensity: VisualDensity.compact,
                     title: Text(_kindLabel(context, kind)),
@@ -1148,9 +1219,13 @@ class _SearchFilters extends StatelessWidget {
 }
 
 class _SearchResultsTitle extends StatelessWidget {
-  const _SearchResultsTitle({required this.searchFuture});
+  const _SearchResultsTitle({
+    required this.searchFuture,
+    required this.updates,
+  });
 
   final Future<SourceSearchResponse>? searchFuture;
+  final ValueListenable<SourceSearchResponse?> updates;
 
   @override
   Widget build(BuildContext context) {
@@ -1159,19 +1234,28 @@ class _SearchResultsTitle extends StatelessWidget {
       return Text(context.strings.search);
     }
 
-    return FutureBuilder<SourceSearchResponse>(
-      future: future,
-      builder: (context, snapshot) {
-        if (DesktopLayout.isActive(context) && snapshot.hasError) {
-          return Text(context.strings.sourceSearchError);
-        }
-        if (!snapshot.hasData) {
-          return Text(context.strings.searchingSources);
-        }
-        return Text(
-          context.strings.sourceResultsCount(snapshot.data!.results.length),
-        );
-      },
+    return ValueListenableBuilder<SourceSearchResponse?>(
+      valueListenable: updates,
+      builder: (context, partial, _) => FutureBuilder<SourceSearchResponse>(
+        future: future,
+        builder: (context, snapshot) {
+          if (DesktopLayout.isActive(context) &&
+              snapshot.connectionState == ConnectionState.done &&
+              snapshot.hasError &&
+              snapshot.error is! SourceSearchCancelled) {
+            return Text(context.strings.sourceSearchError);
+          }
+          final response = snapshot.connectionState == ConnectionState.done
+              ? snapshot.data
+              : partial;
+          if (response == null) {
+            return Text(context.strings.searchingSources);
+          }
+          return Text(
+            context.strings.sourceResultsCount(response.results.length),
+          );
+        },
+      ),
     );
   }
 }
@@ -1180,6 +1264,7 @@ class _SearchResults extends ConsumerWidget {
   const _SearchResults({
     required this.query,
     required this.searchFuture,
+    required this.updates,
     required this.libraryStore,
     required this.playLoadingIds,
     required this.downloadLoadingIds,
@@ -1195,6 +1280,7 @@ class _SearchResults extends ConsumerWidget {
 
   final String query;
   final Future<SourceSearchResponse>? searchFuture;
+  final ValueListenable<SourceSearchResponse?> updates;
   final LibraryStore libraryStore;
   final Set<String> playLoadingIds;
   final Set<String> downloadLoadingIds;
@@ -1211,135 +1297,166 @@ class _SearchResults extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final strings = context.strings;
     final future = searchFuture;
-    final downloadManager = ref.watch(downloadManagerProvider);
+    final downloadManager = ref.watch(downloadManagerProvider.notifier);
     final playbackController = ref.watch(playbackControllerProvider);
     final progressSnapshots =
         ref.watch(playbackProgressSnapshotsProvider).asData?.value ??
         const <PlaybackProgressSnapshot>[];
 
     if (query.isEmpty) {
-      return _SearchHistory(
-        history: history,
-        onTap: onHistoryTap,
-        onDelete: onHistoryDelete,
+      return SliverToBoxAdapter(
+        child: _SearchHistory(
+          history: history,
+          onTap: onHistoryTap,
+          onDelete: onHistoryDelete,
+        ),
       );
     }
 
     if (future == null) {
-      return StatePlaceholder.empty(
-        title: strings.searchShortQueryTitle,
-        message: strings.searchShortQueryMessage,
+      return SliverToBoxAdapter(
+        child: StatePlaceholder.empty(
+          title: strings.searchShortQueryTitle,
+          message: strings.searchShortQueryMessage,
+        ),
       );
     }
 
-    return ListenableBuilder(
-      listenable: playbackController,
-      builder: (context, _) => FutureBuilder<SourceSearchResponse>(
-        future: future,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState != ConnectionState.done) {
-            return StatePlaceholder.loading(title: strings.searchingSources);
-          }
-
-          if (snapshot.hasError) {
-            return StatePlaceholder.error(
-              title: strings.sourceSearchError,
-              message: snapshot.error.toString(),
-            );
-          }
-
-          final response = snapshot.data;
-          final results = response?.results ?? const <BookSearchResult>[];
-          if (results.isEmpty) {
-            if (response?.failures.isNotEmpty == true) {
-              return _SearchFailuresNotice(
-                failures: response!.failures,
-                onRetry: onRetry,
+    return ActiveListenableBuilder(
+      listenable: Listenable.merge([playbackController, downloadManager]),
+      builder: (context, _) => ValueListenableBuilder<SourceSearchResponse?>(
+        valueListenable: updates,
+        builder: (context, partial, _) => FutureBuilder<SourceSearchResponse>(
+          future: future,
+          builder: (context, snapshot) {
+            final pending = snapshot.connectionState != ConnectionState.done;
+            if (pending && (partial == null || partial.results.isEmpty)) {
+              return SliverToBoxAdapter(
+                child: StatePlaceholder.loading(
+                  title: strings.searchingSources,
+                ),
               );
             }
 
-            return StatePlaceholder.empty(
-              title: strings.noSearchResults,
-              message: strings.filteredNoSearchResults,
-            );
-          }
+            // FutureBuilder retains an old error while a replacement future is
+            // waiting. A cancelled previous request must not hide new partials.
+            if (!pending && snapshot.hasError) {
+              if (snapshot.error is SourceSearchCancelled) {
+                return const SliverToBoxAdapter(child: SizedBox.shrink());
+              }
+              return SliverToBoxAdapter(
+                child: StatePlaceholder.error(
+                  title: strings.sourceSearchError,
+                  message: snapshot.error.toString(),
+                ),
+              );
+            }
 
-          final catalog = ref.read(sourceCatalogServiceProvider);
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (response?.failures.isNotEmpty == true)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
+            final response = pending ? partial : snapshot.data;
+            final results = response?.results ?? const <BookSearchResult>[];
+            if (results.isEmpty) {
+              if (response?.failures.isNotEmpty == true) {
+                return SliverToBoxAdapter(
                   child: _SearchFailuresNotice(
                     failures: response!.failures,
                     onRetry: onRetry,
                   ),
+                );
+              }
+
+              return SliverToBoxAdapter(
+                child: StatePlaceholder.empty(
+                  title: strings.noSearchResults,
+                  message: strings.filteredNoSearchResults,
                 ),
-              ResponsiveTileGrid(
-                stretchDesktopColumns: DesktopLayout.isActive(context),
-                maxColumns: DesktopLayout.isActive(context) ? 1 : 5,
-                children: [
-                  for (final result in results)
-                    Builder(
-                      builder: (context) {
-                        final audioBook = catalog
-                            .audioBookForSearchResult(result)
-                            .copyWith(
-                              progress: _progressForResult(
-                                playbackController.state,
-                                progressSnapshots,
-                                result,
-                              ),
-                            );
-                        final key = _resultKey(result);
-                        final isCurrentBook = _playbackBookMatchesResult(
-                          playbackController.state.book,
-                          result,
-                        );
-                        final downloadState = _downloadStateForResult(
-                          downloadManager,
-                          result,
-                        );
-                        return BookCard(
-                          book: audioBook,
-                          desktopPresentation: DesktopBookPresentation.result,
-                          yearLabel: result.year?.toString(),
-                          isFavorite: libraryStore.isFavorite(audioBook),
-                          isLater: libraryStore.isLater(audioBook),
-                          onLaterPressed: () => onLaterToggle(audioBook),
-                          downloadState: downloadState,
-                          downloadProgress: _downloadProgressForResult(
-                            downloadManager,
+              );
+            }
+
+            final catalog = ref.read(sourceCatalogServiceProvider);
+            return SliverMainAxisGroup(
+              slivers: [
+                if (pending)
+                  const SliverToBoxAdapter(
+                    child: Padding(
+                      key: ValueKey('search-partial-progress'),
+                      padding: EdgeInsets.only(bottom: 8),
+                      child: AppLinearProgressIndicator(),
+                    ),
+                  ),
+                if (response?.failures.isNotEmpty == true)
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: _SearchFailuresNotice(
+                        failures: response!.failures,
+                        onRetry: onRetry,
+                      ),
+                    ),
+                  ),
+                SliverResponsiveTileGrid.builder(
+                  stretchDesktopColumns: DesktopLayout.isActive(context),
+                  maxColumns: DesktopLayout.isActive(context) ? 1 : 5,
+                  itemCount: results.length,
+                  itemKeyBuilder: (index) =>
+                      ValueKey(_resultKey(results[index])),
+                  itemBuilder: (context, index) {
+                    final result = results[index];
+                    final audioBook = catalog
+                        .audioBookForSearchResult(result)
+                        .copyWith(
+                          progress: _progressForResult(
+                            playbackController.state,
+                            progressSnapshots,
                             result,
                           ),
-                          isCurrentBook: isCurrentBook,
-                          isPlaying: playbackController.state.isPlaying,
-                          isPlaybackLoading:
-                              isCurrentBook &&
-                              (playbackController.state.status ==
-                                      AudioPlaybackStatus.loading ||
-                                  playbackController.state.status ==
-                                      AudioPlaybackStatus.buffering),
-                          isPlayLoading:
-                              playLoadingIds.contains(key) && !isCurrentBook,
-                          isDownloadLoading: downloadLoadingIds.contains(key),
-                          onFavoritePressed: () => onFavoriteToggle(audioBook),
-                          onDownloadPressed: () => onDownloadPressed(result),
-                          onPlay: () => onPlayPressed(result),
-                          onTap: () => unawaited(
-                            context.push(
-                              '/source-book/${result.sourceId}/${Uri.encodeComponent(result.sourceBookId)}',
-                            ),
-                          ),
                         );
-                      },
-                    ),
-                ],
-              ),
-            ],
-          );
-        },
+                    final key = _resultKey(result);
+                    final isCurrentBook = _playbackBookMatchesResult(
+                      playbackController.state.book,
+                      result,
+                    );
+                    final downloadState = _downloadStateForResult(
+                      downloadManager,
+                      result,
+                    );
+                    return BookCard(
+                      book: audioBook,
+                      desktopPresentation: DesktopBookPresentation.result,
+                      yearLabel: result.year?.toString(),
+                      isFavorite: libraryStore.isFavorite(audioBook),
+                      isLater: libraryStore.isLater(audioBook),
+                      onLaterPressed: () => onLaterToggle(audioBook),
+                      downloadState: downloadState,
+                      downloadProgress: _downloadProgressForResult(
+                        downloadManager,
+                        result,
+                      ),
+                      isCurrentBook: isCurrentBook,
+                      isPlaying: playbackController.state.isPlaying,
+                      isPlaybackLoading:
+                          isCurrentBook &&
+                          (playbackController.state.status ==
+                                  AudioPlaybackStatus.loading ||
+                              playbackController.state.status ==
+                                  AudioPlaybackStatus.buffering),
+                      isPlayLoading:
+                          playLoadingIds.contains(key) && !isCurrentBook,
+                      isDownloadLoading: downloadLoadingIds.contains(key),
+                      onFavoritePressed: () => onFavoriteToggle(audioBook),
+                      onDownloadPressed: () => onDownloadPressed(result),
+                      onPlay: () => onPlayPressed(result),
+                      onTap: () => unawaited(
+                        context.push(
+                          '/source-book/${result.sourceId}/${Uri.encodeComponent(result.sourceBookId)}',
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            );
+          },
+        ),
       ),
     );
   }
@@ -1427,7 +1544,7 @@ class _SearchHistory extends StatelessWidget {
               children: [
                 Text('${entry.usageCount}'),
                 const SizedBox(width: 4),
-                IconButton(
+                AppIconButton(
                   tooltip: strings.deleteSearchHistoryEntry,
                   onPressed: () => onDelete(entry),
                   icon: AppIcon(

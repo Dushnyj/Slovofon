@@ -26,69 +26,130 @@ class SourceCatalogService {
     required SourceRegistry registry,
     Duration searchEnrichmentTimeout = const Duration(milliseconds: 800),
     int searchEnrichmentLimit = 8,
+    Duration searchTimeout = const Duration(seconds: 20),
   }) : _registry = registry,
+       _searchTimeout = searchTimeout,
        _searchEnrichmentTimeout = searchEnrichmentTimeout,
        _searchEnrichmentLimit = searchEnrichmentLimit < 0
            ? 0
            : searchEnrichmentLimit;
 
   final SourceRegistry _registry;
+  final Duration _searchTimeout;
   final Duration _searchEnrichmentTimeout;
   final int _searchEnrichmentLimit;
   final _searchDetailsCache = SourceRequestCache<String, BookVersionDetails?>();
   final _bookRefreshes = <String, Future<SourceBookSnapshot>>{};
 
-  Future<SourceSearchResponse> search(SearchRequest request) async {
+  /// Publishes cumulative, filtered and sorted results as sources finish.
+  /// The returned Future remains the final snapshot for existing consumers.
+  Future<SourceSearchResponse> search(
+    SearchRequest request, {
+    void Function(SourceSearchResponse response)? onUpdate,
+    SourceSearchCancellation? cancellation,
+  }) async {
     final normalizedQuery = _normalizeSearchText(request.query);
     final tokens = _queryTokens(normalizedQuery);
     if (tokens.isEmpty) {
       return const SourceSearchResponse(results: []);
     }
 
-    final primaryResponse = await _registry.search(
-      request.copyWith(query: normalizedQuery),
+    final operation = SourceSearchCancellation();
+    final unlink = cancellation?.addListener(operation.cancel);
+    final deadline = Timer(
+      _searchTimeout > Duration.zero ? _searchTimeout : Duration.zero,
+      () => operation.cancel(timedOut: true),
     );
     final resultsByKey = <String, BookSearchResult>{};
-    final failures = <SourceFailure>[...primaryResponse.failures];
-    _addSearchResults(resultsByKey, primaryResponse.results);
+    final failures = <SourceFailure>[];
 
-    var candidates = _searchCandidates(
-      resultsByKey.values,
-      request.effectiveKinds,
-      tokens,
-    );
-    if (candidates.isEmpty && tokens.length > 1) {
-      final fallbackResponses = await Future.wait(
-        tokens
-            .toSet()
-            .take(3)
-            .map((token) => _registry.search(request.copyWith(query: token))),
+    SourceSearchResponse snapshot(Iterable<BookSearchResult> results) =>
+        SourceSearchResponse(
+          results: List.unmodifiable(
+            _sortResults(
+              results.where(
+                (result) =>
+                    _matchesRequest(result, request.effectiveKinds, tokens),
+              ),
+              request.effectiveKinds,
+              tokens,
+              request.sort,
+            ),
+          ),
+          failures: List.unmodifiable(failures),
+        );
+
+    void publish(Iterable<BookSearchResult> results) {
+      if (!operation.isCancelled) onUpdate?.call(snapshot(results));
+    }
+
+    try {
+      cancellation?.throwIfCancelled();
+      final primaryResponse = await _registry.search(
+        request.copyWith(query: normalizedQuery),
+        cancellation: operation,
+        onUpdate: (response) {
+          _addSearchResults(resultsByKey, response.results);
+          failures
+            ..clear()
+            ..addAll(response.failures);
+          publish(resultsByKey.values);
+        },
       );
-      for (final response in fallbackResponses) {
-        failures.addAll(response.failures);
-        _addSearchResults(resultsByKey, response.results);
-      }
-      candidates = _searchCandidates(
+      cancellation?.throwIfCancelled();
+      failures
+        ..clear()
+        ..addAll(primaryResponse.failures);
+      _addSearchResults(resultsByKey, primaryResponse.results);
+
+      var candidates = _searchCandidates(
         resultsByKey.values,
         request.effectiveKinds,
         tokens,
       );
+      if (!operation.isCancelled && candidates.isEmpty && tokens.length > 1) {
+        final fallbackResponses = await Future.wait(
+          tokens
+              .toSet()
+              .take(3)
+              .map(
+                (token) => _registry.search(
+                  request.copyWith(query: token),
+                  cancellation: operation,
+                  onUpdate: (response) {
+                    _addSearchResults(resultsByKey, response.results);
+                    publish(resultsByKey.values);
+                  },
+                ),
+              ),
+        );
+        cancellation?.throwIfCancelled();
+        for (final response in fallbackResponses) {
+          failures.addAll(response.failures);
+          _addSearchResults(resultsByKey, response.results);
+        }
+        candidates = _searchCandidates(
+          resultsByKey.values,
+          request.effectiveKinds,
+          tokens,
+        );
+      }
+      // First results never wait for optional detail/enrichment requests.
+      publish(candidates);
+      final enriched = await _enrichSearchResults(
+        candidates,
+        request.pageSize,
+        cancellation: operation,
+      );
+      cancellation?.throwIfCancelled();
+      final response = snapshot(enriched);
+      if (!operation.isCancelled) onUpdate?.call(response);
+      return response;
+    } finally {
+      deadline.cancel();
+      unlink?.call();
+      operation.cancel();
     }
-    final enriched = await _enrichSearchResults(candidates, request.pageSize);
-    final filtered = enriched.where(
-      (result) => _matchesRequest(result, request.effectiveKinds, tokens),
-    );
-    final sorted = _sortResults(
-      filtered,
-      request.effectiveKinds,
-      tokens,
-      request.sort,
-    );
-
-    return SourceSearchResponse(
-      results: List.unmodifiable(sorted),
-      failures: List.unmodifiable(failures),
-    );
   }
 
   static void _addSearchResults(
@@ -183,14 +244,15 @@ class SourceCatalogService {
 
   Future<List<BookSearchResult>> _enrichSearchResults(
     List<BookSearchResult> results,
-    int pageSize,
-  ) async {
+    int pageSize, {
+    SourceSearchCancellation? cancellation,
+  }) async {
     if (results.isEmpty) {
       return const [];
     }
 
     final limit = _effectiveEnrichmentLimit(results.length, pageSize);
-    if (limit == 0) {
+    if (limit == 0 || cancellation?.isCancelled == true) {
       return results;
     }
 
@@ -221,9 +283,13 @@ class SourceCatalogService {
     }
 
     try {
-      await wait.timeout(_searchEnrichmentTimeout);
+      final bounded = wait.timeout(_searchEnrichmentTimeout);
+      await (cancellation?.wait(bounded) ?? bounded);
     } on TimeoutException {
       unawaited(wait.then<void>((_) {}));
+    } on SourceSearchCancelled {
+      // Shared detail requests may also serve an opened book or a newer
+      // search. Do not abort their cache load for a single consumer.
     }
     return _applyEnrichedResults(results, enrichedByIndex);
   }

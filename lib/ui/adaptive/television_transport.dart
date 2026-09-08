@@ -1,3 +1,4 @@
+import '../motion/motion_tooltip.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,14 +11,42 @@ import '../components/book_cover.dart';
 import '../components/playback_source_label.dart';
 import '../components/seek_interval_icon.dart';
 import '../icons/app_icons.dart';
+import '../motion/motion_controls.dart';
+import '../motion/motion_progress_indicator.dart';
 
 /// Persistent TV transport: artwork, source, chapter and seeking, without a
 /// second oversized information card. Text scaling reflows rather than clips.
-class TelevisionTransport extends ConsumerWidget {
+class TelevisionTransport extends ConsumerStatefulWidget {
   const TelevisionTransport({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<TelevisionTransport> createState() =>
+      _TelevisionTransportState();
+}
+
+class _TelevisionTransportState extends ConsumerState<TelevisionTransport> {
+  final _actionFocus = <String, FocusNode>{
+    for (final action in [
+      'tv-open-player',
+      'tv-previous-chapter',
+      'tv-rewind-15',
+      'tv-play-pause',
+      'tv-forward-15',
+      'tv-next-chapter',
+    ])
+      action: FocusNode(debugLabel: action),
+  };
+
+  @override
+  void dispose() {
+    for (final node in _actionFocus.values) {
+      node.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final controller = ref.watch(playbackControllerProvider);
     return ListenableBuilder(
       listenable: controller,
@@ -31,8 +60,13 @@ class TelevisionTransport extends ConsumerWidget {
         final busy =
             state.status == AudioPlaybackStatus.loading ||
             state.status == AudioPlaybackStatus.buffering;
-        final canSeek = state.chapterDuration > Duration.zero && !busy;
-        final canSkip = state.currentChapter != null && !busy;
+        // Buffering is a temporary state of the current decoder, not a reason
+        // to remove its transport actions. A seek commonly emits buffering;
+        // excluding that button from focus would move D-pad selection to Play.
+        final loading = state.status == AudioPlaybackStatus.loading;
+        final hasChapter = state.currentChapter != null;
+        final canSeek = state.chapterDuration > Duration.zero && !loading;
+        final canSkip = hasChapter && !loading;
         const secondaryStyle = ButtonStyle(
           minimumSize: WidgetStatePropertyAll(Size.square(36)),
           fixedSize: WidgetStatePropertyAll(Size.square(36)),
@@ -44,13 +78,15 @@ class TelevisionTransport extends ConsumerWidget {
           required String tooltip,
           required Widget icon,
           required VoidCallback? onPressed,
+          required bool available,
         }) => ExcludeFocus(
           // Material keeps disabled InkWell targets focusable in directional
-          // mode. Skip unavailable boundary controls, while retaining their
-          // disabled appearance and semantics.
-          excluding: onPressed == null,
-          child: IconButton(
+          // mode. Skip actual chapter boundaries, but keep the selected action
+          // through a pending chapter load. It cannot activate until ready.
+          excluding: !available,
+          child: AppIconButton(
             key: ValueKey(key),
+            focusNode: _actionFocus[key],
             tooltip: tooltip,
             onPressed: onPressed,
             style: icon is SeekIntervalIcon
@@ -68,6 +104,7 @@ class TelevisionTransport extends ConsumerWidget {
             secondaryButton(
               key: 'tv-previous-chapter',
               tooltip: strings.previousChapter,
+              available: hasChapter && state.chapterIndex > 0,
               onPressed: canSkip && state.chapterIndex > 0
                   ? controller.previousChapter
                   : null,
@@ -80,14 +117,16 @@ class TelevisionTransport extends ConsumerWidget {
             secondaryButton(
               key: 'tv-rewind-15',
               tooltip: strings.rewind15,
+              available: hasChapter,
               onPressed: canSkip
                   ? () => controller.skipBy(const Duration(seconds: -15))
                   : null,
               icon: const SeekIntervalIcon(forward: false),
             ),
             const SizedBox(width: 3),
-            IconButton.filled(
+            AppIconButton.filled(
               key: const ValueKey('tv-play-pause'),
+              focusNode: _actionFocus['tv-play-pause'],
               tooltip: state.isPlaying || busy ? strings.pause : strings.play,
               onPressed: state.currentChapter == null
                   ? null
@@ -110,7 +149,7 @@ class TelevisionTransport extends ConsumerWidget {
               icon: busy
                   ? SizedBox.square(
                       dimension: 20,
-                      child: CircularProgressIndicator(
+                      child: AppCircularProgressIndicator(
                         strokeWidth: 2,
                         color: colors.onPrimary,
                       ),
@@ -126,6 +165,7 @@ class TelevisionTransport extends ConsumerWidget {
             secondaryButton(
               key: 'tv-forward-15',
               tooltip: strings.forward15,
+              available: hasChapter,
               onPressed: canSkip
                   ? () => controller.skipBy(const Duration(seconds: 15))
                   : null,
@@ -135,6 +175,8 @@ class TelevisionTransport extends ConsumerWidget {
             secondaryButton(
               key: 'tv-next-chapter',
               tooltip: strings.nextChapter,
+              available:
+                  hasChapter && state.chapterIndex < book.chapters.length - 1,
               onPressed:
                   canSkip && state.chapterIndex < book.chapters.length - 1
                   ? controller.nextChapter
@@ -147,15 +189,16 @@ class TelevisionTransport extends ConsumerWidget {
           padding: const EdgeInsets.only(top: 8),
           child: Material(
             color: colors.surfaceContainer,
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(10)),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               child: LayoutBuilder(
                 builder: (context, constraints) {
                   final scale = MediaQuery.textScalerOf(context).scale(14) / 14;
                   final wide = constraints.maxWidth >= 700 * scale;
                   final identity = TextButton(
                     key: const ValueKey('tv-open-player'),
+                    focusNode: _actionFocus['tv-open-player'],
                     onPressed: () => context.push('/player'),
                     style: ButtonStyle(
                       padding: const WidgetStatePropertyAll(EdgeInsets.all(4)),
@@ -364,7 +407,7 @@ class _TelevisionChapterProgressState
                     overlayRadius: 14,
                   ),
                 ),
-                child: Slider(
+                child: AppSlider(
                   key: const ValueKey('tv-chapter-progress'),
                   focusNode: _seekFocus,
                   value: value,

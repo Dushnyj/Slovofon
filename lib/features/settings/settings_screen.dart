@@ -1,3 +1,4 @@
+import '../../ui/motion/motion_tooltip.dart';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -23,6 +24,9 @@ import '../../ui/adaptive/desktop_layout.dart';
 import '../../ui/adaptive/television_layout.dart';
 import '../../ui/components/filter_picker_sheet.dart';
 import '../../ui/icons/app_icons.dart';
+import '../../ui/motion/app_motion.dart';
+import '../../ui/motion/motion_controls.dart';
+import 'language_flag.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -115,7 +119,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               return Text(strings.calculatingTotalSize);
             }
             return Text(
-              '${strings.cacheSize(_formatBytes(stats.bytes))} · ${strings.cacheBooks(stats.bookCount)}',
+              '${strings.cacheSize(strings.formatBytes(stats.bytes))} · ${strings.cacheBooks(stats.bookCount)}',
             );
           },
         ),
@@ -166,14 +170,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           ),
                           MenuAnchor(
                             controller: _sectionMenuController,
-                            builder: (context, controller, child) => IconButton(
-                              key: const ValueKey('settings-section-menu'),
-                              tooltip: strings.settingsSections,
-                              icon: const AppIcon(AppIconAssets.playerChapters),
-                              onPressed: () => controller.isOpen
-                                  ? controller.close()
-                                  : controller.open(),
-                            ),
+                            builder: (context, controller, child) =>
+                                AppIconButton(
+                                  key: const ValueKey('settings-section-menu'),
+                                  tooltip: strings.settingsSections,
+                                  icon: const AppIcon(
+                                    AppIconAssets.playerChapters,
+                                  ),
+                                  onPressed: () => controller.isOpen
+                                      ? controller.close()
+                                      : controller.open(),
+                                ),
                             menuChildren: [
                               for (final entry in [
                                 strings.appearance,
@@ -256,7 +263,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                         ),
                                         title: strings.cards,
                                         children: [
-                                          SwitchListTile.adaptive(
+                                          AppSwitchListTile(
                                             key: const ValueKey(
                                               'settings-compact-cards',
                                             ),
@@ -265,7 +272,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                             onChanged: appSettingsStore
                                                 .setCompactCards,
                                           ),
-                                          SwitchListTile.adaptive(
+                                          AppSwitchListTile(
                                             key: const ValueKey(
                                               'settings-show-source',
                                             ),
@@ -277,7 +284,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                             onChanged: appSettingsStore
                                                 .setShowSourceOnCards,
                                           ),
-                                          SwitchListTile.adaptive(
+                                          AppSwitchListTile(
                                             key: const ValueKey(
                                               'settings-show-percent',
                                             ),
@@ -396,8 +403,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     AppSettings appSettings,
   ) async {
     var draft = appSettings;
+    final scaleEditorKey = GlobalKey(debugLabel: 'modal-text-scale-editor');
     await showAdaptiveSheet<void>(
       context: context,
+      title: context.strings.appearance,
       isScrollControlled: true,
       showDragHandle: true,
       builder: (context) {
@@ -417,82 +426,93 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
             return FilterPickerSheet(
               options: [
-                _SectionHeader(title: context.strings.theme),
-                for (final mode in const [
-                  AppThemeMode.system,
-                  AppThemeMode.light,
-                  AppThemeMode.dark,
-                ])
-                  _ChoiceTile<AppThemeMode>(
-                    value: mode,
-                    selected: selectedTheme,
-                    title: _themeModeName(context.strings, mode),
-                    onSelected: (value) async {
-                      await ref
-                          .read(appSettingsStoreProvider)
-                          .setThemeMode(value);
-                      if (!context.mounted) return;
+                _AppearanceSections(
+                  themeChoices: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _SectionHeader(title: context.strings.theme),
+                      for (final mode in const [
+                        AppThemeMode.system,
+                        AppThemeMode.light,
+                        AppThemeMode.dark,
+                      ])
+                        _ChoiceTile<AppThemeMode>(
+                          value: mode,
+                          selected: selectedTheme,
+                          title: _themeModeName(context.strings, mode),
+                          onSelected: (value) async {
+                            await ref
+                                .read(appSettingsStoreProvider)
+                                .setThemeMode(value);
+                            if (!context.mounted) return;
+                            setModalState(() {
+                              draft = draft.copyWith(themeMode: value);
+                            });
+                          },
+                        ),
+                    ],
+                  ),
+                  accentPicker: _AccentColorPicker(
+                    selectedId: draft.accentColor,
+                    onChanged: (id) {
                       setModalState(() {
-                        draft = draft.copyWith(themeMode: value);
+                        draft = draft.copyWith(accentColor: id);
                       });
+                      ref.read(appSettingsStoreProvider).setAccentColor(id);
+                    },
+                    onCustom: () async {
+                      final colorId = await _pickCustomAccentColor(
+                        context,
+                        _accentColorForId(draft.accentColor),
+                      );
+                      if (colorId != null) {
+                        await setAccent(colorId);
+                      }
                     },
                   ),
-                _AccentColorPicker(
-                  selectedId: draft.accentColor,
-                  onChanged: (id) {
-                    setModalState(() {
-                      draft = draft.copyWith(accentColor: id);
-                    });
-                    ref.read(appSettingsStoreProvider).setAccentColor(id);
-                  },
-                  onCustom: () async {
-                    final colorId = await _pickCustomAccentColor(
-                      context,
-                      _accentColorForId(draft.accentColor),
-                    );
-                    if (colorId != null) {
-                      await setAccent(colorId);
-                    }
-                  },
-                ),
-                _TextScaleSlider(
-                  value: draft.textScale,
-                  onChanged: (value) {
-                    setModalState(() {
-                      draft = draft.copyWith(textScale: value);
-                    });
-                  },
-                  onChangeEnd: (value) async {
-                    final clamped = AppSettings.normalizeTextScale(value);
-                    await ref
-                        .read(appSettingsStoreProvider)
-                        .setTextScale(clamped);
-                    // onChanged already owns the preview. A delayed save must
-                    // not replace the draft of a newer drag after it completes.
-                  },
-                ),
-                _SettingsActionTile(
-                  iconAsset: AppIconAssets.systemTheme,
-                  title: context.strings.animations,
-                  subtitle: _animationsModeName(
-                    context.strings,
-                    draft.animationsMode,
+                  textScale: KeyedSubtree(
+                    key: scaleEditorKey,
+                    child: _TextScaleSlider(
+                      value: draft.textScale,
+                      onChanged: (value) {
+                        setModalState(() {
+                          draft = draft.copyWith(textScale: value);
+                        });
+                      },
+                      onChangeEnd: (value) async {
+                        final clamped = AppSettings.normalizeTextScale(value);
+                        await ref
+                            .read(appSettingsStoreProvider)
+                            .setTextScale(clamped);
+                        // onChanged already owns the preview. A delayed save must
+                        // not replace the draft of a newer drag after it completes.
+                      },
+                    ),
                   ),
-                  onTap: () async {
-                    final next = await _pickAnimationsMode(
-                      context,
+                  animations: _SettingsActionTile(
+                    iconAsset: AppIconAssets.systemTheme,
+                    title: context.strings.animations,
+                    subtitle: _animationsModeName(
+                      context.strings,
                       draft.animationsMode,
-                    );
-                    if (next != null) {
-                      await ref
-                          .read(appSettingsStoreProvider)
-                          .setAnimationsMode(next);
-                      if (!context.mounted) return;
-                      setModalState(() {
-                        draft = draft.copyWith(animationsMode: next);
-                      });
-                    }
-                  },
+                    ),
+                    onTap: () async {
+                      final next = await _pickAnimationsMode(
+                        context,
+                        draft.animationsMode,
+                      );
+                      if (next != null) {
+                        await ref
+                            .read(appSettingsStoreProvider)
+                            .setAnimationsMode(next);
+                        if (!context.mounted) return;
+                        setModalState(() {
+                          draft = draft.copyWith(animationsMode: next);
+                        });
+                      }
+                    },
+                  ),
                 ),
               ],
               action: FilledButton(
@@ -526,6 +546,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 value: languageCode,
                 selected: selected,
                 title: _languageName(strings, languageCode),
+                leading: LanguageFlag(languageCode),
                 onSelected: (value) => Navigator.of(context).pop(value),
               ),
           ],
@@ -606,7 +627,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ),
                 ),
                 for (final setting in settings)
-                  CheckboxListTile(
+                  AppCheckboxListTile(
                     key: ValueKey('source-choice-${setting.sourceId}'),
                     value: draft.contains(setting.sourceId),
                     visualDensity: VisualDensity.compact,
@@ -685,7 +706,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 children: [
                   Text(
                     strings.cacheSize(
-                      stats == null ? '...' : _formatBytes(stats.bytes),
+                      stats == null ? '...' : strings.formatBytes(stats.bytes),
                     ),
                   ),
                   Text(
@@ -720,19 +741,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           () => statsFuture = storage.cardCacheStats(),
                         );
                         _refreshCacheStats(storage);
-                        ScaffoldMessenger.of(context).showSnackBar(
+                        ScaffoldMessenger.of(context).showMotionSnackBar(
                           SnackBar(
                             content: Text(
                               context.strings.cacheCleared(
                                 cleared.bookCount,
-                                _formatBytes(cleared.bytes),
+                                context.strings.formatBytes(cleared.bytes),
                               ),
                             ),
                           ),
                         );
                       } catch (_) {
                         if (!context.mounted) return;
-                        ScaffoldMessenger.of(context).showSnackBar(
+                        ScaffoldMessenger.of(context).showMotionSnackBar(
                           SnackBar(
                             content: Text(context.strings.cacheClearFailed),
                           ),
@@ -765,7 +786,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   Future<bool?> _confirmClearCache(BuildContext context) {
     final strings = context.strings;
-    return showDialog<bool>(
+    return showMotionDialog<bool>(
       context: context,
       builder: (context) {
         return AlertDialog(
@@ -851,7 +872,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final uri = Uri.parse(value);
     if (!await launchUrl(uri, mode: LaunchMode.externalApplication) &&
         context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showMotionSnackBar(
         SnackBar(content: Text(context.strings.sourcePageOpenError)),
       );
     }
@@ -1025,6 +1046,60 @@ Widget _settingsFocusFrame(BuildContext context, Widget child) =>
     : child;
 
 /// The desktop page edits appearance in place; the mobile sheet stays unchanged.
+/// A TV has room for two compact groups, not a tall phone form centred in a
+/// landscape dialog. At large text sizes the same controls stack and scroll.
+class _AppearanceSections extends StatelessWidget {
+  const _AppearanceSections({
+    required this.themeChoices,
+    required this.accentPicker,
+    required this.textScale,
+    required this.animations,
+  });
+
+  final Widget themeChoices;
+  final Widget accentPicker;
+  final Widget textScale;
+  final Widget animations;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final fontFactor = (MediaQuery.textScalerOf(context).scale(16) / 16)
+          .clamp(1.0, 3.0);
+      final split =
+          TelevisionLayout.isActive(context) &&
+          constraints.maxWidth >= 520 * fontFactor;
+      final themeAndColor = Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [themeChoices, accentPicker],
+      );
+      final textAndMotion = Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [textScale, animations],
+      );
+      if (!split) {
+        return Column(
+          key: const ValueKey('appearance-sections-stacked'),
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [themeAndColor, textAndMotion],
+        );
+      }
+      return Row(
+        key: const ValueKey('appearance-sections-split'),
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(child: themeAndColor),
+          const SizedBox(width: 12),
+          Expanded(child: textAndMotion),
+        ],
+      );
+    },
+  );
+}
+
 class _DesktopAppearanceEditor extends ConsumerWidget {
   const _DesktopAppearanceEditor({
     super.key,
@@ -1327,7 +1402,7 @@ class _DesktopSettingsGroup extends StatelessWidget {
                 vertical: 2,
               ),
               textColor: colorScheme.onSurface,
-              iconColor: colorScheme.onSurfaceVariant,
+              iconColor: colorScheme.primary,
             ),
             child: Column(
               children: [
@@ -1375,12 +1450,14 @@ class _ChoiceTile<T> extends StatelessWidget {
     required this.selected,
     required this.title,
     required this.onSelected,
+    this.leading,
   });
 
   final T value;
   final T selected;
   final String title;
   final ValueChanged<T> onSelected;
+  final Widget? leading;
 
   @override
   Widget build(BuildContext context) {
@@ -1393,6 +1470,9 @@ class _ChoiceTile<T> extends StatelessWidget {
       ListTile(
         visualDensity: VisualDensity.compact,
         minTileHeight: television ? 44 : null,
+        leading: leading,
+        minLeadingWidth: leading == null ? null : 32,
+        horizontalTitleGap: leading == null ? null : 12,
         title: Text(title),
         trailing: isSelected
             ? AppIcon(AppIconAssets.systemCheck, color: colorScheme.primary)
@@ -1545,7 +1625,7 @@ class _AccentColorPicker extends StatelessWidget {
                     key: ValueKey('settings-accent-${swatch.id}'),
                     color: swatch.color,
                     selected: selectedId == swatch.id,
-                    label: swatch.label,
+                    label: swatch.label(strings),
                     onTap: () => onChanged(swatch.id),
                   ),
                 OutlinedButton.icon(
@@ -1587,12 +1667,12 @@ class _AccentColorPicker extends StatelessWidget {
             runSpacing: 10,
             children: [
               for (final swatch in _accentSwatches)
-                Tooltip(
-                  message: swatch.label,
+                AppTooltip(
+                  message: swatch.label(strings),
                   child: Semantics(
                     button: true,
                     selected: selectedId == swatch.id,
-                    label: swatch.label,
+                    label: swatch.label(strings),
                     child: InkWell(
                       key: ValueKey('settings-accent-${swatch.id}'),
                       borderRadius: BorderRadius.circular(24),
@@ -1626,7 +1706,7 @@ class _AccentColorPicker extends StatelessWidget {
                     ),
                   ),
                 ),
-              Tooltip(
+              AppTooltip(
                 message: strings.customColor,
                 child: InkWell(
                   borderRadius: BorderRadius.circular(24),
@@ -1705,7 +1785,7 @@ class _TelevisionColorSwatch extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) => Tooltip(
+  Widget build(BuildContext context) => AppTooltip(
     message: label,
     child: Semantics(
       button: true,
@@ -1771,7 +1851,7 @@ class _TextScaleSlider extends StatelessWidget {
       subtitle: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Slider(
+          AppSlider(
             key: const ValueKey('appearance-text-scale-slider'),
             value: normalized,
             min: AppSettings.minTextScale,
@@ -1831,19 +1911,27 @@ class _TextScaleSlider extends StatelessWidget {
 }
 
 class _AccentSwatch {
-  const _AccentSwatch(this.id, this.color, this.label);
+  const _AccentSwatch(this.id, this.color);
 
   final String id;
   final Color color;
-  final String label;
+
+  String label(AppStrings strings) => switch (id) {
+    'default' => strings.accentDefault,
+    'green' => strings.accentGreen,
+    'teal' => strings.accentTeal,
+    'red' => strings.accentRed,
+    'gold' => strings.accentGold,
+    _ => throw StateError('Unknown accent swatch: $id'),
+  };
 }
 
 const _accentSwatches = <_AccentSwatch>[
-  _AccentSwatch('default', Color(0xFF516AA4), 'Default'),
-  _AccentSwatch('green', Color(0xFF1F7A4D), 'Green'),
-  _AccentSwatch('teal', Color(0xFF0F766E), 'Teal'),
-  _AccentSwatch('red', Color(0xFFB42318), 'Red'),
-  _AccentSwatch('gold', Color(0xFF8A5B00), 'Gold'),
+  _AccentSwatch('default', Color(0xFF516AA4)),
+  _AccentSwatch('green', Color(0xFF1F7A4D)),
+  _AccentSwatch('teal', Color(0xFF0F766E)),
+  _AccentSwatch('red', Color(0xFFB42318)),
+  _AccentSwatch('gold', Color(0xFF8A5B00)),
 ];
 
 const _customAccentPalette = <Color>[
@@ -2261,7 +2349,7 @@ class _ColorSlider extends StatelessWidget {
           ),
           Semantics(
             label: label,
-            child: Slider(
+            child: AppSlider(
               value: value.clamp(min, max),
               min: min,
               max: max,
@@ -2282,7 +2370,7 @@ class _ColorSlider extends StatelessWidget {
           overflow: TextOverflow.ellipsis,
           style: Theme.of(context).textTheme.labelMedium,
         ),
-        Slider(
+        AppSlider(
           value: value.clamp(min, max),
           min: min,
           max: max,
@@ -2340,20 +2428,4 @@ String _languageName(AppStrings strings, String code) {
     'uk' => strings.ukrainianLanguage,
     _ => code,
   };
-}
-
-String _formatBytes(int bytes) {
-  if (bytes < 1024) {
-    return '$bytes B';
-  }
-  final kb = bytes / 1024;
-  if (kb < 1024) {
-    return '${kb.toStringAsFixed(kb >= 100 ? 0 : 1)} KB';
-  }
-  final mb = kb / 1024;
-  if (mb < 1024) {
-    return '${mb.toStringAsFixed(mb >= 100 ? 0 : 1)} MB';
-  }
-  final gb = mb / 1024;
-  return '${gb.toStringAsFixed(gb >= 100 ? 0 : 1)} GB';
 }

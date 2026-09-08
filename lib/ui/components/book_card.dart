@@ -1,6 +1,10 @@
+import '../motion/app_motion.dart';
+import '../motion/motion_tooltip.dart';
+import '../motion/motion_progress_indicator.dart';
 import 'package:flutter/material.dart';
 
 import '../../app/localization/app_strings.dart';
+import '../../app/localization/duration_label.dart';
 import '../../domain/models/audio_book.dart';
 import '../adaptive/desktop_layout.dart';
 import '../adaptive/television_layout.dart';
@@ -70,6 +74,10 @@ class BookCard extends StatelessWidget {
 
     final card = Card(
       child: InkWell(
+        hoverDuration: AppMotion.of(context).duration(
+          full: const Duration(milliseconds: 50),
+          reduced: const Duration(milliseconds: 40),
+        ),
         borderRadius: BorderRadius.circular(8),
         onTap: onTap,
         child: _PortableBookCardLayout(
@@ -157,6 +165,10 @@ class _WindowsBookCardState extends State<_WindowsBookCard> {
         borderRadius: BorderRadius.circular(12),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
+          hoverDuration: AppMotion.of(context).duration(
+            full: const Duration(milliseconds: 50),
+            reduced: const Duration(milliseconds: 40),
+          ),
           onTap: card.onTap,
           onHover: (value) => setState(() => _hovered = value),
           onFocusChange: (value) => setState(() => _focused = value),
@@ -247,7 +259,7 @@ class _WindowsBookCardState extends State<_WindowsBookCard> {
                                     horizontal: 12,
                                   ),
                                 ),
-                                child: Tooltip(
+                                child: AppTooltip(
                                   message: pausedAction
                                       ? strings.pause
                                       : strings.play,
@@ -257,7 +269,7 @@ class _WindowsBookCardState extends State<_WindowsBookCard> {
                                             'book-card-play-loading',
                                           ),
                                           dimension: 20,
-                                          child: CircularProgressIndicator(
+                                          child: AppCircularProgressIndicator(
                                             strokeWidth: 2,
                                             color: scheme.onSurfaceVariant,
                                           ),
@@ -327,7 +339,7 @@ class _WindowsSearchResultContent extends StatelessWidget {
         if (book.durationLabel.trim().isNotEmpty)
           _DesktopMetaChip(
             iconAsset: AppIconAssets.bookDuration,
-            label: book.durationLabel,
+            label: context.strings.formatDurationLabel(book.durationLabel),
           ),
         if (book.chapterCount > 0)
           _DesktopMetaChip(
@@ -340,7 +352,8 @@ class _WindowsSearchResultContent extends StatelessWidget {
         if (_trimOrNull(card.yearLabel) ?? book.year?.toString()
             case final String year)
           _DesktopMetaChip(iconAsset: AppIconAssets.bookYear, label: year),
-        if (_ratingLabel(book.ratingValue) case final String rating)
+        if (_ratingLabel(context.strings, book.ratingValue)
+            case final String rating)
           _DesktopMetaChip(iconAsset: AppIconAssets.bookRating, label: rating),
       ],
     );
@@ -484,7 +497,7 @@ class _WindowsResultActions extends StatelessWidget {
           onPressed: card.onDownloadPressed,
         ),
         if (card.onLaterPressed != null) _BookLaterMenu(card: card),
-        Tooltip(
+        AppTooltip(
           message: label,
           child: FilledButton(
             key: ValueKey(
@@ -500,7 +513,7 @@ class _WindowsResultActions extends StatelessWidget {
                 ? const SizedBox.square(
                     key: ValueKey('book-card-play-loading'),
                     dimension: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
+                    child: AppCircularProgressIndicator(strokeWidth: 2),
                   )
                 : AppIcon(
                     paused
@@ -522,6 +535,9 @@ class _BookLaterMenu extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => PopupMenuButton<bool>(
+    popUpAnimationStyle: AppMotion.of(context).hasSpatialMotion
+        ? AppMotion.of(context).dialogAnimationStyle
+        : AnimationStyle.noAnimation,
     key: ValueKey(
       'book-card-more-${card.book.sourceId}-${card.book.sourceBookId}',
     ),
@@ -640,7 +656,7 @@ class _WindowsWorkspaceBookContent extends StatelessWidget {
             if (book.durationLabel.trim().isNotEmpty)
               _DesktopMetaChip(
                 iconAsset: AppIconAssets.bookDuration,
-                label: book.durationLabel,
+                label: context.strings.formatDurationLabel(book.durationLabel),
               ),
             if (book.chapterCount > 0)
               _DesktopMetaChip(
@@ -650,7 +666,8 @@ class _WindowsWorkspaceBookContent extends StatelessWidget {
             if (_trimOrNull(card.yearLabel) ?? book.year?.toString()
                 case final String year)
               _DesktopMetaChip(iconAsset: AppIconAssets.bookYear, label: year),
-            if (_ratingLabel(book.ratingValue) case final String rating)
+            if (_ratingLabel(context.strings, book.ratingValue)
+                case final String rating)
               _DesktopMetaChip(
                 iconAsset: AppIconAssets.bookRating,
                 label: rating,
@@ -702,7 +719,7 @@ class _WindowsWorkspaceBookContent extends StatelessWidget {
         const SizedBox(height: 10),
         ClipRRect(
           borderRadius: BorderRadius.circular(4),
-          child: LinearProgressIndicator(value: progress, minHeight: 5),
+          child: AppLinearProgressIndicator(value: progress, minHeight: 5),
         ),
         SizedBox(height: featured ? 18 : 10),
         Wrap(
@@ -720,7 +737,7 @@ class _WindowsWorkspaceBookContent extends StatelessWidget {
                   ? const SizedBox.square(
                       key: ValueKey('book-card-play-loading'),
                       dimension: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
+                      child: AppCircularProgressIndicator(strokeWidth: 2),
                     )
                   : AppIcon(
                       paused
@@ -988,7 +1005,7 @@ class _PortableBookCardActions extends StatelessWidget {
               child: SizedBox.square(
                 key: const ValueKey('book-card-play-loading'),
                 dimension: 22,
-                child: CircularProgressIndicator(
+                child: AppCircularProgressIndicator(
                   strokeWidth: 2.6,
                   color: colors.primary,
                 ),
@@ -1131,12 +1148,14 @@ class _BookCardBody extends StatelessWidget {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
-    final author = _shortPeopleLabel(book.author);
-    final narrator = _shortPeopleLabel(book.narrator);
+    final author = _shortPeopleLabel(context.strings, book.author);
+    final narrator = _shortPeopleLabel(context.strings, book.narrator);
     final series = _seriesLabel(book.seriesTitle, book.seriesNumber);
-    final rating = _ratingLabel(book.ratingValue);
+    final rating = _ratingLabel(context.strings, book.ratingValue);
     final effectiveYear = _trimOrNull(yearLabel) ?? book.year?.toString();
-    final duration = _trimOrNull(book.durationLabel);
+    final duration = _trimOrNull(
+      context.strings.formatDurationLabel(book.durationLabel),
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1203,12 +1222,14 @@ class _DesktopBookCardBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
-    final author = _shortPeopleLabel(book.author);
-    final narrator = _shortPeopleLabel(book.narrator);
+    final author = _shortPeopleLabel(context.strings, book.author);
+    final narrator = _shortPeopleLabel(context.strings, book.narrator);
     final series = _seriesLabel(book.seriesTitle, book.seriesNumber);
-    final rating = _ratingLabel(book.ratingValue);
+    final rating = _ratingLabel(context.strings, book.ratingValue);
     final effectiveYear = _trimOrNull(yearLabel) ?? book.year?.toString();
-    final duration = _trimOrNull(book.durationLabel);
+    final duration = _trimOrNull(
+      context.strings.formatDurationLabel(book.durationLabel),
+    );
     final chapterCount = book.chapterCount > 0
         ? strings.chaptersCount(book.chapterCount)
         : null;
@@ -1471,7 +1492,7 @@ class _CardIconButton extends StatelessWidget {
       context,
     ).colorScheme.onSurface.withValues(alpha: 0.32);
 
-    return Tooltip(
+    return AppTooltip(
       message: tooltip,
       child: Semantics(
         button: true,
@@ -1497,7 +1518,7 @@ class _CardIconButton extends StatelessWidget {
   }
 }
 
-String? _shortPeopleLabel(String value) {
+String? _shortPeopleLabel(AppStrings strings, String value) {
   final people = value
       .split(RegExp(r'\s*,\s*'))
       .map((part) => part.trim())
@@ -1509,10 +1530,10 @@ String? _shortPeopleLabel(String value) {
   if (people.length <= 2) {
     return people.join(', ');
   }
-  return '${people.take(2).join(', ')} и др.';
+  return strings.peopleAndOthers(people.take(2).join(', '));
 }
 
-String? _ratingLabel(double? value) {
+String? _ratingLabel(AppStrings strings, double? value) {
   if (value == null || value <= 0) {
     return null;
   }
@@ -1520,7 +1541,7 @@ String? _ratingLabel(double? value) {
   final text = rounded == rounded.roundToDouble()
       ? rounded.toStringAsFixed(0)
       : rounded.toStringAsFixed(1);
-  return '$text из 5';
+  return strings.ratingOutOfFive(text);
 }
 
 String? _seriesLabel(String? title, double? number) {

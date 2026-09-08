@@ -1,5 +1,6 @@
 import 'source_connector.dart';
 import 'source_models.dart';
+import 'source_search_cancellation.dart';
 
 class SourceRegistry {
   SourceRegistry(
@@ -55,29 +56,45 @@ class SourceRegistry {
     return connector;
   }
 
-  Future<SourceSearchResponse> search(SearchRequest request) async {
-    final searches = [
-      for (final connector in enabledConnectors)
-        if (request.allowsSource(connector.id))
-          _searchConnector(connector, request),
-    ];
-    final responses = await Future.wait(searches);
-    final results = <BookSearchResult>[];
-    final failures = <SourceFailure>[];
-    for (final response in responses) {
-      results.addAll(response.results);
-      failures.addAll(response.failures);
+  Future<SourceSearchResponse> search(
+    SearchRequest request, {
+    void Function(SourceSearchResponse response)? onUpdate,
+    SourceSearchCancellation? cancellation,
+  }) async {
+    final completed = <int, SourceSearchResponse>{};
+    SourceSearchResponse snapshot() {
+      final indexes = completed.keys.toList()..sort();
+      return SourceSearchResponse(
+        results: List.unmodifiable([
+          for (final index in indexes) ...completed[index]!.results,
+        ]),
+        failures: List.unmodifiable([
+          for (final index in indexes) ...completed[index]!.failures,
+        ]),
+      );
     }
 
-    return SourceSearchResponse(
-      results: List.unmodifiable(results),
-      failures: List.unmodifiable(failures),
-    );
+    Future<void> searchOne(SourceConnector connector, int index) async {
+      completed[index] = await _searchConnector(
+        connector,
+        request,
+        cancellation,
+      );
+      onUpdate?.call(snapshot());
+    }
+
+    final searches = [
+      for (final (index, connector) in enabledConnectors.indexed)
+        if (request.allowsSource(connector.id)) searchOne(connector, index),
+    ];
+    await Future.wait(searches);
+    return snapshot();
   }
 
   Future<SourceSearchResponse> _searchConnector(
     SourceConnector connector,
     SearchRequest request,
+    SourceSearchCancellation? cancellation,
   ) async {
     if (!connector.capabilities.supportsSearch) {
       return SourceSearchResponse(
@@ -94,7 +111,24 @@ class SourceRegistry {
 
     try {
       return SourceSearchResponse(
-        results: List.unmodifiable(await connector.search(request)),
+        results: List.unmodifiable(
+          await (cancellation == null
+              ? connector.search(request)
+              : cancellation.run(() => connector.search(request))),
+        ),
+      );
+    } on SourceSearchCancelled {
+      return SourceSearchResponse(
+        results: const [],
+        failures: [
+          SourceFailure(
+            sourceId: connector.id,
+            kind: SourceErrorKind.network,
+            message: cancellation?.isTimedOut == true
+                ? 'Source search exceeded the overall time budget.'
+                : 'Source search was cancelled.',
+          ),
+        ],
       );
     } on Object catch (error) {
       return SourceSearchResponse(

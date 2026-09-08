@@ -51,7 +51,7 @@ void main() {
     },
   );
 
-  test('release checks execute native updater and close regression suites', () {
+  test('release checks execute every portable native regression suite', () {
     final workflow = File(
       '.github/workflows/release.yml',
     ).readAsStringSync().replaceAll('\r\n', '\n');
@@ -90,13 +90,86 @@ void main() {
       ),
       reason: 'The native lifecycle suite must execute, not just compile.',
     );
+    for (final suite in {
+      'windows_activation': 'windows-activation',
+      'window_size_policy': 'window-size-policy',
+    }.entries) {
+      expect(checks, contains('windows/runner/tests/${suite.key}_test.cpp'));
+      expect(
+        checks,
+        contains(
+          '-o "\$RUNNER_TEMP/${suite.value}-test"\n'
+          '          "\$RUNNER_TEMP/${suite.value}-test"',
+        ),
+        reason: 'The ${suite.key} suite must execute, not just compile.',
+      );
+    }
     expect(
       RegExp(
         r'c\+\+ -std=c\+\+17 -Wall -Wextra -Werror -UNDEBUG',
       ).allMatches(checks),
-      hasLength(3),
+      hasLength(5),
     );
     expect(checks, contains('-Werror -UNDEBUG -pthread'));
+  });
+
+  test('release runs the isolated Win32 single-instance fixture', () async {
+    final workflow = File(
+      '.github/workflows/release.yml',
+    ).readAsStringSync().replaceAll('\r\n', '\n');
+    final windowsStart = workflow.indexOf('  windows-release:\n');
+    final windowsEnd = workflow.indexOf('  publish-release:\n');
+    expect(windowsStart, greaterThanOrEqualTo(0));
+    expect(windowsEnd, greaterThan(windowsStart));
+    final windows = workflow.substring(windowsStart, windowsEnd);
+    final start = windows.indexOf(
+      '      - name: Test Windows single-instance native fixture',
+    );
+    final end = windows.indexOf('      - name: Build Windows release bundle');
+    expect(start, greaterThanOrEqualTo(0));
+    expect(end, greaterThan(start));
+    final step = windows.substring(start, end);
+    expect(step, contains('shell: pwsh'));
+    expect(step, contains('timeout-minutes: 5'));
+    expect(step, isNot(contains('continue-on-error:')));
+    for (final required in [
+      'vswhere.exe',
+      'Microsoft.VisualStudio.Component.VC.Tools.x86.x64',
+      'VsDevCmd.bat',
+      '-arch=x64 -host_arch=x64',
+      '/std:c++17 /EHsc /utf-8 /W4 /WX /UNDEBUG /DNOMINMAX',
+      'windows/runner/tests/windows_single_instance_test.cpp',
+      'windows/runner/windows_single_instance.cpp',
+      '/link user32.lib advapi32.lib shell32.lib',
+      'Native fixture compilation failed',
+      'Native fixture failed',
+    ]) {
+      expect(step, contains(required));
+    }
+    final compile = step.indexOf('& cl.exe');
+    final execute = step.indexOf(r'& .\windows-single-instance-test.exe');
+    expect(compile, greaterThanOrEqualTo(0));
+    expect(execute, greaterThan(compile));
+    expect(windows, isNot(contains('Test-SingleInstance.ps1')));
+    expect(step, isNot(contains('Slovofon.exe')));
+
+    // Parse the exact workflow script without compiling or opening test windows.
+    final script = step
+        .substring(step.indexOf('        run: |') + '        run: |'.length)
+        .split('\n')
+        .map(
+          (line) => line.startsWith('          ') ? line.substring(10) : line,
+        )
+        .join('\n');
+    final encoded = base64.encode(utf8.encode(script));
+    final result = await powershell('''
+\$source = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$encoded'))
+\$tokens = \$null
+\$errors = \$null
+[Management.Automation.Language.Parser]::ParseInput(\$source, [ref]\$tokens, [ref]\$errors) | Out-Null
+if (\$errors.Count -gt 0) { throw (\$errors | Out-String) }
+''');
+    expect(result.exitCode, 0, reason: '${result.stdout}\n${result.stderr}');
   });
 
   test('release runs Windows-only installer contracts before packaging', () {

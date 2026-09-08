@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'app_color_tokens.dart';
 import 'app_focus_tokens.dart';
+import 'app_theme.dart';
 
 /// A local presentation layer: does not change saved theme or accent settings.
 abstract final class WindowsTheme {
@@ -36,15 +37,13 @@ abstract final class WindowsTheme {
       outline: dark ? const Color(0xff75869e) : const Color(0xff78869a),
       outlineVariant: dark ? const Color(0xff344257) : const Color(0xffd2dce8),
     );
-    // The saved accent stays intact; derive a readable tone for text links and
-    // keyboard focus on every desktop surface, not only icon-sized controls.
-    final primary = _accessibleAccent(
-      base.colorScheme.primary,
-      scheme.surfaceContainerHighest,
-      dark,
-    );
-    scheme = scheme.copyWith(primary: primary, onPrimary: _readableOn(primary));
     final original = base.extension<AppColorTokens>()!;
+    scheme = AppTheme.accentedSchemeFor(
+      scheme,
+      accent: original.accent,
+      highContrast: original.highContrast,
+    );
+    final primary = scheme.primary;
     final colors = original.copyWith(
       background: scheme.surface,
       backgroundAlt: scheme.surfaceContainerLow,
@@ -56,7 +55,10 @@ abstract final class WindowsTheme {
       textMuted: scheme.onSurfaceVariant,
       border: scheme.outlineVariant,
       primary: primary,
+      primaryContainer: scheme.primaryContainer,
       focus: primary,
+      hover: primary.withValues(alpha: 0.08),
+      selected: scheme.secondaryContainer,
       playerSurface: scheme.surfaceContainerLowest,
       onPlayerSurface: scheme.onSurface,
     );
@@ -93,100 +95,89 @@ abstract final class WindowsTheme {
       borderRadius: BorderRadius.circular(10),
       borderSide: BorderSide(color: scheme.outlineVariant),
     );
-    return base.copyWith(
-      colorScheme: scheme,
-      scaffoldBackgroundColor: scheme.surface,
-      textTheme: text,
-      extensions: [
-        for (final extension in base.extensions.values)
-          if (extension is! AppColorTokens && extension is! AppFocusTokens)
-            extension,
-        colors,
-        base.extension<AppFocusTokens>()!.copyWith(color: primary),
-      ],
-      appBarTheme: base.appBarTheme.copyWith(
-        backgroundColor: scheme.surface,
-        foregroundColor: scheme.onSurface,
-        titleTextStyle: text.titleLarge,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-      ),
-      cardTheme: base.cardTheme.copyWith(
-        color: scheme.surfaceContainerLowest,
-        elevation: 0,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
+    return AppTheme.withAccentComponents(
+      base.copyWith(
+        colorScheme: scheme,
+        scaffoldBackgroundColor: scheme.surface,
+        textTheme: text,
+        extensions: [
+          for (final extension in base.extensions.values)
+            if (extension is! AppColorTokens && extension is! AppFocusTokens)
+              extension,
+          colors,
+          base.extension<AppFocusTokens>()!.copyWith(
+            color: primary,
+            hoverColor: colors.hover,
+            selectedColor: colors.selected,
+          ),
+        ],
+        appBarTheme: base.appBarTheme.copyWith(
+          backgroundColor: scheme.surface,
+          foregroundColor: scheme.onSurface,
+          titleTextStyle: text.titleLarge,
+          elevation: 0,
+          scrolledUnderElevation: 0,
+        ),
+        cardTheme: base.cardTheme.copyWith(
+          color: scheme.surfaceContainerLowest,
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+            side: BorderSide(color: scheme.outlineVariant),
+          ),
+        ),
+        inputDecorationTheme: base.inputDecorationTheme.copyWith(
+          fillColor: scheme.surfaceContainerLowest,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 16,
+          ),
+          border: border,
+          enabledBorder: border,
+          focusedBorder: border.copyWith(
+            borderSide: BorderSide(color: scheme.primary, width: 2),
+          ),
+          hintStyle: text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+        ),
+        listTileTheme: base.listTileTheme.copyWith(
+          textColor: scheme.onSurface,
+          iconColor: scheme.primary,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 20,
+            vertical: 4,
+          ),
+        ),
+        chipTheme: base.chipTheme.copyWith(
+          backgroundColor: scheme.surfaceContainerLowest,
           side: BorderSide(color: scheme.outlineVariant),
+          labelStyle: text.labelMedium?.copyWith(color: scheme.onSurface),
         ),
-      ),
-      inputDecorationTheme: base.inputDecorationTheme.copyWith(
-        fillColor: scheme.surfaceContainerLowest,
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 16,
-          vertical: 16,
+        tooltipTheme: base.tooltipTheme.copyWith(
+          waitDuration: const Duration(milliseconds: 450),
         ),
-        border: border,
-        enabledBorder: border,
-        focusedBorder: border.copyWith(
-          borderSide: BorderSide(color: scheme.primary, width: 2),
+        dividerTheme: base.dividerTheme.copyWith(color: scheme.outlineVariant),
+        dialogTheme: base.dialogTheme.copyWith(
+          backgroundColor: scheme.surfaceContainerLow,
+          titleTextStyle: text.titleLarge,
+          contentTextStyle: text.bodyMedium,
         ),
-        hintStyle: text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
-      ),
-      listTileTheme: base.listTileTheme.copyWith(
-        textColor: scheme.onSurface,
-        iconColor: scheme.onSurfaceVariant,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-      ),
-      chipTheme: base.chipTheme.copyWith(
-        backgroundColor: scheme.surfaceContainerLowest,
-        side: BorderSide(color: scheme.outlineVariant),
-        labelStyle: text.labelMedium?.copyWith(color: scheme.onSurface),
-      ),
-      tooltipTheme: base.tooltipTheme.copyWith(
-        waitDuration: const Duration(milliseconds: 450),
-      ),
-      dividerTheme: base.dividerTheme.copyWith(color: scheme.outlineVariant),
-      dialogTheme: base.dialogTheme.copyWith(
-        backgroundColor: scheme.surfaceContainerLow,
-        titleTextStyle: text.titleLarge,
-        contentTextStyle: text.bodyMedium,
-      ),
-      bottomSheetTheme: base.bottomSheetTheme.copyWith(
-        backgroundColor: scheme.surfaceContainerLow,
-        modalBackgroundColor: scheme.surfaceContainerLow,
-      ),
-      popupMenuTheme: base.popupMenuTheme.copyWith(
-        color: scheme.surfaceContainerLow,
-        textStyle: text.bodyMedium,
-      ),
-      progressIndicatorTheme: base.progressIndicatorTheme.copyWith(
-        linearTrackColor: scheme.surfaceContainerHighest,
-        circularTrackColor: scheme.surfaceContainerHighest,
-      ),
-      scrollbarTheme: base.scrollbarTheme.copyWith(
-        thickness: const WidgetStatePropertyAll(6),
-        radius: const Radius.circular(8),
+        bottomSheetTheme: base.bottomSheetTheme.copyWith(
+          backgroundColor: scheme.surfaceContainerLow,
+          modalBackgroundColor: scheme.surfaceContainerLow,
+        ),
+        popupMenuTheme: base.popupMenuTheme.copyWith(
+          color: scheme.surfaceContainerLow,
+          textStyle: text.bodyMedium,
+        ),
+        progressIndicatorTheme: base.progressIndicatorTheme.copyWith(
+          linearTrackColor: scheme.surfaceContainerHighest,
+          circularTrackColor: scheme.surfaceContainerHighest,
+        ),
+        scrollbarTheme: base.scrollbarTheme.copyWith(
+          thickness: const WidgetStatePropertyAll(6),
+          radius: const Radius.circular(8),
+        ),
       ),
     );
-  }
-
-  static Color _readableOn(Color background) {
-    const light = Color(0xffffffff);
-    const dark = Color(0xff000000);
-    return AppColorTokens.contrastRatio(background, light) >=
-            AppColorTokens.contrastRatio(background, dark)
-        ? light
-        : dark;
-  }
-
-  static Color _accessibleAccent(Color accent, Color background, bool dark) {
-    final target = dark ? const Color(0xffffffff) : const Color(0xff000000);
-    for (var step = 0; step <= 40; step++) {
-      final candidate = Color.lerp(accent, target, step / 40)!;
-      if (AppColorTokens.contrastRatio(candidate, background) >= 4.5) {
-        return candidate;
-      }
-    }
-    return target;
   }
 }

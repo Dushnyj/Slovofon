@@ -150,8 +150,8 @@ Android TV — не растянутая мобильная версия. Нуж
 **Статус реализации, 2026-09-06 (не замена требований выше):** общий APK имеет
 телефонный и Leanback launcher, локализованный TV banner и native device profile
 (`UI_MODE_TYPE_TELEVISION` либо `FEATURE_LEANBACK`). Bootstrap выбирает TV до
-`runApp`, не по размеру окна. Реализованы `TelevisionShell`, крупные карточки с
-явными действиями, theme/focus presentation, overscan по 4% с каждой стороны и
+`runApp`, не по размеру окна. Реализованы `TelevisionShell`, компактные аудиокарточки,
+theme/focus presentation, полноэкранный фон с внутренними отступами содержимого и
 Select → стандартная активация. TV transport и адаптивный full player используют
 тот же `PlaybackController`, модели и хранилища, что телефон/Windows. Отдельный
 голосовой TV-поиск пока не реализован; полнота управления реальным пультом,

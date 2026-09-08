@@ -4,6 +4,7 @@ import '../../services/audio/audio_state.dart';
 import '../source_connector.dart';
 import '../source_media_validator.dart';
 import '../source_models.dart';
+import '../source_html_parser.dart';
 import '../source_request_cache.dart';
 import 'akniga_client.dart';
 import 'akniga_mapper.dart';
@@ -14,6 +15,7 @@ class AknigaSourceConnector implements SourceConnector, SourceCacheInvalidator {
     AknigaMapper? mapper,
     DateTime Function()? clock,
   }) : _client = client ?? AknigaClient(),
+       _useParserWorker = mapper == null,
        _mapper = mapper ?? AknigaMapper(clock: clock),
        _clock = clock ?? DateTime.now,
        _bookHtmlCache = SourceRequestCache(clock: clock),
@@ -21,6 +23,7 @@ class AknigaSourceConnector implements SourceConnector, SourceCacheInvalidator {
 
   final AknigaClient _client;
   final AknigaMapper _mapper;
+  final bool _useParserWorker;
   final DateTime Function() _clock;
   final SourceRequestCache<String, String> _bookHtmlCache;
   final SourceRequestCache<String, List<Map<String, Object?>>> _tracksCache;
@@ -103,14 +106,18 @@ class AknigaSourceConnector implements SourceConnector, SourceCacheInvalidator {
       query: request.query,
       page: request.page,
     );
-    return _mapper.searchResults(html);
+    return _useParserWorker
+        ? SourceHtmlParser.search(id, html)
+        : _mapper.searchResults(html);
   }
 
   @override
   Future<BookVersionDetails> getBookDetails(SourceBookRef ref) async {
     _validateRef(ref);
     final html = await _bookHtml(ref);
-    return _mapper.bookDetails(html, ref);
+    return _useParserWorker
+        ? SourceHtmlParser.details(id, html, ref, _clock())
+        : _mapper.bookDetails(html, ref);
   }
 
   @override
@@ -118,7 +125,9 @@ class AknigaSourceConnector implements SourceConnector, SourceCacheInvalidator {
     _validateRef(ref);
     final html = await _bookHtml(ref);
     final tracks = await _tracks(ref, html);
-    return _mapper.chapters(html, ref, tracks);
+    return _useParserWorker
+        ? SourceHtmlParser.chapters(id, html, ref, _clock(), tracks: tracks)
+        : _mapper.chapters(html, ref, tracks);
   }
 
   @override
@@ -188,7 +197,9 @@ class AknigaSourceConnector implements SourceConnector, SourceCacheInvalidator {
 
   Future<List<Map<String, Object?>>> _tracks(SourceBookRef ref, String html) {
     return _tracksCache.getOrLoad(ref.sourceBookId, () async {
-      final bid = _mapper.bookIdFromHtml(html);
+      final bid = _useParserWorker
+          ? await SourceHtmlParser.aknigaBookId(html)
+          : _mapper.bookIdFromHtml(html);
       if (bid.isEmpty) {
         throw const SourceException(
           sourceId: 'akniga',

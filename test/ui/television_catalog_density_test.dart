@@ -11,6 +11,7 @@ import 'package:slovofon/ui/components/playback_source_label.dart';
 import 'package:slovofon/ui/components/responsive_tile_grid.dart';
 import 'package:slovofon/ui/components/television_book_card.dart';
 import 'package:slovofon/ui/icons/app_icons.dart';
+import 'package:slovofon/ui/motion/motion_tooltip.dart';
 
 const _book = AudioBook(
   id: 'classic',
@@ -31,7 +32,8 @@ const _book = AudioBook(
 
 void main() {
   // Real Full-HD route widths after safe insets, the rail and page padding:
-  // Home is about 791 dp, Search about 799 dp, and an unpadded body 815 dp.
+  // Deliberately constrained grids also cover smaller embedded working areas;
+  // fullscreen shell geometry is verified separately by foundation/UI tests.
   for (final width in [791.0, 799.0, 815.0]) {
     for (final ratio in [1.0, 2.0, 4.0]) {
       testWidgets(
@@ -384,7 +386,7 @@ void main() {
           expect(text.style!.fontSize, 12);
           expect(
             find.byWidgetPredicate(
-              (widget) => widget is Tooltip && widget.message == narrator,
+              (widget) => widget is AppTooltip && widget.message == narrator,
             ),
             findsOneWidget,
           );
@@ -397,33 +399,43 @@ void main() {
           ['izib', 'akniga'],
         );
         final first = find.byType(TelevisionBookCard).first;
-        Color background() => tester
-            .widget<Material>(
-              find.descendant(of: first, matching: find.byType(Material)).first,
-            )
-            .color!;
-        Border border() =>
-            (tester
-                            .widget<DecoratedBox>(
-                              find
-                                  .descendant(
-                                    of: first,
-                                    matching: find.byType(DecoratedBox),
-                                  )
-                                  .first,
-                            )
-                            .decoration
-                        as BoxDecoration)
-                    .border!
-                as Border;
+        final frame = find.descendant(
+          of: first,
+          matching: find.byType(TelevisionFocusFrame),
+        );
+        expect(frame, findsOneWidget);
+        Material cardSurface() =>
+            tester.widget<TelevisionFocusFrame>(frame).child as Material;
+        Color background() => cardSurface().color!;
+        BorderSide outline() {
+          // Focus ink and its rounded outline now share a Material surface.
+          // Select that surface explicitly, not a cover's DecoratedBox or the
+          // transparent focus layer when checking the book's background fill.
+          final card = cardSurface();
+          final surface = find.descendant(
+            of: frame,
+            matching: find.byWidgetPredicate(
+              (widget) => widget is Material && identical(widget.child, card),
+            ),
+          );
+          expect(surface, findsOneWidget);
+          return (tester.widget<Material>(surface).shape!
+                  as RoundedRectangleBorder)
+              .side;
+        }
+
         final restingBackground = background();
-        expect(border().top.width, 1);
+        expect(
+          restingBackground,
+          Theme.of(tester.element(first)).colorScheme.surfaceContainerLow,
+        );
+        expect(outline().width, 1);
         final bounds = tester.getRect(first);
         _cardFocus(tester, 0).requestFocus();
         await tester.pumpAndSettle();
-        expect(border().top.width, 2);
+        expect(outline().width, 2);
         expect(
-          border().top.color,
+          outline().color,
           Theme.of(tester.element(first)).colorScheme.primary,
         );
         expect(background(), restingBackground);

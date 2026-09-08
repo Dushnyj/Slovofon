@@ -9,4 +9,5 @@ export 'source_media_validator.dart';
 export 'source_models.dart';
 export 'source_parser_helpers.dart';
 export 'source_registry.dart';
+export 'source_search_cancellation.dart';
 export 'yakniga/yakniga_source_connector.dart';

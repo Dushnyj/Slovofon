@@ -45,6 +45,7 @@ class FilterPickerSheet extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: options,
                     ),
                   ),
@@ -56,12 +57,14 @@ class FilterPickerSheet extends StatelessWidget {
           return Column(
             key: ValueKey('$prefix-picker-body'),
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Flexible(
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: options,
                   ),
                 ),
@@ -72,36 +75,60 @@ class FilterPickerSheet extends StatelessWidget {
         },
       );
     }
-    final media = MediaQuery.of(context);
-    final keyboardHeight = media.viewInsets.bottom;
-    final availableHeight =
-        (media.size.height - keyboardHeight - media.padding.top)
-            .clamp(0.0, double.infinity)
-            .toDouble();
-    final maxHeight = (media.size.height * 0.72)
-        .clamp(0.0, availableHeight)
-        .toDouble();
-
     return Padding(
-      padding: EdgeInsets.only(bottom: keyboardHeight),
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
       child: SafeArea(
         top: false,
-        child: ConstrainedBox(
-          constraints: BoxConstraints(maxHeight: maxHeight),
-          child: SingleChildScrollView(
-            key: const ValueKey('mobile-picker-scroll'),
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            child: Column(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final footer = Padding(
+              padding: EdgeInsets.fromLTRB(16, action == null ? 0 : 8, 16, 16),
+              child: action == null
+                  ? const SizedBox.shrink()
+                  : SizedBox(
+                      key: const ValueKey('mobile-picker-action'),
+                      width: double.infinity,
+                      child: action,
+                    ),
+            );
+            final optionsBody = Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: options,
+              ),
+            );
+            final fontFactor = (MediaQuery.textScalerOf(context).scale(14) / 14)
+                .clamp(1.0, 3.0);
+            if (constraints.maxHeight < 120 * fontFactor) {
+              return SingleChildScrollView(
+                key: const ValueKey('mobile-picker-scroll'),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [optionsBody, footer],
+                ),
+              );
+            }
+            // Use the actual route constraints (after the handle, safe area
+            // and IME), not a second screen-percentage cap. Short pickers size
+            // to content; long ones scroll with a permanently visible action.
+            return Column(
+              key: const ValueKey('mobile-picker-body'),
               mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                ...options,
-                if (action != null) ...[
-                  const SizedBox(height: 8),
-                  SizedBox(width: double.infinity, child: action),
-                ],
+                Flexible(
+                  child: SingleChildScrollView(
+                    key: const ValueKey('mobile-picker-scroll'),
+                    child: optionsBody,
+                  ),
+                ),
+                footer,
               ],
-            ),
-          ),
+            );
+          },
         ),
       ),
     );

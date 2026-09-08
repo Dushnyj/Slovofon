@@ -112,7 +112,7 @@ void main() {
   );
 
   test(
-    'failed checkpoint keeps native player alive and permits retry',
+    'failed checkpoint remains quiesced and retries final state before teardown',
     () async {
       final events = <String>[];
       final engine = ShutdownTestEngine(events);
@@ -121,16 +121,33 @@ void main() {
         engine: engine,
         persistence: persistence,
       );
-      await controller.loadBook(shutdownBook);
+      await controller.loadBook(shutdownBook, autoPlay: true);
+      await controller.seek(const Duration(seconds: 43));
+      await controller.setVolume(.2);
+      await controller.setVolume(.8);
       persistence.failSave = true;
       await expectLater(controller.shutdown(), throwsStateError);
       expect(engine.disposals, 0);
-      persistence.failSave = false;
+      final eventsAfterFailure = events.toList();
       await controller.play();
-      expect(controller.state.isPlaying, isTrue);
+      await controller.seek(const Duration(seconds: 99));
+      await controller.setVolume(.1);
+      await controller.loadBook(shutdownBook, autoPlay: true);
+      expect(controller.state.isPlaying, isFalse);
+      expect(controller.state.position, const Duration(seconds: 43));
+      expect(controller.state.volume, .8);
+      expect(events, eventsAfterFailure);
+      await expectLater(controller.shutdown(), throwsStateError);
+      expect(engine.disposals, 0);
+      persistence.failSave = false;
       await controller.shutdown();
       expect(engine.disposals, 1);
+      expect(persistence.session!.volume, .8);
+      expect(persistence.session!.positionMs, 43000);
+      expect(persistence.session!.isPlaying, isFalse);
+      await controller.shutdown();
       controller.dispose();
+      expect(engine.disposals, 1);
     },
   );
 

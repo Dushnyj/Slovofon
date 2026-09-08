@@ -16,32 +16,21 @@ class DriftLibraryPersistenceStore
 
   @override
   Future<List<LibraryBookEntry>> loadFavorites() async {
-    final favorites = await (_db.select(
-      _db.favorites,
-    )..orderBy([(favorite) => OrderingTerm.desc(favorite.createdAt)])).get();
-    final entries = <LibraryBookEntry>[];
-
-    for (final favorite in favorites) {
-      final versionId = favorite.bookVersionId;
-      if (versionId == null) {
-        continue;
-      }
-      final versionQuery = _db.select(_db.bookVersions)
-        ..where((version) => version.id.equals(versionId));
-      final version = await versionQuery.getSingleOrNull();
-      if (version == null) {
-        continue;
-      }
-      entries.add(
+    final query = _db.select(_db.favorites).join([
+      innerJoin(
+        _db.bookVersions,
+        _db.bookVersions.id.equalsExp(_db.favorites.bookVersionId),
+      ),
+    ])..orderBy([OrderingTerm.desc(_db.favorites.createdAt)]);
+    final rows = await query.get();
+    return [
+      for (final row in rows)
         LibraryBookEntry(
-          book: _audioBookFromVersion(version),
+          book: _audioBookFromVersion(row.readTable(_db.bookVersions)),
           isFavorite: true,
-          updatedAt: favorite.createdAt,
+          updatedAt: row.readTable(_db.favorites).createdAt,
         ),
-      );
-    }
-
-    return entries;
+    ];
   }
 
   @override
@@ -168,9 +157,21 @@ class DriftLibraryPersistenceStore
     Set<String>? versionIds,
   }) async {
     if (versionIds != null && versionIds.isEmpty) return [];
-    final query = _db.select(_db.bookVersions);
-    if (versionIds != null) query.where((row) => row.id.isIn(versionIds));
-    final versions = await query.get();
+    final versions = <BookVersionRow>[];
+    if (versionIds == null) {
+      versions.addAll(await _db.select(_db.bookVersions).get());
+    } else {
+      // Stay below SQLite variable limits even for a long listening history.
+      final ids = versionIds.toList();
+      for (var offset = 0; offset < ids.length; offset += 400) {
+        final batch = ids.skip(offset).take(400);
+        versions.addAll(
+          await (_db.select(
+            _db.bookVersions,
+          )..where((row) => row.id.isIn(batch))).get(),
+        );
+      }
+    }
     return [for (final version in versions) await _playbackBook(version)];
   }
 

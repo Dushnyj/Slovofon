@@ -21,18 +21,20 @@ class SourceBookCache {
   final LibraryStore libraryStore;
   final CoverBytesLoader coverBytesLoader;
 
-  Future<SourceBookSnapshot> refresh(SourceBookSnapshot snapshot) async {
-    final cached = await _snapshotWithCachedCover(snapshot);
-    await downloadStorage.writeMetadata(cached.playbackBook);
-    await downloadManager.cacheBookMetadata(cached.playbackBook);
-    await libraryStore.refreshFavoriteMetadata(cached.audioBook);
-    return SourceBookSnapshot(
-      details: snapshot.details,
-      chapters: snapshot.chapters,
-      audioBook: cached.audioBook,
-      playbackBook: cached.playbackBook,
-    );
-  }
+  Future<SourceBookSnapshot> refresh(SourceBookSnapshot snapshot) =>
+      downloadManager.runMetadataOperation((cacheBookMetadata) async {
+        // Register before even fetching the cover. Windows shutdown must drain
+        // this entire accepted refresh before stores flush and Drift closes.
+        final cached = await _snapshotWithCachedCover(snapshot);
+        await cacheBookMetadata(cached.playbackBook);
+        await libraryStore.refreshFavoriteMetadata(cached.audioBook);
+        return SourceBookSnapshot(
+          details: snapshot.details,
+          chapters: snapshot.chapters,
+          audioBook: cached.audioBook,
+          playbackBook: cached.playbackBook,
+        );
+      });
 
   Future<_CachedBookSnapshot> _snapshotWithCachedCover(
     SourceBookSnapshot snapshot,

@@ -7,10 +7,9 @@ abstract final class TelevisionMetrics {
   static const transportMinHeight = 64.0;
   static const wideContentBreakpoint = 1024.0;
 
-  /// Overscan space grows with the viewport, but does not waste huge gutters
-  /// on displays which actually provide more logical working space.
-  static EdgeInsets safeInsetsFor(Size logicalSize) => EdgeInsets.symmetric(
-    horizontal: (logicalSize.width * .04).clamp(24.0, 64.0),
-    vertical: (logicalSize.height * .04).clamp(16.0, 40.0),
-  );
+  /// Content owns its spacing; the viewport/Navigator stays full-screen.
+  /// A percentage inset around every route created an empty frame, reduced the
+  /// working area and pulled the mini-player away from the display edges.
+  static const contentInset = 16.0;
+  static const contentInsets = EdgeInsets.all(contentInset);
 }

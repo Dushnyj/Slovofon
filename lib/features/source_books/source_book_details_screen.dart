@@ -1,3 +1,6 @@
+import '../../ui/motion/motion_tooltip.dart';
+import '../../ui/motion/app_motion.dart';
+import '../../ui/motion/motion_progress_indicator.dart';
 import 'dart:async';
 import 'dart:convert';
 
@@ -8,6 +11,7 @@ import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../app/localization/app_strings.dart';
+import '../../app/localization/duration_label.dart';
 import '../../domain/models/book_version.dart';
 import '../../services/audio/audio_persistence.dart';
 import '../../services/audio/audio_state.dart';
@@ -97,7 +101,7 @@ class _SourceBookDetailsScreenState
         future: _snapshotFuture,
         builder: (context, snapshot) {
           if (snapshot.connectionState != ConnectionState.done) {
-            return const Center(child: CircularProgressIndicator());
+            return const Center(child: AppCircularProgressIndicator());
           }
 
           if (snapshot.hasError) {
@@ -284,7 +288,7 @@ class _SourceBookDetailsBodyState
                     ? SizedBox.square(
                         key: const ValueKey('source-details-play-loading'),
                         dimension: 18,
-                        child: CircularProgressIndicator(
+                        child: AppCircularProgressIndicator(
                           strokeWidth: 2,
                           color: colorScheme.onSurfaceVariant,
                         ),
@@ -315,7 +319,7 @@ class _SourceBookDetailsBodyState
                       ? SizedBox.square(
                           key: const ValueKey('source-details-play-loading'),
                           dimension: 24,
-                          child: CircularProgressIndicator(
+                          child: AppCircularProgressIndicator(
                             strokeWidth: 2.7,
                             color: colorScheme.onSurfaceVariant,
                           ),
@@ -338,7 +342,7 @@ class _SourceBookDetailsBodyState
                   child: SizedBox.square(
                     key: const ValueKey('source-details-play-loading'),
                     dimension: 24,
-                    child: CircularProgressIndicator(
+                    child: AppCircularProgressIndicator(
                       strokeWidth: 2.7,
                       color: colorScheme.primary,
                     ),
@@ -412,7 +416,7 @@ class _SourceBookDetailsBodyState
               iconSize: television ? 20 : 25,
             ),
             if (television)
-              IconButton(
+              AppIconButton(
                 key: const ValueKey('source-details-later'),
                 tooltip: libraryStore.isLater(audioBook)
                     ? strings.removeFromLater
@@ -423,7 +427,7 @@ class _SourceBookDetailsBodyState
                     if (added) _cacheFreshSnapshot(widget.snapshot);
                   } catch (_) {
                     if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
+                      ScaffoldMessenger.of(context).showMotionSnackBar(
                         SnackBar(content: Text(strings.libraryActionError)),
                       );
                     }
@@ -481,7 +485,7 @@ class _SourceBookDetailsBodyState
                   key: ValueKey('source-details-chapter-$index'),
                   index: index + 1,
                   title: sourceChapter.title,
-                  durationLabel: _formatShortDuration(
+                  durationLabel: context.strings.formatDuration(
                     Duration(milliseconds: sourceChapter.durationMs ?? 0),
                   ),
                   progress: isCurrentBook && playbackState.chapterIndex == index
@@ -759,9 +763,9 @@ class _SourceBookDetailsBodyState
       return;
     }
     Navigator.of(context).pop();
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(context.strings.shareLinkCopied)));
+    ScaffoldMessenger.of(context).showMotionSnackBar(
+      SnackBar(content: Text(context.strings.shareLinkCopied)),
+    );
   }
 
   void _cacheFreshSnapshot(SourceBookSnapshot snapshot) {
@@ -851,7 +855,7 @@ class _OtherNarrationTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final narrator = _trimOrNull(alternative.narrator);
-    final duration = _formatShortDuration(
+    final duration = context.strings.formatDuration(
       alternative.duration ?? Duration.zero,
     );
 
@@ -860,6 +864,10 @@ class _OtherNarrationTile extends StatelessWidget {
         'other-narration-${alternative.sourceId}-${alternative.sourceBookId}',
       ),
       child: InkWell(
+        hoverDuration: AppMotion.of(context).duration(
+          full: const Duration(milliseconds: 50),
+          reduced: const Duration(milliseconds: 40),
+        ),
         borderRadius: BorderRadius.circular(8),
         onTap: () {
           unawaited(
@@ -1100,6 +1108,10 @@ class _SourceUrlLink extends StatelessWidget {
     }
 
     return InkWell(
+      hoverDuration: AppMotion.of(context).duration(
+        full: const Duration(milliseconds: 50),
+        reduced: const Duration(milliseconds: 40),
+      ),
       onTap: () => _openExternalUrl(context, url),
       child: Text(
         url,
@@ -1267,16 +1279,18 @@ class _SourceHeaderDetails extends StatelessWidget {
                   snapshot.audioBook.durationLabel != '—')
                 _HeaderInlineMeta(
                   iconAsset: AppIconAssets.bookDuration,
-                  label: snapshot.audioBook.durationLabel,
+                  label: context.strings.formatDurationLabel(
+                    snapshot.audioBook.durationLabel,
+                  ),
                 ),
               _HeaderInlineMeta(
                 iconAsset: AppIconAssets.playerChapters,
                 label: context.strings.chaptersCount(snapshot.chapters.length),
               ),
-              if (_ratingLabel(version.ratingValue) != null)
+              if (_ratingLabel(context.strings, version.ratingValue) != null)
                 _HeaderInlineMeta(
                   iconAsset: AppIconAssets.bookRating,
-                  label: _ratingLabel(version.ratingValue)!,
+                  label: _ratingLabel(context.strings, version.ratingValue)!,
                 ),
             ],
           ),
@@ -1361,6 +1375,10 @@ class _HeaderMetaLinks extends StatelessWidget {
                     )
                   else
                     InkWell(
+                      hoverDuration: AppMotion.of(context).duration(
+                        full: const Duration(milliseconds: 50),
+                        reduced: const Duration(milliseconds: 40),
+                      ),
                       onTap: () => _openScopedSearch(
                         context,
                         searchQueries?[index] ?? values[index],
@@ -1477,14 +1495,6 @@ class _DetailsError extends StatelessWidget {
   }
 }
 
-String _formatShortDuration(Duration duration) {
-  final minutes = duration.inMinutes;
-  if (duration.inHours > 0) {
-    return '${duration.inHours} ч ${minutes.remainder(60)} мин';
-  }
-  return '$minutes мин';
-}
-
 String _collapsedDescription(String text) {
   final normalized = text.trim();
   if (normalized.length <= 120) {
@@ -1515,7 +1525,7 @@ String? _seriesNumberLabel(double? value) {
       : value.toString();
 }
 
-String? _ratingLabel(double? value) {
+String? _ratingLabel(AppStrings strings, double? value) {
   if (value == null || value <= 0) {
     return null;
   }
@@ -1523,7 +1533,7 @@ String? _ratingLabel(double? value) {
   final text = rounded == rounded.roundToDouble()
       ? rounded.toStringAsFixed(0)
       : rounded.toStringAsFixed(1);
-  return '$text из 5';
+  return strings.ratingOutOfFive(text);
 }
 
 String _formatInt(int value) {
@@ -1609,7 +1619,7 @@ Future<void> _openExternalUrl(BuildContext context, String url) async {
   }
   final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
   if (!opened && context.mounted) {
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(context).showMotionSnackBar(
       SnackBar(content: Text(context.strings.sourcePageOpenError)),
     );
   }
