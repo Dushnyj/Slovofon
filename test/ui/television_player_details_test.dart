@@ -41,7 +41,7 @@ void main() {
   testWidgets(
     'player chapter ordinals are one-based without changing stored indices',
     (tester) async {
-      final fixture = await _pump(tester);
+      final fixture = await _pump(tester, chapterIndex: 0);
       await tester.tap(find.byKey(const ValueKey('tv-player-tab-1')));
       await tester.pumpAndSettle();
       final first = find.byKey(const ValueKey('full-player-chapter-chapter-0'));
@@ -542,6 +542,7 @@ _pump(
   double scale = 1,
   bool dark = true,
   bool television = true,
+  int chapterIndex = 2,
   Size logicalSize = const Size(960, 540),
   String title = 'Белые ночи',
   SourceCatalogService? catalog,
@@ -573,7 +574,7 @@ _pump(
   );
   await controller.loadBook(
     book,
-    chapterIndex: 2,
+    chapterIndex: chapterIndex,
     position: const Duration(minutes: 4, seconds: 1),
     autoPlay: false,
   );
