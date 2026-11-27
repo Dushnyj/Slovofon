@@ -487,7 +487,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('mobile-navigation-item-1')));
     await _pumpFrames(tester);
 
-    expect(find.text('Search in: Title'), findsOneWidget);
+    expect(find.text('Search in: All'), findsOneWidget);
     expect(find.text('Sources: All sources'), findsNothing);
     expect(find.text('Sort: relevance'), findsOneWidget);
     expect(find.text('Enter a search query'), findsOneWidget);
