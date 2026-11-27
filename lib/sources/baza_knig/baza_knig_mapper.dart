@@ -26,11 +26,15 @@ class BazaKnigMapper {
       searchDocument(html_parser.parse(html));
 
   List<BookSearchResult> searchDocument(dom.Document document) {
-    return [
-      for (final item in document.querySelectorAll('.short'))
-        ?_searchResult(item),
-    ];
+    return searchCards(document.querySelectorAll('.short'));
   }
+
+  List<BookSearchResult> searchCards(
+    Iterable<dom.Element> cards, {
+    bool assumeFree = true,
+  }) => [
+    for (final item in cards) ?_searchResult(item, assumeFree: assumeFree),
+  ];
 
   /// Reads declarative information from the public search result form. The
   /// pager's next-page marker is recognized, not executed or used as a URL.
@@ -386,7 +390,10 @@ class BazaKnigMapper {
     };
   }
 
-  BookSearchResult? _searchResult(dom.Element item) {
+  BookSearchResult? _searchResult(
+    dom.Element item, {
+    required bool assumeFree,
+  }) {
     final rawUrl = _firstNonEmpty([
       _attr(item, '.short-title[href]', 'href'),
       _attr(item, '.short-title a[href]', 'href'),
@@ -433,9 +440,9 @@ class BazaKnigMapper {
       year: _year(item),
       ratingValue: _rating(item),
       ratingCount: _ratingCount(item),
-      isFull: true,
-      isFree: true,
-      accessType: AccessType.free,
+      isFull: assumeFree ? true : null,
+      isFree: assumeFree ? true : null,
+      accessType: assumeFree ? AccessType.free : AccessType.unknown,
     );
   }
 

@@ -257,6 +257,7 @@ class SourceCatalogService {
           );
           if (request.page <= 1 &&
               !page.usedRequestedScope &&
+              !page.handlesQueryVariants &&
               (!alreadyMatched ||
                   page.limited ||
                   tokens.length >= 5 ||

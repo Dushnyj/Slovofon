@@ -79,6 +79,7 @@ class SourceMetadataTransport {
     String method = 'GET',
     required Map<String, String> headers,
     List<int> bodyBytes = const [],
+    bool followRedirects = true,
   }) async {
     final cancellation = SourceSearchCancellation.current;
     cancellation?.throwIfCancelled();
@@ -120,6 +121,7 @@ class SourceMetadataTransport {
           308,
         }.contains(response.statusCode);
         final canRedirect =
+            followRedirects &&
             isRedirect &&
             (currentMethod == 'GET' || response.statusCode == 303);
         if (canRedirect && location != null) {

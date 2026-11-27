@@ -3,12 +3,14 @@ import 'dart:io';
 
 import '../source_metadata_transport.dart';
 import '../source_models.dart';
+import 'baza_knig_public_search.dart';
 import 'baza_knig_search_pager.dart';
 
 abstract interface class BazaKnigTransport {
   Future<BazaKnigTransportResponse> get(
     Uri uri, {
     required Map<String, String> headers,
+    bool followRedirects = true,
   });
 
   Future<BazaKnigTransportResponse> post(
@@ -49,7 +51,14 @@ class DartIoBazaKnigTransport implements BazaKnigTransport {
   Future<BazaKnigTransportResponse> get(
     Uri uri, {
     required Map<String, String> headers,
-  }) async => _map(await _transport.send(uri, headers: headers));
+    bool followRedirects = true,
+  }) async => _map(
+    await _transport.send(
+      uri,
+      headers: headers,
+      followRedirects: followRedirects,
+    ),
+  );
 
   @override
   Future<BazaKnigTransportResponse> post(
@@ -126,6 +135,45 @@ class BazaKnigClient {
     return _requestHtml(uri, referer: baseUri.toString());
   }
 
+  Future<({String html, Uri uri})> publicSearchHtml(Uri uri) async {
+    if (!BazaKnigPublicSearch.sameOrigin(baseUri, uri) ||
+        !BazaKnigPublicSearch.isPublicPath(uri)) {
+      throw const SourceException(
+        sourceId: 'baza_knig',
+        kind: SourceErrorKind.parser,
+        message: 'Invalid Baza Knig public search URL.',
+      );
+    }
+    final headers = _htmlHeaders(referer: baseUri.toString());
+    var target = _policy.validate(uri);
+    var response = await _transport.get(
+      target,
+      headers: headers,
+      followRedirects: false,
+    );
+    final alias = response.redirectLocation;
+    // The category menu can still publish an old slug (e.g. /metro-2033/).
+    // Follow at most one permanent same-origin category-root alias. Never
+    // follow a temporary interstitial or redirect a filter/pager request.
+    if ((response.statusCode == HttpStatus.movedPermanently ||
+            response.statusCode == HttpStatus.permanentRedirect) &&
+        alias != null &&
+        alias != target &&
+        BazaKnigPublicSearch.isGenreCatalogue(baseUri, target) &&
+        BazaKnigPublicSearch.isGenreCatalogue(baseUri, alias)) {
+      target = _policy.validate(alias);
+      response = await _transport.get(
+        target,
+        headers: headers,
+        followRedirects: false,
+      );
+    }
+    return (
+      html: _readHtmlResponse(response, target, publicSearch: true),
+      uri: target,
+    );
+  }
+
   static Map<String, String> mediaHeaders({required String referer}) {
     return {
       'User-Agent': userAgent,
@@ -151,7 +199,16 @@ class BazaKnigClient {
             },
             bodyBytes: utf8.encode(Uri(queryParameters: form).query),
           );
-    if (form != null &&
+    return _readHtmlResponse(response, uri, postSearch: form != null);
+  }
+
+  String _readHtmlResponse(
+    BazaKnigTransportResponse response,
+    Uri uri, {
+    bool publicSearch = false,
+    bool postSearch = false,
+  }) {
+    if ((postSearch || publicSearch) &&
         (_isSearchCheck(response.finalUri) ||
             _isSearchCheck(response.redirectLocation))) {
       throw const SourceException(
@@ -159,6 +216,17 @@ class BazaKnigClient {
         kind: SourceErrorKind.accessRestricted,
         message:
             'Baza Knig returned an interstitial instead of search results.',
+      );
+    }
+    if (publicSearch &&
+        response.finalUri != null &&
+        response.statusCode >= 200 &&
+        response.statusCode < 300 &&
+        response.finalUri != uri) {
+      throw const SourceException(
+        sourceId: 'baza_knig',
+        kind: SourceErrorKind.parser,
+        message: 'Unexpected redirect from Baza Knig public search.',
       );
     }
     if (response.statusCode >= 200 && response.statusCode < 300) {

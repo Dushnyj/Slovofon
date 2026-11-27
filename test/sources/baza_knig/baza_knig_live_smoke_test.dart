@@ -23,18 +23,17 @@ void main() {
   );
 
   test(
-    'live Baza Knig public pager returns different second-page cards',
+    'live Baza Knig public title filter returns different second-page cards',
     () async {
-      const query = 'метро';
+      const request = SearchRequest(query: 'Метро', kind: SearchKind.title);
       final connector = BazaKnigSourceConnector();
-      final first = await connector.searchPage(
-        const SearchRequest(query: query),
-      );
+      final first = await connector.searchPage(request);
       expect(first.results, isNotEmpty);
-      expect(first.nextPage, 2, reason: 'Look for the site\'s second page.');
+      expect(first.nextPage, 2, reason: 'Look for the filter\'s second page.');
+      expect(first.nextCursor, isNotNull);
 
       final last = await connector.searchPage(
-        SearchRequest(query: query, page: first.nextPage!),
+        request.copyWith(page: first.nextPage, sourceCursor: first.nextCursor),
       );
       final firstIds = first.results.map((book) => book.sourceBookId).toSet();
       expect(last.results, isNotEmpty);

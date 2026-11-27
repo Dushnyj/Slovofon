@@ -455,6 +455,7 @@ class SourceSearchPage {
     this.nextCursor,
     this.limited = false,
     this.usedRequestedScope = false,
+    this.handlesQueryVariants = false,
   });
 
   final List<BookSearchResult> results;
@@ -462,4 +463,8 @@ class SourceSearchPage {
   final SourceSearchPageCursor? nextCursor;
   final bool limited;
   final bool usedRequestedScope;
+
+  /// The adapter has already planned how to discover matches from the original
+  /// query. Do not replace it with generic shortened query lanes.
+  final bool handlesQueryVariants;
 }

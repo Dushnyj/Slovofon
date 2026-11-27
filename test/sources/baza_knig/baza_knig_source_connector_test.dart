@@ -437,7 +437,12 @@ class _SearchTransport implements BazaKnigTransport {
   Future<BazaKnigTransportResponse> get(
     Uri uri, {
     required Map<String, String> headers,
-  }) async => throw StateError('The search must not use GET');
+    bool followRedirects = true,
+  }) async => BazaKnigTransportResponse(
+    statusCode: uri.path == '/' ? 200 : 404,
+    body: '',
+    finalUri: uri,
+  );
 
   @override
   Future<BazaKnigTransportResponse> post(
@@ -470,6 +475,16 @@ class FakeBazaKnigClient implements BazaKnigClient {
   Uri get baseUri => BazaKnigClient.defaultBaseUri;
 
   @override
+  Future<({String html, Uri uri})> publicSearchHtml(Uri uri) async {
+    if (uri.path == '/') return (html: '', uri: uri);
+    throw const SourceException(
+      sourceId: 'baza_knig',
+      kind: SourceErrorKind.network,
+      message: 'Public filters unavailable in this legacy fixture.',
+    );
+  }
+
+  @override
   Future<String> searchBooksHtml({required String query, int page = 1}) async {
     calls.add('search:$query:$page');
     if (error != null) {
@@ -497,6 +512,10 @@ class FlakyBazaKnigClient implements BazaKnigClient {
 
   @override
   Uri get baseUri => BazaKnigClient.defaultBaseUri;
+
+  @override
+  Future<({String html, Uri uri})> publicSearchHtml(Uri uri) async =>
+      (html: '', uri: uri);
 
   @override
   Future<String> searchBooksHtml({required String query, int page = 1}) {

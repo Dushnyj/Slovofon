@@ -207,6 +207,55 @@ void main() {
     expect(connector.calls.map((call) => call.page), [1, 2, 3, 4]);
   });
 
+  test(
+    'an adapter-owned plan keeps the original mixed query across pages',
+    () async {
+      const mixed = 'Во мрак Андрей Дьяков Кузнецов Сергей Метро 2033';
+      final cursor = _Cursor();
+      final connector = _Paged('books', (request) {
+        expect(request.query, mixed);
+        if (request.page == 1) {
+          return SourceSearchPage(
+            results: [
+              _book(
+                'books',
+                'wrong',
+                title: 'Во мрак',
+                author: 'Андрей Дьяков',
+                narrators: ['Другой чтец'],
+                genres: ['Метро 2033'],
+              ),
+            ],
+            nextPage: 2,
+            nextCursor: cursor,
+            handlesQueryVariants: true,
+          );
+        }
+        expect(request.sourceCursor, same(cursor));
+        return SourceSearchPage(
+          results: [
+            _book(
+              'books',
+              'match',
+              title: 'Во мрак',
+              author: 'Дьяков Андрей',
+              narrators: ['Сергей Кузнецов'],
+              genres: ['Метро 2033'],
+            ),
+          ],
+          handlesQueryVariants: true,
+        );
+      });
+
+      final response = await _service([
+        connector,
+      ]).search(const SearchRequest(query: mixed));
+      expect(response.failures, isEmpty);
+      expect(response.results.single.sourceBookId, 'match');
+      expect(connector.calls.map((call) => call.page), [1, 2]);
+    },
+  );
+
   test('retry resumes only the failed lane and keeps other pages', () async {
     final cursor = _Cursor();
     var failSecondPage = true;
