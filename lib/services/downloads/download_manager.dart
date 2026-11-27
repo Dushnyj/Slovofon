@@ -66,6 +66,7 @@ class DownloadManager extends ChangeNotifier {
   final _jobs = <String, _DownloadJob>{};
   final _activeTokens = <String, DownloadCancellationToken>{};
   final _activeFutures = <String, Future<void>>{};
+  final _networkInterrupted = <String>{};
 
   bool _disposed = false;
   bool _shuttingDown = false;
@@ -92,10 +93,11 @@ class DownloadManager extends ChangeNotifier {
         }
         // Keep completed bytes and the original queue position. This pause
         // is transient and distinct from an explicit user pause.
+        _networkInterrupted.add(task!.id);
         unawaited(
           _saveTask(
             _copyTask(
-              task!,
+              task,
               status: DownloadTaskStatus.queued,
               speedBytesPerSecond: 0,
               updatedAt: _clock(),
@@ -394,6 +396,7 @@ class DownloadManager extends ChangeNotifier {
       return;
     }
 
+    _networkInterrupted.remove(taskId);
     _activeTokens[taskId]?.cancel();
     final paused = _copyTask(
       task,
@@ -458,6 +461,7 @@ class DownloadManager extends ChangeNotifier {
       return;
     }
 
+    _networkInterrupted.remove(taskId);
     _activeTokens[taskId]?.cancel();
     if (job != null && !_activeFutures.containsKey(taskId)) {
       await _storage.resetPart(job.book, job.chapter);
@@ -488,6 +492,7 @@ class DownloadManager extends ChangeNotifier {
     await loadPersistedTasks();
     final task = taskForBookChapter(book, chapter);
     if (task != null) {
+      _networkInterrupted.remove(task.id);
       _activeTokens[task.id]?.cancel();
       _tasks.remove(task.id);
       _jobs.remove(task.id);
@@ -527,6 +532,7 @@ class DownloadManager extends ChangeNotifier {
         .where((task) => taskMatchesBook(task, book))
         .toList();
     for (final task in removed) {
+      _networkInterrupted.remove(task.id);
       _activeTokens[task.id]?.cancel();
       _tasks.remove(task.id);
       _jobs.remove(task.id);
@@ -723,11 +729,17 @@ class DownloadManager extends ChangeNotifier {
         speedBytesPerSecond: 0,
         updatedAt: _clock(),
       );
-      final future = _startTask(running, job, token).whenComplete(() {
-        _activeTokens.remove(running.id);
-        _activeFutures.remove(running.id);
-        _schedule();
-      });
+      final future =
+          _startTask(
+            running,
+            job,
+            token,
+            retryAfterNetworkHandoff: _networkInterrupted.remove(next.id),
+          ).whenComplete(() {
+            _activeTokens.remove(running.id);
+            _activeFutures.remove(running.id);
+            _schedule();
+          });
       _activeFutures[running.id] = future;
     }
   }
@@ -735,12 +747,18 @@ class DownloadManager extends ChangeNotifier {
   Future<void> _startTask(
     DownloadTask running,
     _DownloadJob job,
-    DownloadCancellationToken token,
-  ) async {
+    DownloadCancellationToken token, {
+    required bool retryAfterNetworkHandoff,
+  }) async {
     try {
       await _saveTask(running);
       if (!token.isCanceled) {
-        await _runTask(running.id, job, token);
+        await _runTask(
+          running.id,
+          job,
+          token,
+          retryAfterNetworkHandoff: retryAfterNetworkHandoff,
+        );
       }
     } catch (_) {
       // Storage failures must not escape from an unawaited scheduler future.
@@ -942,8 +960,9 @@ class DownloadManager extends ChangeNotifier {
   Future<void> _runTask(
     String taskId,
     _DownloadJob initialJob,
-    DownloadCancellationToken token,
-  ) async {
+    DownloadCancellationToken token, {
+    bool retryAfterNetworkHandoff = false,
+  }) async {
     var job = initialJob;
     final startedAt = _clock();
     try {
@@ -1191,6 +1210,24 @@ class DownloadManager extends ChangeNotifier {
       );
     } on Object catch (error) {
       if (token.isCanceled) {
+        return;
+      }
+      if (retryAfterNetworkHandoff &&
+          error is SocketException &&
+          _networkGate == DownloadNetworkGate.allowed) {
+        // A new default route can briefly fail a socket even after Android
+        // announced it. Retry only once after a network-driven release; HTTP
+        // errors, source permissions, and invalid responses still fail as-is.
+        try {
+          await token.waitFor(Future<void>.delayed(const Duration(seconds: 1)));
+        } on DownloadCanceledException {
+          return;
+        }
+        if (!token.isCanceled && _networkGate == DownloadNetworkGate.allowed) {
+          // Re-read the actual part and validator in the new attempt; never
+          // bypass representation checks or replace a verified final file.
+          await _runTask(taskId, job, token);
+        }
         return;
       }
       await _failTask(

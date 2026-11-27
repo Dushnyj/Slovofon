@@ -80,6 +80,7 @@ Future<void> bootstrap() async {
   });
   Future<void>? databaseClose;
   ProviderContainer? providerContainer;
+  ProviderSubscription<void>? androidDownloadNetworkSubscription;
   DownloadManager? downloadManager;
   AppSettingsStore? appSettingsStore;
   LibraryStore? libraryStore;
@@ -188,12 +189,13 @@ Future<void> bootstrap() async {
         ],
         child: Builder(
           builder: (context) {
-            providerContainer = ProviderScope.containerOf(
-              context,
-              listen: false,
-            );
-            if (Platform.isAndroid) {
-              providerContainer!.read(androidDownloadNetworkBindingProvider);
+            final container = ProviderScope.containerOf(context, listen: false);
+            if (!identical(providerContainer, container)) {
+              androidDownloadNetworkSubscription?.close();
+              providerContainer = container;
+              androidDownloadNetworkSubscription = Platform.isAndroid
+                  ? subscribeToAndroidDownloadNetwork(container)
+                  : null;
             }
             return SlovofonApp(deepLinks: PluginAppDeepLinkSource());
           },

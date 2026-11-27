@@ -205,6 +205,69 @@ void main() {
     expect(manager.taskById(queued.id)!.status, DownloadTaskStatus.completed);
   });
 
+  for (final failure in <Object?>[
+    null,
+    const SocketException('Route is still unavailable.'),
+    const DownloadClientException('Invalid media byte range.'),
+  ]) {
+    test(
+      'Wi-Fi handoff preserves part and retries socket failure only once: $failure',
+      () async {
+        final chapter = _chapter('one', 0, 'Chapter');
+        final book = _book([chapter]);
+        final client = _HandoffClient(failure);
+        addTearDown(client.firstAttempt.close);
+        var now = DateTime.utc(2026, 1, 1);
+        final manager = DownloadManager(
+          client: client,
+          storage: storage,
+          persistence: MemoryDownloadPersistenceStore(),
+          clock: () => now = now.add(const Duration(seconds: 1)),
+        );
+        addTearDown(manager.dispose);
+        final partial = Completer<void>();
+        manager.addListener(() {
+          if (!partial.isCompleted &&
+              manager.taskForBookChapter(book, chapter)?.downloadedBytes == 2) {
+            partial.complete();
+          }
+        });
+
+        final started = await manager.enqueueChapter(book, chapter);
+        await partial.future.timeout(const Duration(seconds: 5));
+        manager.setNetworkGate(DownloadNetworkGate.wifiRequired);
+        await manager.waitForIdle();
+        expect(manager.taskById(started.id)?.status, DownloadTaskStatus.queued);
+        expect(await storage.partFileFor(book, chapter).readAsBytes(), [1, 2]);
+        expect(client.offsets, [0]);
+
+        manager.setNetworkGate(DownloadNetworkGate.allowed);
+        await manager.waitForIdle();
+        expect(
+          client.offsets,
+          failure is DownloadClientException ? [0, 2] : [0, 2, 2],
+        );
+        if (failure == null) {
+          expect(
+            manager.taskById(started.id)?.status,
+            DownloadTaskStatus.completed,
+          );
+          final file = await storage.completedChapterFile(book, chapter);
+          expect(await file!.readAsBytes(), [1, 2, 3, 4]);
+        } else {
+          expect(
+            manager.taskById(started.id)?.status,
+            DownloadTaskStatus.failed,
+          );
+          expect(await storage.partFileFor(book, chapter).readAsBytes(), [
+            1,
+            2,
+          ]);
+        }
+      },
+    );
+  }
+
   for (final body in [
     '<!doctype html><title>Temporary error</title>',
     '#EXTM3U\n',
@@ -339,6 +402,46 @@ class _BytesClient implements DownloadClient {
       contentLength: 2,
       supportsResume: false,
       shouldAppend: false,
+      fileExtension: 'mp3',
+    );
+  }
+}
+
+class _HandoffClient implements DownloadClient {
+  _HandoffClient(this.failure);
+
+  final Object? failure;
+  final offsets = <int>[];
+  final firstAttempt = StreamController<List<int>>();
+
+  @override
+  Future<DownloadClientResponse> open(
+    AudioMediaSource source, {
+    required int startByte,
+    required DownloadCancellationToken cancellationToken,
+  }) async {
+    offsets.add(startByte);
+    if (offsets.length == 1) {
+      firstAttempt.add([1, 2]);
+      return DownloadClientResponse(
+        bytes: firstAttempt.stream,
+        totalBytes: 4,
+        contentLength: 4,
+        supportsResume: true,
+        shouldAppend: false,
+        fileExtension: 'mp3',
+      );
+    }
+    if (offsets.length == 2) {
+      throw failure ?? const SocketException('New route not ready yet.');
+    }
+    if (failure != null) throw failure!;
+    return DownloadClientResponse(
+      bytes: Stream.value([3, 4]),
+      totalBytes: 4,
+      contentLength: 2,
+      supportsResume: true,
+      shouldAppend: true,
       fileExtension: 'mp3',
     );
   }

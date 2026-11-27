@@ -21,11 +21,13 @@ internal class SlovofonDownloadNetwork(context: Context, messenger: BinaryMessen
     private var listener: EventChannel.EventSink? = null
     private var callback: ConnectivityManager.NetworkCallback? = null
     private var last: Map<String, Boolean>? = null
+    private val confirmDefaultNetwork = Runnable { publish() }
 
     init {
         EventChannel(messenger, "com.slovofon.app/download_network_events").setStreamHandler(this)
         MethodChannel(messenger, "com.slovofon.app/download_network").setMethodCallHandler { call, result ->
             when (call.method) {
+                "refresh" -> result.success(publish())
                 "setWifiOnly" -> {
                     val enabled = call.arguments as? Boolean
                     if (enabled == null) {
@@ -51,10 +53,20 @@ internal class SlovofonDownloadNetwork(context: Context, messenger: BinaryMessen
         val networkCallback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) = refresh()
             override fun onLost(network: Network) = refresh()
-            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) = refresh()
+            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) =
+                refresh(network, caps)
 
-            private fun refresh() {
-                main.post { if (callback === this) publish() }
+            private fun refresh(network: Network? = null, caps: NetworkCapabilities? = null) {
+                main.post {
+                    if (callback !== this) return@post
+                    // Capabilities are useful only if they describe the current
+                    // default route; an older event must not open the Wi-Fi gate.
+                    publish(network, caps)
+                    // On some devices the active route changes just after its
+                    // callbacks. Coalesce a second read once the handoff settles.
+                    main.removeCallbacks(confirmDefaultNetwork)
+                    main.postDelayed(confirmDefaultNetwork, 500)
+                }
             }
         }
         try {
@@ -79,19 +91,30 @@ internal class SlovofonDownloadNetwork(context: Context, messenger: BinaryMessen
     override fun onCancel(arguments: Any?) {
         listener = null
         last = null
+        main.removeCallbacks(confirmDefaultNetwork)
         callback?.let {
             runCatching { connectivity.unregisterNetworkCallback(it) }
         }
         callback = null
     }
 
-    private fun publish(): Map<String, Boolean> {
-        val caps = if (callback == null) null else connectivity.activeNetwork
-            ?.let(connectivity::getNetworkCapabilities)
+    private fun publish(
+        reportedNetwork: Network? = null,
+        reportedCaps: NetworkCapabilities? = null,
+    ): Map<String, Boolean> {
+        val active = if (callback == null) null else connectivity.activeNetwork
+        val caps = when {
+            active == null -> null
+            active == reportedNetwork && reportedCaps != null -> reportedCaps
+            else -> connectivity.getNetworkCapabilities(active)
+        }
         val state = mapOf(
             "connected" to (caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true),
             "wifi" to (caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true &&
-                !caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)),
+                !caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) &&
+                // The Wi-Fi transport may already be the default before
+                // DHCP/routing and Internet validation have settled.
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)),
             "wifiOnly" to preferences.getBoolean("wifi_only", false),
         )
         if (state != last) {
