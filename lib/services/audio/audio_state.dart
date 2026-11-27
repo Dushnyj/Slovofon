@@ -1,3 +1,4 @@
+import '../../core/network/media_request_policy.dart';
 import '../../domain/models/playback_session.dart';
 
 enum AudioPlaybackStatus {
@@ -17,16 +18,19 @@ class AudioMediaSource {
     required this.type,
     required this.uri,
     Map<String, String> headers = const {},
+    this.requestPolicy,
   }) : headers = Map.unmodifiable(headers);
 
   factory AudioMediaSource.url(
     Uri uri, {
     Map<String, String> headers = const {},
+    MediaRequestPolicy? requestPolicy,
   }) {
     return AudioMediaSource._(
       type: AudioMediaSourceType.url,
       uri: uri,
       headers: headers,
+      requestPolicy: requestPolicy,
     );
   }
 
@@ -47,6 +51,7 @@ class AudioMediaSource {
   final AudioMediaSourceType type;
   final Uri uri;
   final Map<String, String> headers;
+  final MediaRequestPolicy? requestPolicy;
 
   String get assetPath => uri.path;
   String get filePath => uri.toFilePath();
@@ -61,6 +66,8 @@ class AudioPlaybackChapter {
     this.isDownloaded = false,
     this.mediaSource,
     this.originalMediaSource,
+    this.storageIdentity,
+    this.storageMediaReference,
   });
 
   final String id;
@@ -73,6 +80,11 @@ class AudioPlaybackChapter {
   /// Remote source retained when [mediaSource] is an offline file overlay.
   final AudioMediaSource? originalMediaSource;
 
+  /// Stable, opaque identity for an audio file, unrelated to playlist order.
+  /// Null means the caller cannot prove a provider identity.
+  final String? storageIdentity;
+  final String? storageMediaReference;
+
   AudioPlaybackChapter copyWith({
     String? id,
     int? index,
@@ -81,6 +93,8 @@ class AudioPlaybackChapter {
     bool? isDownloaded,
     AudioMediaSource? mediaSource,
     AudioMediaSource? originalMediaSource,
+    String? storageIdentity,
+    String? storageMediaReference,
   }) {
     return AudioPlaybackChapter(
       id: id ?? this.id,
@@ -90,6 +104,9 @@ class AudioPlaybackChapter {
       isDownloaded: isDownloaded ?? this.isDownloaded,
       mediaSource: mediaSource ?? this.mediaSource,
       originalMediaSource: originalMediaSource ?? this.originalMediaSource,
+      storageIdentity: storageIdentity ?? this.storageIdentity,
+      storageMediaReference:
+          storageMediaReference ?? this.storageMediaReference,
     );
   }
 }
@@ -115,6 +132,7 @@ class AudioPlaybackBook {
     this.publishedYear,
     this.sourceUrl,
     this.isFragment = false,
+    this.offlineOnly = false,
   });
 
   final String id;
@@ -137,6 +155,9 @@ class AudioPlaybackBook {
   final String? sourceUrl;
   final bool isFragment;
 
+  /// Runtime restriction for a playlist opened from downloaded-only search.
+  final bool offlineOnly;
+
   Duration get totalDuration {
     return chapters.fold(
       Duration.zero,
@@ -144,7 +165,12 @@ class AudioPlaybackBook {
     );
   }
 
-  AudioPlaybackBook copyWith({List<AudioPlaybackChapter>? chapters}) {
+  AudioPlaybackBook copyWith({
+    List<AudioPlaybackChapter>? chapters,
+    bool? offlineOnly,
+    String? coverUrl,
+    bool clearCoverUrl = false,
+  }) {
     return AudioPlaybackBook(
       id: id,
       versionId: versionId,
@@ -155,7 +181,7 @@ class AudioPlaybackBook {
       sourceName: sourceName,
       chapters: chapters ?? this.chapters,
       sourceBookId: sourceBookId,
-      coverUrl: coverUrl,
+      coverUrl: clearCoverUrl ? null : (coverUrl ?? this.coverUrl),
       description: description,
       genre: genre,
       seriesTitle: seriesTitle,
@@ -165,6 +191,7 @@ class AudioPlaybackBook {
       publishedYear: publishedYear,
       sourceUrl: sourceUrl,
       isFragment: isFragment,
+      offlineOnly: offlineOnly ?? this.offlineOnly,
     );
   }
 }

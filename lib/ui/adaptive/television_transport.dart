@@ -224,6 +224,7 @@ class _TelevisionTransportState extends ConsumerState<TelevisionTransport> {
                           child: BookCover(
                             title: book.title,
                             imageUrl: book.coverUrl,
+                            sourceId: book.sourceId,
                             width: 32,
                             height: 46,
                             showProgressPercent: false,

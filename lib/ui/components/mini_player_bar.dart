@@ -76,6 +76,7 @@ class MiniPlayerBar extends ConsumerWidget {
                               title: book.title,
                               progress: state.bookProgress,
                               imageUrl: book.coverUrl,
+                              sourceId: book.sourceId,
                               showProgressPercent: false,
                               width: 34,
                               height: 42,
@@ -382,6 +383,7 @@ class _WindowsPlaybackDockState extends State<_WindowsPlaybackDock> {
                       BookCover(
                         title: book.title,
                         imageUrl: book.coverUrl,
+                        sourceId: book.sourceId,
                         width: 48,
                         height: 66,
                         showProgressPercent: false,
@@ -717,6 +719,7 @@ class _DesktopMiniPlayerMetadata extends StatelessWidget {
           title: book.title,
           progress: progress,
           imageUrl: book.coverUrl,
+          sourceId: book.sourceId,
           showProgressPercent: false,
           width: 42,
           height: 54,

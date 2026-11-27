@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import '../sources/source_cover_repository.dart';
 import 'audio_engine.dart';
 import 'audio_focus.dart';
 import 'audio_state.dart';
@@ -523,7 +524,7 @@ class AndroidMediaSessionEngine
       bookTitle: book.title,
       chapterTitle: chapter.title,
       sourceName: book.sourceName,
-      coverUrl: book.coverUrl,
+      coverUrl: _localArtworkUrl(book),
       position: _clampPosition(_lastSnapshot.position),
       duration: _effectiveDuration,
       processingState: preparingPlayback && !canStart
@@ -542,6 +543,16 @@ class AndroidMediaSessionEngine
           book.chapters.indexWhere((item) => item.id == chapter.id) <
           book.chapters.length - 1,
     );
+  }
+
+  String? _localArtworkUrl(AudioPlaybackBook book) {
+    final raw = book.coverUrl;
+    final uri = raw == null ? null : Uri.tryParse(raw);
+    if (uri == null) return null;
+    if (uri.scheme == 'file') return uri.toString();
+    return SourceCoverRepository.shared
+        .cachedArtworkUri(book.sourceId, uri)
+        ?.toString();
   }
 
   Future<bool> _ensureForeground(AndroidMediaSessionSnapshot snapshot) async {

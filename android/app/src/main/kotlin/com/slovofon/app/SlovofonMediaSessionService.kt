@@ -3,12 +3,14 @@ package com.slovofon.app
 import android.app.PendingIntent
 import android.content.Intent
 import android.os.Bundle
+import android.os.Process
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionCommands
 import androidx.media3.session.SessionResult
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import java.io.File
 import java.lang.ref.WeakReference
 
 class SlovofonMediaSessionService : MediaSessionService() {
@@ -29,7 +31,10 @@ class SlovofonMediaSessionService : MediaSessionService() {
             }
         })
         setMediaNotificationProvider(SlovofonMediaNotificationProvider(this))
-        val sessionPlayer = SlovofonMediaSessionPlayer()
+        val sessionPlayer = SlovofonMediaSessionPlayer(
+            bookDirectory = File(filesDir, "books"),
+            coverCacheDirectory = File(cacheDir, "verified-covers-v1"),
+        )
         player = sessionPlayer
         val session = MediaSession.Builder(this, sessionPlayer)
             .setId("slovofon-playback")
@@ -164,10 +169,14 @@ class SlovofonMediaSessionService : MediaSessionService() {
     }
 
     private class SlovofonMediaSessionCallback : MediaSession.Callback {
+        private fun canControl(controller: MediaSession.ControllerInfo): Boolean =
+            controller.isTrusted || controller.uid == Process.myUid()
+
         override fun onConnect(
             session: MediaSession,
             controller: MediaSession.ControllerInfo,
         ): MediaSession.ConnectionResult {
+            if (!canControl(controller)) return MediaSession.ConnectionResult.reject()
             val sessionCommands = SessionCommands.Builder()
                 .addSessionCommands(
                     MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.commands,
@@ -185,6 +194,11 @@ class SlovofonMediaSessionService : MediaSessionService() {
             customCommand: androidx.media3.session.SessionCommand,
             args: Bundle,
         ): ListenableFuture<SessionResult> {
+            if (!canControl(controller)) {
+                return Futures.immediateFuture(
+                    SessionResult(SessionResult.RESULT_ERROR_PERMISSION_DENIED),
+                )
+            }
             when (customCommand.customAction) {
                 SlovofonMediaButtons.ACTION_REWIND ->
                     SlovofonMediaSessionBridge.dispatchCommand("rewind")

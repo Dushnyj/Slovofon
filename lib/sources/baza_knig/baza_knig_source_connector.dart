@@ -1,6 +1,7 @@
 import '../../domain/models/audio_track.dart';
 import '../../domain/models/chapter.dart';
 import '../../services/audio/audio_state.dart';
+import '../built_in_source_policies.dart';
 import '../source_connector.dart';
 import '../source_media_validator.dart';
 import '../source_models.dart';
@@ -58,11 +59,7 @@ class BazaKnigSourceConnector
   );
 
   @override
-  SourceMediaPolicy get mediaPolicy => const SourceMediaPolicy(
-    metadataHosts: {'baza-knig.top', 'www.baza-knig.top'},
-    mediaHosts: {'abooka.casa', 'archive.org'},
-    coverHosts: {'baza-knig.top', 'www.baza-knig.top'},
-  );
+  SourceMediaPolicy get mediaPolicy => BuiltInSourcePolicies.byId(id)!;
 
   @override
   Future<SourceHealth> checkHealth() async {

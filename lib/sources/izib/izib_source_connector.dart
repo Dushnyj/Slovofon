@@ -1,6 +1,7 @@
 import '../../domain/models/audio_track.dart';
 import '../../domain/models/chapter.dart';
 import '../../services/audio/audio_state.dart';
+import '../built_in_source_policies.dart';
 import '../source_connector.dart';
 import '../source_media_validator.dart';
 import '../source_models.dart';
@@ -57,11 +58,7 @@ class IzibSourceConnector
   );
 
   @override
-  SourceMediaPolicy get mediaPolicy => const SourceMediaPolicy(
-    metadataHosts: {'izib.uk', 'api.izib.uk'},
-    mediaHosts: {'izib.uk', 'audioknigi.xyz'},
-    coverHosts: {'izib.uk'},
-  );
+  SourceMediaPolicy get mediaPolicy => BuiltInSourcePolicies.byId(id)!;
 
   @override
   Future<SourceHealth> checkHealth() async {

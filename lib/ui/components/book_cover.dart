@@ -1,7 +1,9 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
+import '../../services/sources/source_cover_repository.dart';
 import '../icons/app_icons.dart';
 import '../adaptive/desktop_layout.dart';
 
@@ -13,6 +15,7 @@ class BookCover extends StatelessWidget {
     this.height = 104,
     this.showProgressPercent = true,
     this.imageUrl,
+    this.sourceId,
     super.key,
   });
 
@@ -22,14 +25,15 @@ class BookCover extends StatelessWidget {
   final double height;
   final bool showProgressPercent;
   final String? imageUrl;
+  final String? sourceId;
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final desktop = DesktopLayout.isActive(context);
     final pixelRatio = MediaQuery.devicePixelRatioOf(context);
-    final cacheWidth = (width * pixelRatio).ceil();
-    final cacheHeight = (height * pixelRatio).ceil();
+    final cacheWidth = (width * pixelRatio).ceil().clamp(1, 1024).toInt();
+    final cacheHeight = (height * pixelRatio).ceil().clamp(1, 1024).toInt();
     final boundedProgress = progress.clamp(0, 1).toDouble();
     final initials = title
         .split(RegExp(r'\s+'))
@@ -138,27 +142,100 @@ class BookCover extends StatelessWidget {
       initials: initials,
       colorScheme: colorScheme,
     );
-    if (uri != null && uri.scheme == 'file') {
-      return Image.file(
-        File(uri.toFilePath()),
-        fit: BoxFit.cover,
-        cacheWidth: cacheWidth,
-        cacheHeight: cacheHeight,
-        filterQuality: FilterQuality.medium,
-        errorBuilder: (context, error, stackTrace) => placeholder,
-      );
+    if (uri == null) return null;
+    if (uri.scheme == 'file') {
+      if (uri.host.isNotEmpty || uri.hasQuery || uri.hasFragment) return null;
+      try {
+        return Image.file(
+          File.fromUri(uri),
+          fit: BoxFit.cover,
+          cacheWidth: cacheWidth,
+          cacheHeight: cacheHeight,
+          filterQuality: FilterQuality.medium,
+          errorBuilder: (context, error, stackTrace) => placeholder,
+        );
+      } on UnsupportedError {
+        return null;
+      } on ArgumentError {
+        return null;
+      }
     }
 
-    return Image.network(
-      normalizedUrl,
-      fit: BoxFit.cover,
+    if (SourceCoverRepository.policyFor(sourceId, uri) == null) return null;
+    return _VerifiedNetworkCover(
+      sourceId: sourceId!,
+      uri: uri,
       cacheWidth: cacheWidth,
       cacheHeight: cacheHeight,
-      filterQuality: FilterQuality.medium,
-      gaplessPlayback: true,
-      errorBuilder: (context, error, stackTrace) => placeholder,
+      placeholder: placeholder,
     );
   }
+}
+
+class _VerifiedNetworkCover extends StatefulWidget {
+  const _VerifiedNetworkCover({
+    required this.sourceId,
+    required this.uri,
+    required this.cacheWidth,
+    required this.cacheHeight,
+    required this.placeholder,
+  });
+
+  final String sourceId;
+  final Uri uri;
+  final int cacheWidth;
+  final int cacheHeight;
+  final Widget placeholder;
+
+  @override
+  State<_VerifiedNetworkCover> createState() => _VerifiedNetworkCoverState();
+}
+
+class _VerifiedNetworkCoverState extends State<_VerifiedNetworkCover> {
+  late Future<Uint8List?> _bytes;
+  int _revision = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(_VerifiedNetworkCover oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.sourceId != widget.sourceId || oldWidget.uri != widget.uri) {
+      _load();
+    }
+  }
+
+  void _load() {
+    final revision = ++_revision;
+    _bytes = SourceCoverRepository.shared.load(
+      widget.sourceId,
+      widget.uri,
+      waitWhile: () => mounted && revision == _revision,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<Uint8List?>(
+    future: _bytes,
+    builder: (context, snapshot) {
+      final data = snapshot.connectionState == ConnectionState.done
+          ? snapshot.data
+          : null;
+      if (data == null) return widget.placeholder;
+      return Image.memory(
+        data,
+        fit: BoxFit.cover,
+        cacheWidth: widget.cacheWidth,
+        cacheHeight: widget.cacheHeight,
+        filterQuality: FilterQuality.medium,
+        errorBuilder: (context, error, stackTrace) => widget.placeholder,
+      );
+    },
+  );
 }
 
 class _CoverPlaceholder extends StatelessWidget {

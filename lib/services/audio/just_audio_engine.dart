@@ -5,6 +5,7 @@ import 'package:just_audio/just_audio.dart' as just_audio;
 import 'audio_engine.dart';
 import 'audio_focus.dart';
 import 'audio_state.dart';
+import 'verified_stream_audio_source.dart';
 
 class AudioLoadRequest {
   const AudioLoadRequest({required this.source, required this.initialPosition});
@@ -94,6 +95,7 @@ class PackageJustAudioPlayerAdapter implements JustAudioPlayerAdapter {
   late final StreamSubscription<just_audio.PlayerState>
   _playerStateSubscription;
   late final StreamSubscription<just_audio.PlayerException> _errorSubscription;
+  VerifiedStreamAudioSource? _verifiedSource;
   bool _disposed = false;
 
   @override
@@ -112,6 +114,8 @@ class PackageJustAudioPlayerAdapter implements JustAudioPlayerAdapter {
       return;
     }
     _disposed = true;
+    _verifiedSource?.close();
+    _verifiedSource = null;
     await _playerStateSubscription.cancel();
     await _errorSubscription.cancel();
     await _playbackSnapshots.close();
@@ -121,14 +125,27 @@ class PackageJustAudioPlayerAdapter implements JustAudioPlayerAdapter {
   @override
   Future<void> load(AudioLoadRequest request) async {
     final source = request.source;
+    _verifiedSource?.close();
+    _verifiedSource = null;
 
     switch (source.type) {
       case AudioMediaSourceType.url:
-        await _player.setUrl(
-          source.uri.toString(),
-          headers: source.headers.isEmpty ? null : source.headers,
-          initialPosition: request.initialPosition,
-        );
+        final policy = source.requestPolicy;
+        if (policy == null || !policy.allows(source.uri)) {
+          throw const AudioEngineException('Media request is not allowed.');
+        }
+        final verified = VerifiedStreamAudioSource(source, policy: policy);
+        _verifiedSource = verified;
+        try {
+          await _player.setAudioSource(
+            verified,
+            initialPosition: request.initialPosition,
+          );
+        } on Object {
+          verified.close();
+          if (identical(_verifiedSource, verified)) _verifiedSource = null;
+          rethrow;
+        }
       case AudioMediaSourceType.file:
         await _player.setFilePath(
           source.filePath,

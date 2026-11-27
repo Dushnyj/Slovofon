@@ -1,3 +1,4 @@
+import '../core/network/media_request_policy.dart';
 import '../services/audio/audio_state.dart';
 import 'source_models.dart';
 
@@ -12,7 +13,25 @@ class SourceMediaValidator {
     final source = media.mediaSource;
     switch (source.type) {
       case AudioMediaSourceType.url:
-        _validateNetworkMedia(policy, media, purpose);
+        final requestPolicy = MediaRequestPolicy.allowedHosts(
+          policy.mediaHosts,
+        );
+        _validateNetworkMedia(requestPolicy, media, purpose);
+        return ResolvedMedia(
+          sourceId: media.sourceId,
+          mediaSource: AudioMediaSource.url(
+            source.uri,
+            headers: source.headers,
+            requestPolicy: requestPolicy,
+          ),
+          resolvedAt: media.resolvedAt,
+          sourceBookId: media.sourceBookId,
+          chapterId: media.chapterId,
+          originalUri: media.originalUri,
+          expiresAt: media.expiresAt,
+          requiresProxy: media.requiresProxy,
+          supportsRange: media.supportsRange,
+        );
       case AudioMediaSourceType.file:
       case AudioMediaSourceType.asset:
         _validateLocalMedia(policy, media);
@@ -22,7 +41,7 @@ class SourceMediaValidator {
   }
 
   static void _validateNetworkMedia(
-    SourceMediaPolicy policy,
+    MediaRequestPolicy policy,
     ResolvedMedia media,
     MediaResolvePurpose purpose,
   ) {
@@ -44,7 +63,7 @@ class SourceMediaValidator {
       );
     }
 
-    if (!policy.allowsMediaHost(uri.host)) {
+    if (!policy.allows(uri)) {
       throw SourceException(
         sourceId: media.sourceId,
         kind: SourceErrorKind.mediaValidation,

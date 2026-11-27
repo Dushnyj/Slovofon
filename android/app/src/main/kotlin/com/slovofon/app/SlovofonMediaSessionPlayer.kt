@@ -10,9 +10,23 @@ import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.SimpleBasePlayer
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import java.io.File
 
-class SlovofonMediaSessionPlayer : SimpleBasePlayer(Looper.getMainLooper()) {
+class SlovofonMediaSessionPlayer(
+    bookDirectory: File? = null,
+    coverCacheDirectory: File? = null,
+) : SimpleBasePlayer(Looper.getMainLooper()) {
     private var sessionState = SlovofonMediaSessionState.idle()
+    private val allowedBookRoot = bookDirectory?.let(::canonicalDirectoryPrefix)
+    private val allowedCacheRoot = coverCacheDirectory?.let(::canonicalDirectoryPrefix)
+    private val cacheArtworkName = Regex("^[a-f0-9]{64}\\.img$")
+    private var lastArtworkInput: String? = null
+    private var lastArtworkUri: Uri? = null
+
+    private fun canonicalDirectoryPrefix(directory: File): String? =
+        runCatching {
+            directory.canonicalPath.trimEnd(File.separatorChar) + File.separator
+        }.getOrNull()
 
     fun update(state: SlovofonMediaSessionState) {
         sessionState = state
@@ -136,7 +150,7 @@ class SlovofonMediaSessionPlayer : SimpleBasePlayer(Looper.getMainLooper()) {
             .setArtist(state.chapterTitle.ifBlank { state.sourceName })
             .setAlbumArtist(state.sourceName)
 
-        val coverUri = state.coverUrl?.let { runCatching { Uri.parse(it) }.getOrNull() }
+        val coverUri = verifiedLocalArtwork(state.coverUrl)
         if (coverUri != null) {
             metadataBuilder.setArtworkUri(coverUri)
         }
@@ -153,6 +167,36 @@ class SlovofonMediaSessionPlayer : SimpleBasePlayer(Looper.getMainLooper()) {
             .setDurationUs(if (state.durationMs > 0L) state.durationMs * 1000L else C.TIME_UNSET)
             .setIsSeekable(true)
             .build()
+    }
+
+    private fun verifiedLocalArtwork(raw: String?): Uri? {
+        if (raw == lastArtworkInput) return lastArtworkUri
+        lastArtworkInput = raw
+        lastArtworkUri = raw?.let {
+            runCatching {
+                val uri = Uri.parse(it)
+                val path = uri.path
+                if (uri.scheme != "file" || !uri.authority.isNullOrEmpty() ||
+                    uri.query != null || uri.fragment != null || path == null
+                ) {
+                    return@runCatching null
+                }
+                val file = File(path).canonicalFile
+                val offlineCover = allowedBookRoot?.let {
+                    file.path.startsWith(it) && file.name == "cover.img"
+                } ?: false
+                val cachedCover = allowedCacheRoot?.let {
+                    file.path == it + file.name && cacheArtworkName.matches(file.name)
+                } ?: false
+                if ((!offlineCover && !cachedCover) ||
+                    !file.isFile || file.length() !in 1L..(8L * 1024L * 1024L)
+                ) {
+                    return@runCatching null
+                }
+                Uri.fromFile(file)
+            }.getOrNull()
+        }
+        return lastArtworkUri
     }
 
     private fun mediaPlaylist(state: SlovofonMediaSessionState): MediaPlaylist {

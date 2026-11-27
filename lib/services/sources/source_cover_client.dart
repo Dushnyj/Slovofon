@@ -1,6 +1,8 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import '../../core/network/media_request_policy.dart';
+
 /// Best-effort cover fetches must not hold book metadata refresh indefinitely
 /// or accumulate an unbounded response in memory.
 class SourceCoverClient {
@@ -16,26 +18,49 @@ class SourceCoverClient {
   final Duration idleTimeout;
   final HttpClient Function()? _httpClientFactory;
 
-  Future<List<int>?> load(Uri uri) async {
-    if ((uri.scheme != 'http' && uri.scheme != 'https') || maxBytes <= 0) {
-      return null;
-    }
-    final client = (_httpClientFactory ?? HttpClient.new)()
-      ..connectionTimeout = idleTimeout;
+  Future<Uint8List?> load(Uri uri, {MediaRequestPolicy? policy}) async {
+    final requestPolicy = policy ?? MediaRequestPolicy.sameOrigin(uri);
+    if (!requestPolicy.allows(uri) || maxBytes <= 0) return null;
+    HttpClient? active;
+    var finished = false;
     try {
-      return await _read(client, uri).timeout(totalTimeout);
+      return await (() async {
+        var destination = uri;
+        for (var hop = 0; hop <= 5 && !finished; hop++) {
+          final client = (_httpClientFactory ?? HttpClient.new)()
+            ..connectionTimeout = idleTimeout;
+          active = client;
+          final request = await client.getUrl(destination).timeout(idleTimeout);
+          request.followRedirects = false;
+          final response = await request.close().timeout(idleTimeout);
+          if (_redirects.contains(response.statusCode)) {
+            final next = requestPolicy.resolveRedirect(
+              destination,
+              response.headers.value(HttpHeaders.locationHeader),
+            );
+            if (next == null || hop == 5) return null;
+            active = null;
+            client.close(force: true);
+            destination = next;
+            continue;
+          }
+          return _read(response);
+        }
+        return null;
+      })().timeout(totalTimeout);
     } on Object {
       // Cover failures must not prevent persistence of the playable book.
       return null;
     } finally {
       // Also terminates the actual pending socket/body after a total timeout.
-      client.close(force: true);
+      finished = true;
+      active?.close(force: true);
     }
   }
 
-  Future<List<int>?> _read(HttpClient client, Uri uri) async {
-    final request = await client.getUrl(uri).timeout(idleTimeout);
-    final response = await request.close().timeout(idleTimeout);
+  static const _redirects = {301, 302, 303, 307, 308};
+
+  Future<Uint8List?> _read(HttpClientResponse response) async {
     if (response.statusCode < 200 ||
         response.statusCode >= 300 ||
         response.contentLength > maxBytes) {

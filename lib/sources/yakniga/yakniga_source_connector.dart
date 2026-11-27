@@ -1,6 +1,7 @@
 import '../../domain/models/audio_track.dart';
 import '../../domain/models/chapter.dart';
 import '../../services/audio/audio_state.dart';
+import '../built_in_source_policies.dart';
 import '../source_connector.dart';
 import '../source_media_validator.dart';
 import '../source_models.dart';
@@ -60,11 +61,7 @@ class YaknigaSourceConnector
   );
 
   @override
-  SourceMediaPolicy get mediaPolicy => const SourceMediaPolicy(
-    metadataHosts: {'yakniga.org', 'www.yakniga.org'},
-    mediaHosts: {'yakniga.org', 'www.yakniga.org'},
-    coverHosts: {'yakniga.org', 'www.yakniga.org'},
-  );
+  SourceMediaPolicy get mediaPolicy => BuiltInSourcePolicies.byId(id)!;
 
   @override
   Future<SourceHealth> checkHealth() async {

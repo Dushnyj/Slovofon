@@ -34,7 +34,7 @@ void main() {
       expect(platform.updates.last.bookTitle, 'Мастер и Маргарита');
       expect(platform.updates.last.chapterTitle, 'Глава 1');
       expect(platform.updates.last.sourceName, 'Yakniga');
-      expect(platform.updates.last.coverUrl, 'https://example.test/cover.jpg');
+      expect(platform.updates.last.coverUrl, isNull);
       expect(platform.updates.last.position, const Duration(seconds: 12));
       expect(platform.updates.last.duration, const Duration(minutes: 10));
       expect(

@@ -193,6 +193,7 @@ class _WindowsBookCardState extends State<_WindowsBookCard> {
                           BookCover(
                             title: book.title,
                             imageUrl: book.coverUrl,
+                            sourceId: book.sourceId,
                             progress: progress,
                             width: coverWidth,
                             height: compact ? 108 : 136,
@@ -390,6 +391,7 @@ class _WindowsSearchResultContent extends StatelessWidget {
     final cover = BookCover(
       title: book.title,
       imageUrl: book.coverUrl,
+      sourceId: book.sourceId,
       progress: book.progress.clamp(0, 1),
       width: coverWidth,
       height: compact ? 74 : 92,
@@ -776,6 +778,7 @@ class _WindowsWorkspaceBookContent extends StatelessWidget {
         final cover = BookCover(
           title: book.title,
           imageUrl: book.coverUrl,
+          sourceId: book.sourceId,
           progress: progress,
           width: coverWidth,
           height: coverWidth * 1.42,
@@ -919,6 +922,7 @@ class _PortableBookCardLayout extends StatelessWidget {
                       title: book.title,
                       progress: book.progress.clamp(0, 1).toDouble(),
                       imageUrl: book.coverUrl,
+                      sourceId: book.sourceId,
                       width: coverWidth,
                       height: wide
                           ? (compact ? 102 : 118)

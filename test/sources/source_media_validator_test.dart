@@ -25,7 +25,11 @@ void main() {
         MediaResolvePurpose.playback,
       );
 
-      expect(validated, same(media));
+      expect(validated.mediaSource.uri, media.mediaSource.uri);
+      expect(
+        validated.mediaSource.requestPolicy?.allows(media.mediaSource.uri),
+        isTrue,
+      );
     });
 
     test('rejects media URLs outside the source allowlist', () {

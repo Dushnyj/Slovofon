@@ -128,6 +128,7 @@ class _TelevisionBookCardState extends State<TelevisionBookCard> {
                           BookCover(
                             title: book.title,
                             imageUrl: book.coverUrl,
+                            sourceId: book.sourceId,
                             width: 48,
                             height: 72,
                             showProgressPercent: false,
