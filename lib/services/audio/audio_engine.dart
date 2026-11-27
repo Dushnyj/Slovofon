@@ -63,6 +63,18 @@ abstract interface class AudioEngineChapterNavigationBinding {
   void bindChapterNavigation(AudioEngineChapterNavigationCallbacks callbacks);
 }
 
+/// Optional platform preflight for an authorized, user-intended playback load.
+/// Loading a book just to restore its paused position uses ordinary [AudioEngine.load].
+abstract interface class AudioEngineForegroundPlaybackBinding {
+  Future<void> loadForPlayback(
+    AudioPlaybackChapter chapter, {
+    required Duration position,
+    required AudioPlaybackBook book,
+  });
+
+  void cancelPlaybackPreparation();
+}
+
 enum AudioEngineProcessingState {
   idle,
   loading,

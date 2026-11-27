@@ -42,7 +42,90 @@ void main() {
         AudioEngineProcessingState.ready,
       );
       expect(platform.updates.last.isPlaying, isFalse);
+      expect(platform.updates.last.playWhenReady, isFalse);
+      expect(platform.foregroundRequests, isEmpty);
 
+      await engine.dispose();
+    });
+
+    test(
+      'opens foreground during autoplay load but waits for acknowledgement',
+      () async {
+        final platform = RecordingAndroidMediaSessionPlatform();
+        final delegate = RecordingAudioEngine();
+        final blockedLoad = delegate.pendingLoad = Completer<void>();
+        final foreground = platform.pendingForeground = Completer<bool>();
+        final engine = AndroidMediaSessionEngine(
+          delegate: delegate,
+          platform: platform,
+        );
+        final loading = engine.loadForPlayback(
+          _book.chapters.first,
+          book: _book,
+          position: Duration.zero,
+        );
+        expect(platform.foregroundRequests, hasLength(1));
+        expect(platform.foregroundRequests.single.playWhenReady, isTrue);
+        expect(platform.foregroundRequests.single.isPlaying, isFalse);
+        expect(
+          platform.foregroundRequests.single.processingState,
+          AudioEngineProcessingState.loading,
+        );
+        expect(delegate.playCount, 0);
+
+        blockedLoad.complete();
+        await loading;
+        final playing = engine.play();
+        expect(delegate.playCount, 0);
+        foreground.complete(true);
+        await playing;
+        expect(delegate.playCount, 1);
+        expect(platform.foregroundRequests, hasLength(1));
+        await engine.dispose();
+      },
+    );
+
+    test('pause supersedes a queued foreground start', () async {
+      final platform = RecordingAndroidMediaSessionPlatform();
+      final delegate = RecordingAudioEngine();
+      final foreground = platform.pendingForeground = Completer<bool>();
+      final engine = AndroidMediaSessionEngine(
+        delegate: delegate,
+        platform: platform,
+      );
+      await engine.load(
+        _book.chapters.first,
+        book: _book,
+        position: Duration.zero,
+      );
+      final playing = engine.play();
+      await Future<void>.delayed(Duration.zero);
+      expect(platform.foregroundRequests, hasLength(1));
+      expect(delegate.playCount, 0);
+      await engine.pause();
+      foreground.complete(true);
+      await playing;
+      expect(delegate.playCount, 0);
+      expect(platform.updates.last.playWhenReady, isFalse);
+      await engine.dispose();
+    });
+
+    test('denied foreground does not request actual playback', () async {
+      final platform = RecordingAndroidMediaSessionPlatform()
+        ..foregroundAllowed = false;
+      final delegate = RecordingAudioEngine();
+      final engine = AndroidMediaSessionEngine(
+        delegate: delegate,
+        platform: platform,
+      );
+      await engine.load(
+        _book.chapters.first,
+        book: _book,
+        position: Duration.zero,
+      );
+      await expectLater(engine.play(), throwsA(isA<AudioEngineException>()));
+      expect(delegate.playCount, 0);
+      expect(platform.updates.last.playWhenReady, isFalse);
       await engine.dispose();
     });
 
@@ -123,6 +206,65 @@ void main() {
 
       expect(delegate.disposeCount, 1);
       expect(platform.clearCount, 2);
+    });
+
+    test('an older stop cannot clear a newer play request', () async {
+      final delegate = RecordingAudioEngine();
+      final platform = RecordingAndroidMediaSessionPlatform();
+      final engine = AndroidMediaSessionEngine(
+        delegate: delegate,
+        platform: platform,
+      );
+      final finishStop = Completer<void>();
+      engine.bindChapterNavigation(
+        AudioEngineChapterNavigationCallbacks(
+          onPause: () async {
+            await engine.pause();
+            await finishStop.future;
+          },
+        ),
+      );
+      await engine.load(
+        _book.chapters.first,
+        book: _book,
+        position: Duration.zero,
+      );
+      platform.emit(const AndroidMediaSessionCommand.stop());
+      await Future<void>.delayed(Duration.zero);
+      expect(delegate.pauseCount, 1);
+
+      await engine.play();
+      expect(delegate.playCount, 1);
+      finishStop.complete();
+      await Future<void>.delayed(Duration.zero);
+      expect(platform.clearCount, 0);
+      await engine.dispose();
+    });
+
+    test('buffering does not report audible playback to Android', () async {
+      final delegate = RecordingAudioEngine();
+      final platform = RecordingAndroidMediaSessionPlatform();
+      final engine = AndroidMediaSessionEngine(
+        delegate: delegate,
+        platform: platform,
+      );
+      await engine.load(
+        _book.chapters.first,
+        book: _book,
+        position: Duration.zero,
+      );
+      await engine.play();
+      delegate.emit(
+        const AudioEngineSnapshot(
+          position: Duration(seconds: 3),
+          processingState: AudioEngineProcessingState.buffering,
+          isPlaying: true,
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(platform.updates.last.playWhenReady, isTrue);
+      expect(platform.updates.last.isPlaying, isFalse);
+      await engine.dispose();
     });
 
     test(
@@ -218,6 +360,7 @@ class RecordingAudioEngine implements AudioEngine {
   int playCount = 0;
   int pauseCount = 0;
   int disposeCount = 0;
+  Completer<void>? pendingLoad;
 
   @override
   Stream<AudioEngineSnapshot> get snapshots => _snapshots.stream;
@@ -240,6 +383,7 @@ class RecordingAudioEngine implements AudioEngine {
   }) async {
     loadedChapterIds.add(chapter.id);
     loadedPositions.add(position);
+    await pendingLoad?.future;
   }
 
   @override
@@ -268,6 +412,9 @@ class RecordingAndroidMediaSessionPlatform
     implements AndroidMediaSessionPlatform {
   final _commands = StreamController<AndroidMediaSessionCommand>.broadcast();
   final updates = <AndroidMediaSessionSnapshot>[];
+  final foregroundRequests = <AndroidMediaSessionSnapshot>[];
+  Completer<bool>? pendingForeground;
+  bool foregroundAllowed = true;
   int clearCount = 0;
 
   @override
@@ -285,5 +432,12 @@ class RecordingAndroidMediaSessionPlatform
   @override
   Future<void> update(AndroidMediaSessionSnapshot snapshot) async {
     updates.add(snapshot);
+  }
+
+  @override
+  Future<bool> preparePlayback(AndroidMediaSessionSnapshot snapshot) async {
+    foregroundRequests.add(snapshot);
+    final pending = pendingForeground;
+    return pending == null ? foregroundAllowed : await pending.future;
   }
 }

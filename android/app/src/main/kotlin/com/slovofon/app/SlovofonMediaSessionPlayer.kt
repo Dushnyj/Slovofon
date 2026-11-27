@@ -26,15 +26,16 @@ class SlovofonMediaSessionPlayer : SimpleBasePlayer(Looper.getMainLooper()) {
 
     override fun getState(): State {
         val state = sessionState
+        val playbackState = playbackState(state)
         val builder = State.Builder()
             .setAvailableCommands(availableCommands(state))
             .setPlayWhenReady(
-                state.isPlaying,
+                state.playWhenReady,
                 Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST,
             )
-            .setPlaybackState(playbackState(state))
+            .setPlaybackState(playbackState)
             .setPlaybackParameters(PlaybackParameters(state.speed))
-            .setIsLoading(state.processingState == "loading" || state.processingState == "buffering")
+            .setIsLoading(playbackState == Player.STATE_BUFFERING)
             .setPlaylistMetadata(
                 MediaMetadata.Builder()
                     .setTitle(state.appName)
@@ -55,7 +56,10 @@ class SlovofonMediaSessionPlayer : SimpleBasePlayer(Looper.getMainLooper()) {
     }
 
     override fun handleSetPlayWhenReady(playWhenReady: Boolean): ListenableFuture<Any> {
-        sessionState = sessionState.copy(isPlaying = playWhenReady)
+        sessionState = sessionState.copy(
+            playWhenReady = playWhenReady,
+            isPlaying = sessionState.isPlaying && playWhenReady,
+        )
         SlovofonMediaSessionBridge.dispatchCommand(if (playWhenReady) "play" else "pause")
         invalidateState()
         return handled()
@@ -108,7 +112,8 @@ class SlovofonMediaSessionPlayer : SimpleBasePlayer(Looper.getMainLooper()) {
     }
 
     override fun handleRelease(): ListenableFuture<Any> {
-        SlovofonMediaSessionBridge.dispatchCommand("stop")
+        // Releasing the Android facade is not a transport command. The Dart
+        // decoder can still be running after this native session goes away.
         clear()
         return handled()
     }
@@ -212,6 +217,13 @@ class SlovofonMediaSessionPlayer : SimpleBasePlayer(Looper.getMainLooper()) {
 
             "completed" -> Player.STATE_ENDED
             "idle" -> Player.STATE_IDLE
+            // An explicit Play that has not yet started sound stays cancelable
+            // from the notification instead of showing a second Play button.
+            "ready" -> if (state.playWhenReady && !state.isPlaying) {
+                Player.STATE_BUFFERING
+            } else {
+                Player.STATE_READY
+            }
             else -> Player.STATE_READY
         }
     }

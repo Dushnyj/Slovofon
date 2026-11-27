@@ -1,11 +1,13 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../domain/models/app_settings.dart';
 import '../core/platform/app_device_profile.dart';
+import '../services/audio/playback_controller_provider.dart';
 import '../services/deep_links/app_deep_links.dart';
 import '../services/deep_links/slovofon_deep_link.dart';
 import '../services/settings/app_settings_store.dart';
@@ -38,6 +40,7 @@ class SlovofonApp extends ConsumerStatefulWidget {
 class _SlovofonAppState extends ConsumerState<SlovofonApp>
     with WidgetsBindingObserver {
   StreamSubscription<Uri>? _deepLinkSubscription;
+  bool _checkpointedAndroidBackground = false;
 
   @override
   void initState() {
@@ -65,6 +68,20 @@ class _SlovofonAppState extends ConsumerState<SlovofonApp>
   @override
   void didChangeAccessibilityFeatures() {
     if (mounted) setState(() {});
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (defaultTargetPlatform != TargetPlatform.android || !mounted) return;
+    if (state == AppLifecycleState.resumed) {
+      _checkpointedAndroidBackground = false;
+    } else if (!_checkpointedAndroidBackground &&
+        (state == AppLifecycleState.hidden ||
+            state == AppLifecycleState.paused)) {
+      _checkpointedAndroidBackground = true;
+      final playback = ref.read(playbackControllerProvider);
+      if (playback.state.hasBook) unawaited(playback.flushPlayback());
+    }
   }
 
   void _listenForDeepLinks() {

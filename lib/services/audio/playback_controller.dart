@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../domain/models/playback_session.dart';
 import 'audio_engine.dart';
+import 'audio_focus.dart';
 import 'audio_persistence.dart';
 import 'audio_state.dart';
 
@@ -14,6 +15,8 @@ typedef PlaybackAccessGuard =
       AudioPlaybackBook book,
       AudioPlaybackChapter chapter,
     );
+
+typedef _AudioFocusPause = ({int generation, Future<void> paused});
 
 class PlaybackController extends ChangeNotifier {
   PlaybackController({
@@ -34,6 +37,11 @@ class PlaybackController extends ChangeNotifier {
        _clock = clock ?? DateTime.now,
        _persistenceInterval = persistenceInterval {
     _engineSubscription = _engine.snapshots.listen(_handleEngineSnapshot);
+    if (_engine case final AudioInterruptionSource source) {
+      _audioFocusSubscription = source.audioFocusEvents.listen(
+        _handleAudioFocusEvent,
+      );
+    }
     if (_engine case final AudioEngineChapterNavigationBinding binding) {
       binding.bindChapterNavigation(
         AudioEngineChapterNavigationCallbacks(
@@ -56,6 +64,9 @@ class PlaybackController extends ChangeNotifier {
   final DateTime Function() _clock;
   final Duration _persistenceInterval;
   late final StreamSubscription<AudioEngineSnapshot> _engineSubscription;
+  StreamSubscription<AudioFocusEvent>? _audioFocusSubscription;
+  _AudioFocusPause? _audioFocusPause;
+  bool _transientAudioFocusLoss = false;
 
   AudioPlaybackState _state = AudioPlaybackState.idle;
   DateTime? _lastPersistedAt;
@@ -129,6 +140,7 @@ class PlaybackController extends ChangeNotifier {
     int chapterIndex = 0,
     Duration position = Duration.zero,
     bool autoPlay = false,
+    bool replayChapterAtEnd = false,
   }) async {
     if (_unavailable) return;
     final generation = ++_operationGeneration;
@@ -138,10 +150,11 @@ class PlaybackController extends ChangeNotifier {
     _chapterResumePositions.clear();
     _chapterResumePositionsByIndex.clear();
     final normalizedIndex = _clampChapterIndex(book, chapterIndex);
-    final normalizedPosition = _clampPosition(
-      position,
-      book.chapters[normalizedIndex],
-    );
+    final chapter = book.chapters[normalizedIndex];
+    final normalizedPosition =
+        replayChapterAtEnd && _isAtChapterEnd(chapter, position)
+        ? Duration.zero
+        : _clampPosition(position, chapter);
 
     _state = AudioPlaybackState(
       book: book,
@@ -165,26 +178,33 @@ class PlaybackController extends ChangeNotifier {
       book.chapters[normalizedIndex],
       position: normalizedPosition,
       generation: generation,
+      prepareForPlayback: autoPlay,
     );
     if (!loaded || !_isCurrent(generation)) {
       return;
     }
+    if (replayChapterAtEnd && !await _rewindIfDecoderReachedEnd(generation)) {
+      _cancelPlaybackPreparation(generation);
+      return;
+    }
 
     _saveMetadata(_state.book!);
-    if (!await _configureEngine(generation)) return;
+    if (!await _configureEngine(generation)) {
+      _cancelPlaybackPreparation(generation);
+      return;
+    }
 
     if (autoPlay) {
       if (!await _authorizeEnginePlayback(generation) ||
           !_isCurrent(generation)) {
+        _cancelPlaybackPreparation(generation);
         return;
       }
       _startEnginePlayback(generation);
     }
 
     _state = _state.copyWith(
-      status: autoPlay
-          ? AudioPlaybackStatus.playing
-          : AudioPlaybackStatus.paused,
+      status: autoPlay ? _requestedPlaybackStatus : AudioPlaybackStatus.paused,
       clearError: true,
     );
     notifyListeners();
@@ -246,17 +266,22 @@ class PlaybackController extends ChangeNotifier {
       book.chapters[normalizedIndex],
       position: _state.position,
       generation: generation,
+      prepareForPlayback: session.isPlaying,
     );
     if (!loaded) {
       return;
     }
 
     _saveMetadata(_state.book!);
-    if (!await _configureEngine(generation)) return;
+    if (!await _configureEngine(generation)) {
+      _cancelPlaybackPreparation(generation);
+      return;
+    }
 
     if (session.isPlaying) {
       if (!await _authorizeEnginePlayback(generation) ||
           !_isCurrent(generation)) {
+        _cancelPlaybackPreparation(generation);
         return;
       }
       _startEnginePlayback(generation);
@@ -264,7 +289,7 @@ class PlaybackController extends ChangeNotifier {
 
     _state = _state.copyWith(
       status: session.isPlaying
-          ? AudioPlaybackStatus.playing
+          ? _requestedPlaybackStatus
           : AudioPlaybackStatus.paused,
       clearError: true,
     );
@@ -295,18 +320,31 @@ class PlaybackController extends ChangeNotifier {
     );
   }
 
-  Future<void> play() async {
+  Future<void> play() => _play();
+
+  Future<void> _play({bool replayChapterAtEnd = false}) async {
     if (_unavailable || !_state.hasBook) return;
+    _audioFocusPause = null;
     final generation = ++_operationGeneration;
-    if (!await _preparePositionForPlayback(generation)) return;
+    if (!await _preparePositionForPlayback(
+      generation,
+      replayChapterAtEnd: replayChapterAtEnd,
+    )) {
+      return;
+    }
     if (!_isCurrent(generation)) return;
+    if (replayChapterAtEnd && !await _rewindIfDecoderReachedEnd(generation)) {
+      _cancelPlaybackPreparation(generation);
+      return;
+    }
     if (!await _authorizeEnginePlayback(generation) ||
         !_isCurrent(generation)) {
+      _cancelPlaybackPreparation(generation);
       return;
     }
     _startEnginePlayback(generation);
     _state = _state.copyWith(
-      status: AudioPlaybackStatus.playing,
+      status: _requestedPlaybackStatus,
       clearError: true,
     );
     notifyListeners();
@@ -315,6 +353,11 @@ class PlaybackController extends ChangeNotifier {
 
   Future<void> pause() async {
     if (_unavailable || !_state.hasBook) return;
+    _audioFocusPause = null;
+    await _pause();
+  }
+
+  Future<void> _pause() async {
     final generation = ++_operationGeneration;
     _pendingPlayRequest = false;
     _state = _state.copyWith(status: AudioPlaybackStatus.paused);
@@ -325,12 +368,81 @@ class PlaybackController extends ChangeNotifier {
     await _persistPlayback(force: true);
   }
 
-  Future<void> togglePlayPause() {
-    return _state.isPlaying ||
-            _state.status == AudioPlaybackStatus.buffering ||
-            _pendingPlayRequest
+  bool get _hasPlayIntent =>
+      _state.isPlaying ||
+      _state.status == AudioPlaybackStatus.buffering ||
+      _pendingPlayRequest;
+
+  void _handleAudioFocusEvent(AudioFocusEvent event) {
+    if (_unavailable) return;
+    switch (event) {
+      case AudioFocusEvent.canDuck:
+        // A short notification tone must not change our position, play intent,
+        // or volume. Keep SPEECH attributes so Android need not system-duck.
+        return;
+      case AudioFocusEvent.transientLoss:
+        _transientAudioFocusLoss = true;
+        final current = _audioFocusPause;
+        if ((current != null && _isCurrent(current.generation)) ||
+            !_hasPlayIntent) {
+          return;
+        }
+        final generation = _operationGeneration + 1;
+        final paused = _pause();
+        if (_isCurrent(generation)) {
+          _audioFocusPause = (generation: generation, paused: paused);
+        }
+        unawaited(paused);
+      case AudioFocusEvent.gain:
+        _transientAudioFocusLoss = false;
+        final interrupted = _audioFocusPause;
+        if (interrupted != null) {
+          unawaited(_resumeAfterAudioFocus(interrupted));
+        }
+      case AudioFocusEvent.loss:
+      case AudioFocusEvent.becomingNoisy:
+        _audioFocusPause = null;
+        _transientAudioFocusLoss = false;
+        if (_hasPlayIntent) unawaited(_pause());
+    }
+  }
+
+  Future<void> _resumeAfterAudioFocus(_AudioFocusPause interrupted) async {
+    // A short interruption may end before the player acknowledges the pause.
+    // Resume only once and only for the same uninterrupted transport intent.
+    await interrupted.paused;
+    bool canResume() =>
+        _audioFocusPause == interrupted &&
+        _isCurrent(interrupted.generation) &&
+        !_transientAudioFocusLoss &&
+        _state.status == AudioPlaybackStatus.paused &&
+        _loadedChapterIdentity != null;
+    if (!canResume()) return;
+    if (!await _authorizeEnginePlayback(interrupted.generation) ||
+        !canResume()) {
+      return;
+    }
+    // Focus regain resumes the current decoder, never a different chapter or
+    // an asynchronously re-resolved book. Recheck after the access guard.
+    _audioFocusPause = null;
+    _startEnginePlayback(interrupted.generation);
+    _state = _state.copyWith(
+      status: _requestedPlaybackStatus,
+      clearError: true,
+    );
+    notifyListeners();
+    await _persistPlayback(force: true);
+  }
+
+  Future<void> togglePlayPause() => _hasPlayIntent ? pause() : play();
+
+  Future<void> toggleChapterPlayPause(int index) {
+    final book = _state.book;
+    if (_unavailable || book == null) return Future<void>.value();
+    final target = _clampChapterIndex(book, index);
+    return target == _state.chapterIndex && _hasPlayIntent
         ? pause()
-        : play();
+        : playChapterAt(target);
   }
 
   Future<void> seek(Duration position) async {
@@ -500,6 +612,7 @@ class PlaybackController extends ChangeNotifier {
       index,
       position: _chapterResumePositionFor(book, index),
       generation: generation,
+      replayChapterAtEnd: true,
     );
   }
 
@@ -512,6 +625,7 @@ class PlaybackController extends ChangeNotifier {
       index,
       position: _chapterResumePositionFor(book, index),
       generation: generation,
+      replayChapterAtEnd: true,
     );
   }
 
@@ -520,7 +634,7 @@ class PlaybackController extends ChangeNotifier {
     if (_unavailable || book == null) return;
     final normalized = _clampChapterIndex(book, index);
     if (normalized == _state.chapterIndex) {
-      await play();
+      await _play(replayChapterAtEnd: true);
       return;
     }
     final generation = ++_operationGeneration;
@@ -529,6 +643,7 @@ class PlaybackController extends ChangeNotifier {
       position: _chapterResumePositionFor(book, normalized),
       playAfterLoad: true,
       generation: generation,
+      replayChapterAtEnd: true,
     );
   }
 
@@ -649,6 +764,7 @@ class PlaybackController extends ChangeNotifier {
     final pending = _shutdownOperation;
     if (pending != null) return pending;
     _shuttingDown = true;
+    _audioFocusPause = null;
     _volumeSaveTimer?.cancel();
     _volumeSaveTimer = null;
     _operationGeneration++;
@@ -683,6 +799,7 @@ class PlaybackController extends ChangeNotifier {
 
     _disposed = true;
     try {
+      await _audioFocusSubscription?.cancel();
       await _engineSubscription.cancel();
     } finally {
       try {
@@ -777,6 +894,7 @@ class PlaybackController extends ChangeNotifier {
     }
 
     if (snapshot.processingState == AudioEngineProcessingState.error) {
+      _audioFocusPause = null;
       _pendingPlayRequest = false;
       _loadedChapterIdentity = null;
     }
@@ -871,7 +989,10 @@ class PlaybackController extends ChangeNotifier {
     await _persistPlayback(force: true);
   }
 
-  Future<bool> _preparePositionForPlayback(int generation) async {
+  Future<bool> _preparePositionForPlayback(
+    int generation, {
+    required bool replayChapterAtEnd,
+  }) async {
     final retry = _state.status == AudioPlaybackStatus.error;
     var book = await _refreshActiveBookForPlayback(generation);
     if (!_isCurrent(generation) || book == null) return false;
@@ -889,16 +1010,18 @@ class PlaybackController extends ChangeNotifier {
     }
     final chapter = _state.currentChapter;
     if (chapter == null) return false;
-    if (chapter.duration > Duration.zero &&
-        _state.position >= chapter.duration) {
-      final next = _state.chapterIndex + 1;
-      if (next < book.chapters.length) {
+    if (_isAtChapterEnd(chapter, _state.position)) {
+      final target = replayChapterAtEnd
+          ? _state.chapterIndex
+          : _state.chapterIndex + 1;
+      if (target < book.chapters.length) {
         await _loadChapterAt(
-          next,
+          target,
           position: Duration.zero,
           playAfterLoad: false,
           generation: generation,
           refreshedBook: book,
+          prepareForFollowingPlay: true,
         );
         return _isCurrent(generation) &&
             _state.status != AudioPlaybackStatus.error;
@@ -937,11 +1060,14 @@ class PlaybackController extends ChangeNotifier {
       chapter,
       position: position,
       generation: generation,
+      prepareForPlayback: true,
     )) {
       return false;
     }
     _state = _state.copyWith(position: position);
-    return _configureEngine(generation);
+    final configured = await _configureEngine(generation);
+    if (!configured) _cancelPlaybackPreparation(generation);
+    return configured;
   }
 
   Future<void> _loadChapterAt(
@@ -950,6 +1076,8 @@ class PlaybackController extends ChangeNotifier {
     required int generation,
     bool? playAfterLoad,
     AudioPlaybackBook? refreshedBook,
+    bool replayChapterAtEnd = false,
+    bool prepareForFollowingPlay = false,
   }) async {
     if (!_isCurrent(generation)) return;
     _rememberCurrentChapterPosition();
@@ -963,7 +1091,10 @@ class PlaybackController extends ChangeNotifier {
     if (!_isCurrent(generation) || activeBook == null) return;
     final normalizedIndex = _clampChapterIndex(activeBook, index);
     final chapter = activeBook.chapters[normalizedIndex];
-    final normalizedPosition = _clampPosition(position, chapter);
+    final normalizedPosition =
+        replayChapterAtEnd && _isAtChapterEnd(chapter, position)
+        ? Duration.zero
+        : _clampPosition(position, chapter);
     _pendingPlayRequest = false;
     _state = _state.copyWith(
       chapterIndex: normalizedIndex,
@@ -977,18 +1108,27 @@ class PlaybackController extends ChangeNotifier {
       chapter,
       position: normalizedPosition,
       generation: generation,
+      prepareForPlayback: wasPlaying || prepareForFollowingPlay,
     )) {
       return;
     }
-    if (!await _configureEngine(generation)) return;
+    if (replayChapterAtEnd && !await _rewindIfDecoderReachedEnd(generation)) {
+      _cancelPlaybackPreparation(generation);
+      return;
+    }
+    if (!await _configureEngine(generation)) {
+      _cancelPlaybackPreparation(generation);
+      return;
+    }
     if (wasPlaying &&
         (!await _authorizeEnginePlayback(generation) ||
             !_isCurrent(generation))) {
+      _cancelPlaybackPreparation(generation);
       return;
     }
     _state = _state.copyWith(
       status: wasPlaying
-          ? AudioPlaybackStatus.playing
+          ? _requestedPlaybackStatus
           : AudioPlaybackStatus.paused,
     );
     if (wasPlaying) _startEnginePlayback(generation);
@@ -1004,6 +1144,7 @@ class PlaybackController extends ChangeNotifier {
     AudioPlaybackChapter chapter, {
     required Duration position,
     required int generation,
+    bool prepareForPlayback = false,
   }) async {
     AudioEngineSnapshot? loadedSnapshot;
     final loaded = await _runEngineOperation(generation, () async {
@@ -1013,7 +1154,14 @@ class PlaybackController extends ChangeNotifier {
       try {
         await _guardPlaybackAccess(book, chapter);
         if (!_isCurrent(generation)) return;
-        await _engine.load(chapter, position: position, book: book);
+        final engine = _engine;
+        if (prepareForPlayback &&
+            engine is AudioEngineForegroundPlaybackBinding) {
+          await (engine as AudioEngineForegroundPlaybackBinding)
+              .loadForPlayback(chapter, position: position, book: book);
+        } else {
+          await engine.load(chapter, position: position, book: book);
+        }
         if (_isCurrent(generation)) {
           _loadedChapterIdentity = _chapterLoadIdentity(book, chapter);
         }
@@ -1041,6 +1189,38 @@ class PlaybackController extends ChangeNotifier {
       );
       _saveMetadata(_state.book!);
     }
+    return true;
+  }
+
+  void _cancelPlaybackPreparation(int generation) {
+    final engine = _engine;
+    if (_isCurrent(generation) &&
+        engine is AudioEngineForegroundPlaybackBinding) {
+      (engine as AudioEngineForegroundPlaybackBinding)
+          .cancelPlaybackPreparation();
+    }
+  }
+
+  Future<bool> _rewindIfDecoderReachedEnd(int generation) async {
+    final chapter = _state.currentChapter;
+    if (chapter == null || !_isAtChapterEnd(chapter, _state.position)) {
+      return _isCurrent(generation);
+    }
+    // Source duration may overestimate the file. Check again after the decoder
+    // reports its duration, without treating the rewind snapshot as completion.
+    if (!await _runEngineOperation(generation, () async {
+      _engineLoadDepth++;
+      try {
+        await _engine.seek(Duration.zero);
+        await Future<void>.value();
+      } finally {
+        _engineLoadDepth--;
+      }
+    })) {
+      return false;
+    }
+    _state = _state.copyWith(position: Duration.zero);
+    _rememberCurrentChapterPosition();
     return true;
   }
 
@@ -1231,6 +1411,9 @@ class PlaybackController extends ChangeNotifier {
     return position;
   }
 
+  bool _isAtChapterEnd(AudioPlaybackChapter chapter, Duration position) =>
+      chapter.duration > Duration.zero && position >= chapter.duration;
+
   AudioPlaybackBook _bookWithChapterDuration(
     AudioPlaybackBook book,
     int chapterIndex,
@@ -1287,7 +1470,7 @@ class PlaybackController extends ChangeNotifier {
     switch (snapshot.processingState) {
       case AudioEngineProcessingState.idle:
         if (_pendingPlayRequest) {
-          return AudioPlaybackStatus.playing;
+          return _requestedPlaybackStatus;
         }
         return _state.hasBook
             ? AudioPlaybackStatus.paused
@@ -1297,8 +1480,9 @@ class PlaybackController extends ChangeNotifier {
       case AudioEngineProcessingState.buffering:
         return AudioPlaybackStatus.buffering;
       case AudioEngineProcessingState.ready:
-        return snapshot.isPlaying || _pendingPlayRequest
-            ? AudioPlaybackStatus.playing
+        if (snapshot.isPlaying) return AudioPlaybackStatus.playing;
+        return _pendingPlayRequest
+            ? _requestedPlaybackStatus
             : AudioPlaybackStatus.paused;
       case AudioEngineProcessingState.completed:
         return AudioPlaybackStatus.completed;
@@ -1306,6 +1490,11 @@ class PlaybackController extends ChangeNotifier {
         return AudioPlaybackStatus.error;
     }
   }
+
+  AudioPlaybackStatus get _requestedPlaybackStatus =>
+      _engine is AudioEngineForegroundPlaybackBinding
+      ? AudioPlaybackStatus.buffering
+      : AudioPlaybackStatus.playing;
 
   Future<void> _persistPlayback({
     bool force = false,

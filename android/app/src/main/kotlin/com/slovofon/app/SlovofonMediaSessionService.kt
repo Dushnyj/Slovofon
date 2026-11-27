@@ -14,10 +14,20 @@ import java.lang.ref.WeakReference
 class SlovofonMediaSessionService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
     private var player: SlovofonMediaSessionPlayer? = null
+    private var acceptsSnapshots = false
+    private var stopping = false
+    private var navigationAvailability: Pair<Boolean, Boolean>? = null
 
     override fun onCreate() {
         super.onCreate()
         activeService = WeakReference(this)
+        setListener(object : MediaSessionService.Listener {
+            override fun onForegroundServiceStartNotAllowedException() {
+                if (activeService?.get() === this@SlovofonMediaSessionService && !stopping) {
+                    SlovofonMediaSessionBridge.rejectForegroundStart("Media3 promotion not allowed")
+                }
+            }
+        })
         setMediaNotificationProvider(SlovofonMediaNotificationProvider(this))
         val sessionPlayer = SlovofonMediaSessionPlayer()
         player = sessionPlayer
@@ -43,43 +53,37 @@ class SlovofonMediaSessionService : MediaSessionService() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
-            SlovofonMediaSessionBridge.ACTION_UPDATE -> {
-                player?.update(SlovofonMediaSessionStore.state)
-            }
-
-            SlovofonMediaSessionBridge.ACTION_CLEAR -> {
-                player?.clear()
-                stopSelf()
-            }
-        }
         val result = super.onStartCommand(intent, flags, startId)
-        if (intent?.action == SlovofonMediaSessionBridge.ACTION_UPDATE) {
-            updateNotification(SlovofonMediaSessionStore.state)
+        if (intent?.action == SlovofonMediaSessionBridge.ACTION_PREPARE) {
+            val state = SlovofonMediaSessionStore.state
+            if (SlovofonMediaSessionBridge.isPreparingForeground && state.playWhenReady) {
+                stopping = false
+                beginPlayback(state)
+            } else if (!acceptsSnapshots) {
+                stopSelf(startId)
+            }
+        } else if (intent == null && !acceptsSnapshots) {
+            // A sticky restart has no Dart checkpoint or user Play command.
+            stopSelf(startId)
+            return START_NOT_STICKY
         }
         return result
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         if (SlovofonMediaSessionStore.state.keepAliveAfterTaskRemoval) {
-            // Media3's default also stops a not-yet-playing/buffering session.
-            // The persistent FlutterEngine still owns the pending playback intent.
+            // A user-requested load is still active even before sound starts.
             return
         }
-        clearStoppedSessionFromTaskRemoval()
-        super.onTaskRemoved(rootIntent)
-    }
-
-    private fun clearStoppedSessionFromTaskRemoval() {
-        SlovofonMediaSessionBridge.dispatchCommand("stop")
-        SlovofonMediaSessionStore.state = SlovofonMediaSessionState.idle()
-        player?.clear()
-        stopSelf()
+        SlovofonMediaSessionBridge.clearSession()
     }
 
     override fun onDestroy() {
-        activeService?.clear()
-        activeService = null
+        if (activeService?.get() === this) {
+            activeService?.clear()
+            activeService = null
+        }
+        clearListener()
         mediaSession?.release()
         player?.release()
         mediaSession = null
@@ -88,27 +92,32 @@ class SlovofonMediaSessionService : MediaSessionService() {
     }
 
     private fun updateSession(state: SlovofonMediaSessionState) {
+        val session = mediaSession ?: return
+        val availability = state.canSkipPrevious to state.canSkipNext
+        if (navigationAvailability != availability) {
+            navigationAvailability = availability
+            session.setMediaButtonPreferences(
+                SlovofonMediaButtons.mediaButtonPreferences(context = this, state = state),
+            )
+        }
+        // Media3 observes the player and owns notification/foreground state,
+        // including its grace period while paused or between chapters.
         player?.update(state)
-        updateNotification(state)
+    }
+
+    private fun beginPlayback(state: SlovofonMediaSessionState) {
+        acceptsSnapshots = true
+        updateSession(state)
+        triggerNotificationUpdate()
     }
 
     private fun clearSession() {
+        // stopSelf may leave a bound instance alive. A late Dart snapshot must
+        // not recreate its card/timeline until an explicit Play starts it again.
+        acceptsSnapshots = false
+        stopping = true
         player?.clear()
         stopSelf()
-    }
-
-    private fun updateNotification(state: SlovofonMediaSessionState) {
-        val session = mediaSession ?: return
-        if (!state.hasMedia) {
-            return
-        }
-        session.setMediaButtonPreferences(
-            SlovofonMediaButtons.mediaButtonPreferences(
-                context = this,
-                state = state,
-            ),
-        )
-        onUpdateNotification(session, state.isPlaying)
     }
 
     private fun sessionActivity(): PendingIntent {
@@ -128,6 +137,7 @@ class SlovofonMediaSessionService : MediaSessionService() {
 
         fun updateActiveSession(state: SlovofonMediaSessionState): Boolean {
             val service = activeService?.get() ?: return false
+            if (!service.acceptsSnapshots) return false
             service.updateSession(state)
             return true
         }
@@ -136,6 +146,20 @@ class SlovofonMediaSessionService : MediaSessionService() {
             val service = activeService?.get() ?: return false
             service.clearSession()
             return true
+        }
+
+        fun prepareActiveSession(state: SlovofonMediaSessionState): Boolean {
+            val service = activeService?.get() ?: return false
+            if (service.stopping) return false
+            service.beginPlayback(state)
+            return true
+        }
+
+        fun hasActiveSession(): Boolean = activeService?.get() != null
+
+        fun hasPreparedSession(): Boolean {
+            val service = activeService?.get() ?: return false
+            return service.acceptsSnapshots && !service.stopping
         }
     }
 

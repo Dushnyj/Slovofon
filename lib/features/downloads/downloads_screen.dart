@@ -1625,12 +1625,9 @@ Future<void> _playBookFromDownloads(
       if (chapter == null) {
         await playbackController.togglePlayPause();
       } else {
-        final chapterIndex = _chapterIndex(currentBook!, chapter);
-        if (chapterIndex == playbackController.state.chapterIndex) {
-          await playbackController.togglePlayPause();
-        } else {
-          await playbackController.playChapterAt(chapterIndex);
-        }
+        await playbackController.toggleChapterPlayPause(
+          _chapterIndex(currentBook!, chapter),
+        );
       }
       return;
     }
@@ -1645,12 +1642,9 @@ Future<void> _playBookFromDownloads(
       if (chapter == null) {
         await playbackController.togglePlayPause();
       } else {
-        final chapterIndex = _chapterIndex(playbackBook, chapter);
-        if (chapterIndex == playbackController.state.chapterIndex) {
-          await playbackController.togglePlayPause();
-        } else {
-          await playbackController.playChapterAt(chapterIndex);
-        }
+        await playbackController.toggleChapterPlayPause(
+          _chapterIndex(playbackBook, chapter),
+        );
       }
       return;
     }
@@ -1672,6 +1666,7 @@ Future<void> _playBookFromDownloads(
       chapterIndex: targetChapterIndex,
       position: targetPosition,
       autoPlay: true,
+      replayChapterAtEnd: chapter != null,
     );
     await ref
         .read(homeListeningVisibilityStoreProvider)

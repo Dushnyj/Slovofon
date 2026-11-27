@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:just_audio/just_audio.dart' as just_audio;
 
 import 'audio_engine.dart';
+import 'audio_focus.dart';
 import 'audio_state.dart';
 
 class AudioLoadRequest {
@@ -56,8 +57,15 @@ class JustAudioAdapterSnapshot {
 }
 
 class PackageJustAudioPlayerAdapter implements JustAudioPlayerAdapter {
-  PackageJustAudioPlayerAdapter({just_audio.AudioPlayer? player})
-    : _player = player ?? just_audio.AudioPlayer() {
+  PackageJustAudioPlayerAdapter({
+    just_audio.AudioPlayer? player,
+    bool managesAudioFocusExternally = false,
+  }) : _player =
+           player ??
+           just_audio.AudioPlayer(
+             handleInterruptions: !managesAudioFocusExternally,
+             handleAudioSessionActivation: !managesAudioFocusExternally,
+           ) {
     _playerStateSubscription = _player.playerStateStream.listen((state) {
       _playbackSnapshots.add(
         JustAudioAdapterSnapshot(
@@ -185,9 +193,16 @@ class PackageJustAudioPlayerAdapter implements JustAudioPlayerAdapter {
   }
 }
 
-class JustAudioEngine implements AudioEngine {
-  JustAudioEngine({JustAudioPlayerAdapter? player})
-    : _player = player ?? PackageJustAudioPlayerAdapter() {
+class JustAudioEngine implements AudioEngine, AudioInterruptionSource {
+  JustAudioEngine({
+    JustAudioPlayerAdapter? player,
+    AudioPlaybackFocus? audioFocus,
+  }) : _audioFocus = audioFocus,
+       _player =
+           player ??
+           PackageJustAudioPlayerAdapter(
+             managesAudioFocusExternally: audioFocus != null,
+           ) {
     _positionSubscription = _player.positionStream.listen((position) {
       _position = position;
       if (_shouldEmitPosition(position)) {
@@ -207,6 +222,7 @@ class JustAudioEngine implements AudioEngine {
   }
 
   final JustAudioPlayerAdapter _player;
+  final AudioPlaybackFocus? _audioFocus;
   final _snapshots = StreamController<AudioEngineSnapshot>.broadcast();
   late final StreamSubscription<Duration> _positionSubscription;
   late final StreamSubscription<Duration?> _durationSubscription;
@@ -218,10 +234,16 @@ class JustAudioEngine implements AudioEngine {
   bool _isPlaying = false;
   String? _errorMessage;
   bool _disposed = false;
+  int _playGeneration = 0;
+  Future<bool>? _focusRequest;
   static const _positionEmitInterval = Duration(seconds: 1);
 
   @override
   Stream<AudioEngineSnapshot> get snapshots => _snapshots.stream;
+
+  @override
+  Stream<AudioFocusEvent> get audioFocusEvents =>
+      _audioFocus?.audioFocusEvents ?? const Stream.empty();
 
   @override
   Future<void> dispose() async {
@@ -233,7 +255,21 @@ class JustAudioEngine implements AudioEngine {
     await _durationSubscription.cancel();
     await _playbackSubscription.cancel();
     await _snapshots.close();
-    await _player.dispose();
+    try {
+      await _player.dispose();
+    } finally {
+      final focus = _audioFocus;
+      if (focus != null) {
+        // A request racing teardown must not leave this engine owning focus.
+        try {
+          await _focusRequest;
+        } catch (_) {
+          // Request failures are already delivered to the initiating play.
+        } finally {
+          await focus.release();
+        }
+      }
+    }
   }
 
   @override
@@ -246,6 +282,7 @@ class JustAudioEngine implements AudioEngine {
     // Loading is explicitly paused in our engine contract: the controller alone
     // decides whether to resume after its load/seek generation still wins.
     // Stop the previous source even when the new chapter has no playable media.
+    _playGeneration++;
     await _player.pause();
     _isPlaying = false;
     final mediaSource = chapter.mediaSource;
@@ -274,13 +311,30 @@ class JustAudioEngine implements AudioEngine {
 
   @override
   Future<void> pause() {
+    _playGeneration++;
     _isPlaying = false;
     _emit();
     return _player.pause();
   }
 
   @override
-  Future<void> play() {
+  Future<void> play() async {
+    if (_disposed) return;
+    final generation = ++_playGeneration;
+    final focus = _audioFocus;
+    if (focus != null) {
+      final pending = _focusRequest ??= Future<bool>.sync(focus.request);
+      late final bool granted;
+      try {
+        granted = await pending;
+      } finally {
+        if (identical(_focusRequest, pending)) _focusRequest = null;
+      }
+      if (_disposed || generation != _playGeneration) return;
+      if (!granted) {
+        throw const AudioEngineException('Android audio focus unavailable.');
+      }
+    }
     _isPlaying = true;
     _emit();
     return _player.play();

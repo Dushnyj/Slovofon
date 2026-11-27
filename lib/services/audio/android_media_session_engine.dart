@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import 'audio_engine.dart';
+import 'audio_focus.dart';
 import 'audio_state.dart';
 
 enum AndroidMediaSessionCommandType {
@@ -75,6 +76,7 @@ class AndroidMediaSessionSnapshot {
     required this.duration,
     required this.processingState,
     required this.isPlaying,
+    required this.playWhenReady,
     this.coverUrl,
     this.canSkipPrevious = true,
     this.canSkipNext = true,
@@ -90,6 +92,7 @@ class AndroidMediaSessionSnapshot {
   final Duration duration;
   final AudioEngineProcessingState processingState;
   final bool isPlaying;
+  final bool playWhenReady;
   final bool canSkipPrevious;
   final bool canSkipNext;
   final double speed;
@@ -105,6 +108,7 @@ class AndroidMediaSessionSnapshot {
       'durationMs': duration.inMilliseconds,
       'processingState': processingState.name,
       'isPlaying': isPlaying,
+      'playWhenReady': playWhenReady,
       'canSkipPrevious': canSkipPrevious,
       'canSkipNext': canSkipNext,
       'speed': speed,
@@ -116,6 +120,8 @@ abstract interface class AndroidMediaSessionPlatform {
   Stream<AndroidMediaSessionCommand> get commands;
 
   Future<void> update(AndroidMediaSessionSnapshot snapshot);
+
+  Future<bool> preparePlayback(AndroidMediaSessionSnapshot snapshot);
 
   Future<void> clear();
 }
@@ -148,6 +154,15 @@ class MethodChannelAndroidMediaSessionPlatform
     await _channel.invokeMethod<void>('update', snapshot.toMap());
   }
 
+  @override
+  Future<bool> preparePlayback(AndroidMediaSessionSnapshot snapshot) async {
+    return await _channel.invokeMethod<bool>(
+          'preparePlayback',
+          snapshot.toMap(),
+        ) ??
+        false;
+  }
+
   Future<Object?> _handleMethodCall(MethodCall call) async {
     if (call.method != 'command') {
       return null;
@@ -172,7 +187,11 @@ class MethodChannelAndroidMediaSessionPlatform
 }
 
 class AndroidMediaSessionEngine
-    implements AudioEngine, AudioEngineChapterNavigationBinding {
+    implements
+        AudioEngine,
+        AudioEngineChapterNavigationBinding,
+        AudioEngineForegroundPlaybackBinding,
+        AudioInterruptionSource {
   AndroidMediaSessionEngine({
     required AudioEngine delegate,
     required AndroidMediaSessionPlatform platform,
@@ -228,12 +247,23 @@ class AndroidMediaSessionEngine
   AndroidMediaSessionSnapshot? _lastPublishedSnapshot;
   bool _disposed = false;
   int _playGeneration = 0;
+  int _startRequestGeneration = 0;
   int _commandEpoch = 0;
   double _speed = 1;
   bool _reportedPlatformFailure = false;
+  bool _playWhenReady = false;
+  Future<bool>? _preparingForeground;
 
   @override
   Stream<AudioEngineSnapshot> get snapshots => _snapshots.stream;
+
+  @override
+  Stream<AudioFocusEvent> get audioFocusEvents {
+    final delegate = _delegate;
+    return delegate is AudioInterruptionSource
+        ? (delegate as AudioInterruptionSource).audioFocusEvents
+        : const Stream.empty();
+  }
 
   @override
   void bindChapterNavigation(AudioEngineChapterNavigationCallbacks callbacks) {
@@ -251,8 +281,25 @@ class AndroidMediaSessionEngine
     AudioPlaybackChapter chapter, {
     required Duration position,
     AudioPlaybackBook? book,
+  }) => _load(chapter, position: position, book: book, forPlayback: false);
+
+  @override
+  Future<void> loadForPlayback(
+    AudioPlaybackChapter chapter, {
+    required Duration position,
+    required AudioPlaybackBook book,
+  }) => _load(chapter, position: position, book: book, forPlayback: true);
+
+  Future<void> _load(
+    AudioPlaybackChapter chapter, {
+    required Duration position,
+    required AudioPlaybackBook? book,
+    required bool forPlayback,
   }) async {
-    _playGeneration++;
+    final generation = ++_playGeneration;
+    _startRequestGeneration++;
+    _preparingForeground = null;
+    _playWhenReady = forPlayback;
     _loadedChapter = chapter;
     _loadedBook = book;
     _lastSnapshot = AudioEngineSnapshot(
@@ -261,18 +308,59 @@ class AndroidMediaSessionEngine
       isPlaying: false,
       duration: chapter.duration,
     );
+    final platformState = forPlayback ? _buildPlatformSnapshot() : null;
+    if (platformState != null) {
+      // Begin while the activity/user request is still in front, rather than
+      // waiting for a slow network decoder load before asking Android to start.
+      _preparingForeground = _ensureForeground(platformState);
+    } else {
+      unawaited(_publishToPlatform());
+    }
+    try {
+      await _delegate.load(chapter, position: position, book: book);
+    } catch (_) {
+      if (!_disposed && generation == _playGeneration) {
+        cancelPlaybackPreparation();
+      }
+      rethrow;
+    }
+  }
+
+  @override
+  void cancelPlaybackPreparation() {
+    if (_preparingForeground == null) return;
+    _preparingForeground = null;
+    _playWhenReady = false;
     unawaited(_publishToPlatform());
-    await _delegate.load(chapter, position: position, book: book);
   }
 
   @override
   Future<void> play() async {
     final generation = ++_playGeneration;
+    _startRequestGeneration++;
+    _playWhenReady = true;
+    final preparing = _preparingForeground;
+    _preparingForeground = null;
+    var foregroundReady = preparing != null && await preparing;
+    if (_disposed || generation != _playGeneration) return;
+    final snapshot = _buildPlatformSnapshot(preparingPlayback: true);
+    if (!foregroundReady && snapshot != null) {
+      foregroundReady = await _ensureForeground(snapshot);
+    }
+    if (_disposed || generation != _playGeneration) return;
+    if (!foregroundReady) {
+      _playWhenReady = false;
+      unawaited(_publishToPlatform());
+      throw const AudioEngineException(
+        'Android background playback unavailable.',
+      );
+    }
     // just_audio.play completes on pause/end, not on start. Never hold the
     // native command queue (including its Pause command) on that future.
     unawaited(
       _delegate.play().catchError((Object error, StackTrace stack) {
         if (!_disposed && generation == _playGeneration) {
+          _playWhenReady = false;
           _reportCommandError(error);
         }
       }),
@@ -282,7 +370,8 @@ class AndroidMediaSessionEngine
   @override
   Future<void> pause() async {
     _playGeneration++;
-    await _delegate.pause();
+    _preparingForeground = null;
+    _playWhenReady = false;
     _lastSnapshot = AudioEngineSnapshot(
       position: _lastSnapshot.position,
       duration: _effectiveDuration,
@@ -291,6 +380,7 @@ class AndroidMediaSessionEngine
       errorMessage: _lastSnapshot.errorMessage,
     );
     unawaited(_publishToPlatform());
+    await _delegate.pause();
   }
 
   @override
@@ -359,8 +449,13 @@ class AndroidMediaSessionEngine
       case AndroidMediaSessionCommandType.pause:
         await (_chapterNavigation.onPause?.call() ?? pause());
       case AndroidMediaSessionCommandType.stop:
+        final startRequestGeneration = _startRequestGeneration;
         await (_chapterNavigation.onPause?.call() ?? pause());
-        if (!_lastSnapshot.isPlaying) await _clearPlatform();
+        if (startRequestGeneration == _startRequestGeneration &&
+            !_playWhenReady &&
+            !_lastSnapshot.isPlaying) {
+          await _clearPlatform();
+        }
       case AndroidMediaSessionCommandType.seek:
         await _seekFromCommand(command.position ?? Duration.zero);
       case AndroidMediaSessionCommandType.rewind:
@@ -400,24 +495,30 @@ class AndroidMediaSessionEngine
     }
 
     _lastSnapshot = snapshot;
+    if (snapshot.processingState == AudioEngineProcessingState.error) {
+      _preparingForeground = null;
+      _playWhenReady = false;
+    }
     if (!_snapshots.isClosed) {
       _snapshots.add(snapshot);
     }
     unawaited(_publishToPlatform());
   }
 
-  Future<void> _publishToPlatform() async {
-    if (_disposed) {
-      return;
-    }
-
+  AndroidMediaSessionSnapshot? _buildPlatformSnapshot({
+    bool preparingPlayback = false,
+  }) {
     final book = _loadedBook;
     final chapter = _loadedChapter;
     if (book == null || chapter == null) {
-      return;
+      return null;
     }
-
-    final snapshot = AndroidMediaSessionSnapshot(
+    final processing = _lastSnapshot.processingState;
+    final canStart =
+        processing == AudioEngineProcessingState.ready ||
+        processing == AudioEngineProcessingState.buffering ||
+        processing == AudioEngineProcessingState.loading;
+    return AndroidMediaSessionSnapshot(
       appName: appName,
       bookTitle: book.title,
       chapterTitle: chapter.title,
@@ -425,8 +526,15 @@ class AndroidMediaSessionEngine
       coverUrl: book.coverUrl,
       position: _clampPosition(_lastSnapshot.position),
       duration: _effectiveDuration,
-      processingState: _lastSnapshot.processingState,
-      isPlaying: _lastSnapshot.isPlaying,
+      processingState: preparingPlayback && !canStart
+          ? AudioEngineProcessingState.loading
+          : processing,
+      // The backend's playing flag is intent: while buffering or at completion
+      // the system session must not claim audio is actually advancing.
+      isPlaying:
+          _lastSnapshot.isPlaying &&
+          processing == AudioEngineProcessingState.ready,
+      playWhenReady: _playWhenReady || _lastSnapshot.isPlaying,
       speed: _speed,
       canSkipPrevious:
           book.chapters.indexWhere((item) => item.id == chapter.id) > 0,
@@ -434,6 +542,23 @@ class AndroidMediaSessionEngine
           book.chapters.indexWhere((item) => item.id == chapter.id) <
           book.chapters.length - 1,
     );
+  }
+
+  Future<bool> _ensureForeground(AndroidMediaSessionSnapshot snapshot) async {
+    _lastPublishedSnapshot = snapshot;
+    try {
+      return await _platform.preparePlayback(snapshot);
+    } catch (_, stack) {
+      _reportPlatformFailure(stack);
+      return false;
+    }
+  }
+
+  Future<void> _publishToPlatform() async {
+    if (_disposed) return;
+
+    final snapshot = _buildPlatformSnapshot();
+    if (snapshot == null) return;
     if (!_shouldPublish(snapshot)) {
       return;
     }
@@ -498,6 +623,7 @@ class AndroidMediaSessionEngine
         previous.duration != snapshot.duration ||
         previous.processingState != snapshot.processingState ||
         previous.isPlaying != snapshot.isPlaying ||
+        previous.playWhenReady != snapshot.playWhenReady ||
         previous.speed != snapshot.speed ||
         previous.canSkipPrevious != snapshot.canSkipPrevious ||
         previous.canSkipNext != snapshot.canSkipNext) {

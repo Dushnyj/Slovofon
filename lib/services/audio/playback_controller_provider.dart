@@ -4,6 +4,7 @@ import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'android_audio_session_focus.dart';
 import 'android_media_session_engine.dart';
 import 'audio_persistence.dart';
 import 'audio_engine.dart';
@@ -99,23 +100,25 @@ Future<AudioEngine> createPlatformAudioEngine({
   TargetPlatform? platform,
 }) async {
   final effectivePlatform = platform ?? defaultTargetPlatform;
-  if (effectivePlatform == TargetPlatform.android ||
-      effectivePlatform == TargetPlatform.iOS ||
-      effectivePlatform == TargetPlatform.macOS) {
-    await configureAudiobookAudioSession();
-  }
-
-  final realEngine = JustAudioEngine();
-
   if (effectivePlatform == TargetPlatform.android) {
+    final session = await AudioSession.instance;
+    await session.configure(AndroidAudioSessionFocus.configuration);
+    final realEngine = JustAudioEngine(
+      audioFocus: AndroidAudioSessionFocus(session),
+    );
     return AndroidMediaSessionEngine(
       delegate: realEngine,
       platform: MethodChannelAndroidMediaSessionPlatform(),
     );
   }
+  if (effectivePlatform == TargetPlatform.iOS ||
+      effectivePlatform == TargetPlatform.macOS) {
+    await configureAudiobookAudioSession();
+  }
 
   // Missing cached media must fail recoverably, not select a silent simulator.
   // Mock/story/test entry points explicitly override audioEngineProvider.
+  final realEngine = JustAudioEngine();
   return realEngine;
 }
 

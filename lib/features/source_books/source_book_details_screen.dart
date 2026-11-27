@@ -697,6 +697,7 @@ class _SourceBookDetailsBodyState
         chapterIndex: targetChapterIndex,
         position: targetPosition,
         autoPlay: true,
+        replayChapterAtEnd: chapterIndex != null,
       );
       await ref
           .read(homeListeningVisibilityStoreProvider)
