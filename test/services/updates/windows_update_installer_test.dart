@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:slovofon/services/updates/update_client.dart';
@@ -297,6 +298,7 @@ void main() {
           operatingSystem: 'windows',
           windowsInstallationProvider: () async =>
               _installation(WindowsInstallKind.setup),
+          windowsUpdateFileVerifier: (_) async {},
           windowsProcessLauncher: (executable, arguments) async {
             throw ProcessException(executable, arguments, 'Launch denied', 5);
           },
@@ -322,6 +324,37 @@ void main() {
       );
       expect(launches, isEmpty);
     });
+  });
+
+  test('detects same-size changes after a verified update download', () async {
+    final dir = await Directory.systemTemp.createTemp(
+      'slovofon-update-recheck-',
+    );
+    final file = File('${dir.path}${Platform.pathSeparator}fixture.exe');
+    addTearDown(() async {
+      await file.delete();
+      await dir.delete();
+    });
+    const original = [2, 4, 8, 16];
+    await file.writeAsBytes(original, flush: true);
+    final update = DownloadedUpdate(
+      file: file,
+      asset: UpdateAsset(
+        platform: UpdateAssetPlatform.windows,
+        arch: 'x64',
+        kind: UpdateAssetKind.installer,
+        url: Uri.https('example.test', '/setup.exe'),
+        fileName: 'fixture.exe',
+        sha256: sha256.convert(original).toString(),
+        size: original.length,
+      ),
+    );
+    await PlatformUpdateInstaller.verifyFileIntegrity(update);
+    await file.writeAsBytes([2, 4, 8, 32], flush: true);
+    await expectLater(
+      PlatformUpdateInstaller.verifyFileIntegrity(update),
+      throwsA(isA<UpdateInstallException>()),
+    );
   });
 
   group('existing Android installer bridge', () {
@@ -392,6 +425,7 @@ PlatformUpdateInstaller _installer(
 ) => PlatformUpdateInstaller(
   operatingSystem: 'windows',
   windowsInstallationProvider: () async => installation,
+  windowsUpdateFileVerifier: (_) async {},
   windowsProcessLauncher: (executable, arguments) async {
     launches.add(_Launch(executable, arguments));
   },

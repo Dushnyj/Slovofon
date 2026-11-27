@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as path;
 
@@ -10,17 +11,21 @@ import 'windows_update_installation.dart';
 
 typedef WindowsUpdateProcessLauncher =
     Future<void> Function(String executable, List<String> arguments);
+typedef WindowsUpdateFileVerifier = Future<void> Function(DownloadedUpdate);
 
 class PlatformUpdateInstaller {
   PlatformUpdateInstaller({
     Future<WindowsUpdateInstallation> Function()? windowsInstallationProvider,
     WindowsUpdateProcessLauncher? windowsProcessLauncher,
+    WindowsUpdateFileVerifier? windowsUpdateFileVerifier,
     String? operatingSystem,
     String? windowsDirectory,
     this.installationInfoTimeout = const Duration(seconds: 5),
   }) : _windowsInstallationProvider = windowsInstallationProvider,
        _windowsProcessLauncher =
            windowsProcessLauncher ?? _startDetachedWindowsProcess,
+       _windowsUpdateFileVerifier =
+           windowsUpdateFileVerifier ?? verifyFileIntegrity,
        _operatingSystem = operatingSystem ?? Platform.operatingSystem,
        _windowsDirectory = windowsDirectory;
 
@@ -34,6 +39,7 @@ class PlatformUpdateInstaller {
   final Future<WindowsUpdateInstallation> Function()?
   _windowsInstallationProvider;
   final WindowsUpdateProcessLauncher _windowsProcessLauncher;
+  final WindowsUpdateFileVerifier _windowsUpdateFileVerifier;
   final String _operatingSystem;
   final String? _windowsDirectory;
   final Duration installationInfoTimeout;
@@ -121,6 +127,7 @@ class PlatformUpdateInstaller {
         'Update does not match this Windows installation',
       );
     }
+    final updateToLaunch = DownloadedUpdate(file: File(filePath), asset: asset);
 
     switch (installation.kind) {
       case WindowsInstallKind.setup:
@@ -136,6 +143,7 @@ class PlatformUpdateInstaller {
         }
         // Interactive Inno Setup owns elevation and in-use-file handling. Do
         // not change scope, silently accept pages, stop this app or reboot it.
+        await _windowsUpdateFileVerifier(updateToLaunch);
         await _windowsProcessLauncher(filePath, [
           scopeArgument,
           '/DIR=${installation.directory}',
@@ -149,6 +157,7 @@ class PlatformUpdateInstaller {
             'Windows system directory is unknown',
           );
         }
+        await _windowsUpdateFileVerifier(updateToLaunch);
         await _windowsProcessLauncher(
           path.windows.join(systemDirectory!, 'msiexec.exe'),
           ['/i', filePath, '/norestart'],
@@ -161,6 +170,7 @@ class PlatformUpdateInstaller {
         }
         // A running portable bundle is never overwritten. Only reveal the
         // verified ZIP for an explicit, manual extraction after app shutdown.
+        await _windowsUpdateFileVerifier(updateToLaunch);
         await _windowsProcessLauncher(
           path.windows.join(windowsDirectory!, 'explorer.exe'),
           [path.windows.dirname(filePath)],
@@ -169,6 +179,33 @@ class PlatformUpdateInstaller {
         throw const UpdateInstallException(
           'Windows installation type is unknown',
         );
+    }
+  }
+
+  /// Rechecks the SAME published hash immediately before hand-off. It is not
+  /// publisher verification, and does not change release signing policy.
+  static Future<void> verifyFileIntegrity(DownloadedUpdate update) async {
+    final asset = update.asset;
+    final file = update.file;
+    const invalid = UpdateInstallException(
+      'The downloaded update must be verified again.',
+    );
+    if (!asset.hasValidChecksum || asset.size <= 0) throw invalid;
+    try {
+      final kind = await FileSystemEntity.type(file.path, followLinks: false);
+      if (kind != FileSystemEntityType.file ||
+          await file.length() != asset.size) {
+        throw invalid;
+      }
+      final digest = await sha256.bind(file.openRead(0, asset.size)).single;
+      if (digest.toString() != asset.sha256.toLowerCase() ||
+          await FileSystemEntity.type(file.path, followLinks: false) !=
+              FileSystemEntityType.file ||
+          await file.length() != asset.size) {
+        throw invalid;
+      }
+    } on FileSystemException {
+      throw invalid;
     }
   }
 
