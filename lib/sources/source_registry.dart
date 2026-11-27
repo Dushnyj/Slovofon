@@ -43,6 +43,26 @@ class SourceRegistry {
 
   Set<String> get enabledSourceIds => _enabledSourceIds;
 
+  Future<SourceSearchPage> searchPage(
+    SourceConnector connector,
+    SearchRequest request, {
+    required SourceSearchCancellation cancellation,
+  }) {
+    if (!connector.capabilities.supportsSearch) {
+      throw SourceException(
+        sourceId: connector.id,
+        kind: SourceErrorKind.unsupported,
+        message: 'Source does not support search.',
+      );
+    }
+    return cancellation.run(() async {
+      if (connector case final PagedSourceConnector paged) {
+        return paged.searchPage(request);
+      }
+      return SourceSearchPage(results: await connector.search(request));
+    });
+  }
+
   SourceConnector connectorById(String sourceId) {
     final connector = _byId[sourceId];
     if (connector == null) {

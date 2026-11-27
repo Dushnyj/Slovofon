@@ -42,10 +42,11 @@ class SourceMetadataPolicy {
 }
 
 class SourceMetadataResponse {
-  const SourceMetadataResponse(this.statusCode, this.body);
+  const SourceMetadataResponse(this.statusCode, this.body, {this.finalUri});
 
   final int statusCode;
   final String body;
+  final Uri? finalUri;
 }
 
 class SourceMetadataTransport {
@@ -128,7 +129,11 @@ class SourceMetadataTransport {
           sourceId: policy.sourceId,
           maxBytes: maxResponseBytes,
         ).timeout(timeout);
-        return SourceMetadataResponse(response.statusCode, body);
+        return SourceMetadataResponse(
+          response.statusCode,
+          body,
+          finalUri: currentUri,
+        );
       }
     } finally {
       unlink?.call();

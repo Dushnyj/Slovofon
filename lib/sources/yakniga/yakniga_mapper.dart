@@ -40,13 +40,20 @@ class YaknigaMapper {
   BookSearchResult searchResult(Map<String, Object?> book) {
     final blocked = _boolValue(book['copyrightBlock']);
     final paid = book['price'] != null;
+    final authors = _peopleList(
+      book['authors'],
+      fallback: _string(book['authorName']),
+    );
+    final narrators = _peopleList(book['readers']);
 
     return BookSearchResult(
       ref: bookRef(book),
       sourceName: sourceName,
       title: _string(book['title']),
-      author: _people(book['authors'], fallback: _string(book['authorName'])),
-      narrator: _people(book['readers']),
+      author: authors.join(', '),
+      narrator: narrators.join(', '),
+      authors: authors,
+      narrators: narrators,
       series: _entityName(book['series']),
       seriesNumber: _seriesNumber(book['seriesNum']),
       genres: _genres(book['genres']),
@@ -300,10 +307,6 @@ class YaknigaMapper {
       for (final item in collection)
         if (_entityName(item).isNotEmpty) _entityName(item),
     ];
-  }
-
-  static String _people(Object? value, {String fallback = ''}) {
-    return _peopleList(value, fallback: fallback).join(', ');
   }
 
   static List<String> _peopleList(Object? value, {String fallback = ''}) {

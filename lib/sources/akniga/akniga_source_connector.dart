@@ -9,7 +9,8 @@ import '../source_request_cache.dart';
 import 'akniga_client.dart';
 import 'akniga_mapper.dart';
 
-class AknigaSourceConnector implements SourceConnector, SourceCacheInvalidator {
+class AknigaSourceConnector
+    implements SourceConnector, PagedSourceConnector, SourceCacheInvalidator {
   AknigaSourceConnector({
     AknigaClient? client,
     AknigaMapper? mapper,
@@ -101,14 +102,24 @@ class AknigaSourceConnector implements SourceConnector, SourceCacheInvalidator {
   }
 
   @override
-  Future<List<BookSearchResult>> search(SearchRequest request) async {
+  Future<List<BookSearchResult>> search(SearchRequest request) async =>
+      (await searchPage(request)).results;
+
+  @override
+  Future<SourceSearchPage> searchPage(SearchRequest request) async {
     final html = await _client.searchBooksHtml(
       query: request.query,
       page: request.page,
     );
     return _useParserWorker
-        ? SourceHtmlParser.search(id, html)
-        : _mapper.searchResults(html);
+        ? SourceHtmlParser.searchPage(id, html, request)
+        : SourceHtmlParser.parsedSearchPage(
+            id,
+            html,
+            _mapper.searchResults(html),
+            request.page,
+            request.query,
+          );
   }
 
   @override

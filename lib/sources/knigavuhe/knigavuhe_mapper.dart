@@ -20,8 +20,10 @@ class KnigavuheMapper {
 
   final DateTime Function() _clock;
 
-  List<BookSearchResult> searchResults(String html) {
-    final document = html_parser.parse(html);
+  List<BookSearchResult> searchResults(String html) =>
+      searchDocument(html_parser.parse(html));
+
+  List<BookSearchResult> searchDocument(dom.Document document) {
     return [
       for (final item in document.querySelectorAll('.bookkitem, .bookitem'))
         ?_searchResult(item),
@@ -258,14 +260,18 @@ class KnigavuheMapper {
     if (title.isEmpty) {
       return null;
     }
-    final narrator = _firstNonEmpty([
-      _people(item, '.bookkitem_performer a, .bookitem_performer a').join(', '),
-      _metaBlockLinks(
-        item,
-        classNeedles: const ['reader', 'performer'],
-        labelNeedles: const ['читает', 'исполнитель'],
-      ).join(', '),
-    ]);
+    final authors = _people(item, '.bookkitem_author a, .bookitem_author a');
+    final primaryNarrators = _people(
+      item,
+      '.bookkitem_performer a, .bookitem_performer a',
+    );
+    final narrators = primaryNarrators.isNotEmpty
+        ? primaryNarrators
+        : _metaBlockLinks(
+            item,
+            classNeedles: const ['reader', 'performer'],
+            labelNeedles: const ['читает', 'исполнитель'],
+          );
     final seriesText = _firstNonEmpty([
       _text(item, '.bookkitem_series a, .bookitem_series a'),
       _metaBlockLinks(
@@ -291,11 +297,10 @@ class KnigavuheMapper {
       ),
       sourceName: sourceName,
       title: title,
-      author: _people(
-        item,
-        '.bookkitem_author a, .bookitem_author a',
-      ).join(', '),
-      narrator: narrator,
+      author: authors.join(', '),
+      narrator: narrators.join(', '),
+      authors: authors,
+      narrators: narrators,
       series: seriesText,
       seriesNumber: SourceParserHelpers.parseSeriesNumber(seriesBlockText),
       genres: _genres(item),

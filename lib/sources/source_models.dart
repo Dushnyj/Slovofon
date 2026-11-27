@@ -41,6 +41,8 @@ class SearchRequest {
     this.pageSize = 20,
     this.sourceIds = const {},
     this.sort = SearchSort.relevance,
+    this.continuation,
+    this.sourceCursor,
   });
 
   final String query;
@@ -50,6 +52,8 @@ class SearchRequest {
   final int pageSize;
   final Set<String> sourceIds;
   final SearchSort sort;
+  final SourceSearchContinuation? continuation;
+  final SourceSearchPageCursor? sourceCursor;
 
   Set<SearchKind> get effectiveKinds {
     final selected = kinds.where((kind) => kind != SearchKind.all).toSet();
@@ -80,6 +84,8 @@ class SearchRequest {
     int? pageSize,
     Set<String>? sourceIds,
     SearchSort? sort,
+    SourceSearchContinuation? continuation,
+    SourceSearchPageCursor? sourceCursor,
   }) {
     return SearchRequest(
       query: query ?? this.query,
@@ -89,6 +95,8 @@ class SearchRequest {
       pageSize: pageSize ?? this.pageSize,
       sourceIds: sourceIds ?? this.sourceIds,
       sort: sort ?? this.sort,
+      continuation: continuation ?? this.continuation,
+      sourceCursor: sourceCursor ?? this.sourceCursor,
     );
   }
 }
@@ -112,6 +120,8 @@ class BookSearchResult {
     required this.title,
     this.author,
     this.narrator,
+    this.authors = const [],
+    this.narrators = const [],
     this.series,
     this.seriesNumber,
     this.genres = const [],
@@ -134,6 +144,8 @@ class BookSearchResult {
   final String title;
   final String? author;
   final String? narrator;
+  final List<String> authors;
+  final List<String> narrators;
   final String? series;
   final double? seriesNumber;
   final List<String> genres;
@@ -378,11 +390,44 @@ class SourceFailure {
 }
 
 class SourceSearchResponse {
-  const SourceSearchResponse({required this.results, this.failures = const []});
+  const SourceSearchResponse({
+    required this.results,
+    this.failures = const [],
+    this.continuation,
+    this.limitedSourceIds = const {},
+  });
 
   final List<BookSearchResult> results;
   final List<SourceFailure> failures;
+  final SourceSearchContinuation? continuation;
+  final Set<String> limitedSourceIds;
 
   bool get hasPartialFailures => results.isNotEmpty && failures.isNotEmpty;
   bool get hasFailures => failures.isNotEmpty;
+  bool get hasMore => continuation != null;
+  bool get isPartial => hasMore || hasFailures || limitedSourceIds.isNotEmpty;
+}
+
+/// An in-memory continuation for the same query, filters and catalog service.
+abstract interface class SourceSearchContinuation {}
+
+/// Opaque continuation from one adapter, not a network URL.
+abstract interface class SourceSearchPageCursor {}
+
+/// A single upstream page. [limited] marks a known non-pageable/truncated
+/// response, not a page with a usable continuation.
+class SourceSearchPage {
+  const SourceSearchPage({
+    required this.results,
+    this.nextPage,
+    this.nextCursor,
+    this.limited = false,
+    this.usedRequestedScope = false,
+  });
+
+  final List<BookSearchResult> results;
+  final int? nextPage;
+  final SourceSearchPageCursor? nextCursor;
+  final bool limited;
+  final bool usedRequestedScope;
 }

@@ -19,8 +19,10 @@ class AknigaMapper {
 
   final DateTime Function() _clock;
 
-  List<BookSearchResult> searchResults(String html, {Uri? pageUri}) {
-    final document = html_parser.parse(html);
+  List<BookSearchResult> searchResults(String html, {Uri? pageUri}) =>
+      searchDocument(html_parser.parse(html), pageUri: pageUri);
+
+  List<BookSearchResult> searchDocument(dom.Document document, {Uri? pageUri}) {
     return [
       for (final item in document.querySelectorAll(
         '.content__main__articles--item',
@@ -214,6 +216,7 @@ class AknigaMapper {
         item.querySelector('[href="https://akniga.org/paid/"]') != null ||
         _text(item, '.caption__article-preview').contains('Фрагмент');
     final seriesRaw = _seriesRaw(item);
+    final narrators = _peopleForIcon(item, 'icon--performer');
 
     return BookSearchResult(
       ref: SourceBookRef(
@@ -224,7 +227,9 @@ class AknigaMapper {
       sourceName: sourceName,
       title: title,
       author: authors.join(', '),
-      narrator: _peopleForIcon(item, 'icon--performer').join(', '),
+      narrator: narrators.join(', '),
+      authors: authors,
+      narrators: narrators,
       series: _seriesFromRaw(seriesRaw),
       seriesNumber: _seriesNumberFromRaw(seriesRaw),
       genres: _splitLabels(

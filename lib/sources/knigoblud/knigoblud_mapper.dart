@@ -20,8 +20,10 @@ class KnigobludMapper {
 
   final DateTime Function() _clock;
 
-  List<BookSearchResult> searchResults(String html) {
-    final document = html_parser.parse(html);
+  List<BookSearchResult> searchResults(String html) =>
+      searchDocument(html_parser.parse(html));
+
+  List<BookSearchResult> searchDocument(dom.Document document) {
     return [
       for (final item in document.querySelectorAll('.bookListItem'))
         ?_searchResult(item),
@@ -201,6 +203,8 @@ class KnigobludMapper {
     if (title.isEmpty) {
       return null;
     }
+    final authors = _labelPeople(item, ['Автор']);
+    final narrators = _labelPeople(item, ['Читает', 'Исполнитель']);
 
     return BookSearchResult(
       ref: SourceBookRef(
@@ -210,8 +214,10 @@ class KnigobludMapper {
       ),
       sourceName: sourceName,
       title: title,
-      author: _labelPeople(item, ['Автор']).join(', '),
-      narrator: _labelPeople(item, ['Читает', 'Исполнитель']).join(', '),
+      author: authors.join(', '),
+      narrator: narrators.join(', '),
+      authors: authors,
+      narrators: narrators,
       series: _labelPeople(item, ['Серия']).join(', '),
       seriesNumber: SourceParserHelpers.parseSeriesNumber(
         _labelValue(item, ['Серия']),

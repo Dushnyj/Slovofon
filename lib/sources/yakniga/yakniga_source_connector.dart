@@ -5,11 +5,13 @@ import '../source_connector.dart';
 import '../source_media_validator.dart';
 import '../source_models.dart';
 import '../source_request_cache.dart';
+import '../source_search_cancellation.dart';
+import '../source_search_text.dart';
 import 'yakniga_graphql_client.dart';
 import 'yakniga_mapper.dart';
 
 class YaknigaSourceConnector
-    implements SourceConnector, SourceCacheInvalidator {
+    implements SourceConnector, PagedSourceConnector, SourceCacheInvalidator {
   YaknigaSourceConnector({
     YaknigaGraphQlClient? client,
     YaknigaMapper? mapper,
@@ -23,6 +25,8 @@ class YaknigaSourceConnector
   final YaknigaMapper _mapper;
   final DateTime Function() _clock;
   final SourceRequestCache<String, Map<String, Object?>> _bookCache;
+  static const _autocompleteBookLimit = 20;
+  static const _maxScopesPerTerm = 3;
 
   @override
   String get id => 'yakniga';
@@ -97,18 +101,163 @@ class YaknigaSourceConnector
 
   @override
   Future<List<BookSearchResult>> search(SearchRequest request) async {
-    // This endpoint exposes only an autocomplete collection, not remote pages.
-    // Do not repeat a discarded API call for pages known to be unsupported.
-    if (request.page > 1) {
-      return const [];
-    }
-    final data = await _client.searchBooks(term: request.query);
-    final items = data['search'];
-    if (items is! List<Object?>) {
-      return const [];
-    }
+    if (request.page > 1) return const [];
+    final items = await _autocomplete(request.query);
     final pageSize = request.pageSize < 1 ? 20 : request.pageSize;
     return _mapper.searchResults(items).take(pageSize).toList();
+  }
+
+  @override
+  Future<SourceSearchPage> searchPage(SearchRequest request) async {
+    final cursor = request.sourceCursor;
+    if (cursor is _YaknigaSearchCursor && cursor.query == request.query) {
+      return _scopedPage(request, cursor.scopes);
+    }
+    if (request.page > 1) {
+      return const SourceSearchPage(results: []);
+    }
+    final items = await _autocomplete(request.query);
+    final general = _mapper.searchResults(items);
+    final kinds = request.effectiveKinds;
+    final strictScope =
+        kinds.length == 1 &&
+        !kinds.contains(SearchKind.title) &&
+        !kinds.contains(SearchKind.all);
+    final tokens = SourceSearchText.tokens(request.query).toSet();
+    final eligible = <({bool exact, _YaknigaScope scope})>[];
+    final seen = <(SearchKind, String)>{};
+    if (tokens.isNotEmpty && (strictScope || tokens.length >= 2)) {
+      for (final item in items.whereType<Map<String, Object?>>()) {
+        final kind = switch (item['__typename']) {
+          'Author' => SearchKind.author,
+          'Reader' => SearchKind.narrator,
+          'Series' => SearchKind.series,
+          'Genre' => SearchKind.genre,
+          _ => null,
+        };
+        final alias = item['aliasName'];
+        final name = item['name'];
+        if (kind == null ||
+            !kinds.contains(kind) ||
+            alias is! String ||
+            alias.isEmpty ||
+            name is! String) {
+          continue;
+        }
+        final words = SourceSearchText.tokens(name).toSet();
+        final exact =
+            words.length == tokens.length && words.containsAll(tokens);
+        if ((exact ||
+                (strictScope &&
+                    tokens.every(
+                      (token) => SourceSearchText.containsToken(words, token),
+                    ))) &&
+            seen.add((kind, alias))) {
+          eligible.add((exact: exact, scope: _YaknigaScope(kind, alias, 1)));
+        }
+      }
+    }
+    eligible.sort((a, b) {
+      if (a.exact != b.exact) return a.exact ? -1 : 1;
+      return a.scope.alias.compareTo(b.scope.alias);
+    });
+    final selected = eligible.take(_maxScopesPerTerm).toList();
+    final scoped = selected.isEmpty
+        ? null
+        : await _scopedPage(
+            request,
+            selected.map((entry) => entry.scope).toList(),
+          );
+    final coversRequestedScope =
+        strictScope &&
+        selected.any((entry) => entry.exact) &&
+        eligible.length == selected.length &&
+        scoped?.limited == false;
+    final resultsById = <String, BookSearchResult>{
+      // Both endpoints use the same fields; prefer scoped identity/metadata.
+      for (final book in general) book.sourceBookId: book,
+      for (final book in scoped?.results ?? const <BookSearchResult>[])
+        book.sourceBookId: book,
+    };
+    return SourceSearchPage(
+      results: resultsById.values.toList(),
+      nextPage: scoped?.nextPage,
+      nextCursor: scoped?.nextCursor,
+      limited:
+          eligible.length > selected.length ||
+          (scoped?.limited ?? false) ||
+          (general.length >= _autocompleteBookLimit && !coversRequestedScope),
+      usedRequestedScope: coversRequestedScope,
+    );
+  }
+
+  Future<List<Object?>> _autocomplete(String query) async {
+    final data = await _client.searchBooks(term: query);
+    final items = data['search'];
+    if (items is! List<Object?>) {
+      throw const SourceException(
+        sourceId: 'yakniga',
+        kind: SourceErrorKind.parser,
+        message: 'Yakniga autocomplete response is missing its item list.',
+      );
+    }
+    return items;
+  }
+
+  Future<SourceSearchPage> _scopedPage(
+    SearchRequest request,
+    List<_YaknigaScope> scopes,
+  ) async {
+    final pageSize = (request.pageSize < 1 ? 20 : request.pageSize).clamp(
+      1,
+      20,
+    );
+    final slices = await Future.wait([
+      for (final scope in scopes) _fetchScope(scope, pageSize),
+    ]);
+    final nextScopes = [for (final slice in slices) ?slice.next];
+    return SourceSearchPage(
+      results: [for (final slice in slices) ...slice.results],
+      nextPage: nextScopes.isEmpty ? null : request.page + 1,
+      nextCursor: nextScopes.isEmpty
+          ? null
+          : _YaknigaSearchCursor(request.query, List.unmodifiable(nextScopes)),
+      limited: slices.any((slice) => slice.limited),
+    );
+  }
+
+  Future<_YaknigaScopeSlice> _fetchScope(_YaknigaScope scope, int size) async {
+    try {
+      final data = await _client.scopedBooks(
+        kind: scope.kind,
+        alias: scope.alias,
+        page: scope.page,
+        pageSize: size,
+      );
+      final entity = data['entity'];
+      final books = entity is Map<String, Object?> ? entity['books'] : null;
+      final items = books is Map<String, Object?> ? books['collection'] : null;
+      final metadata = books is Map<String, Object?> ? books['metadata'] : null;
+      if (items is! List<Object?> ||
+          metadata is! Map<String, Object?> ||
+          metadata['currentPage'] != scope.page) {
+        return const _YaknigaScopeSlice(limited: true);
+      }
+      final next = metadata['nextPage'];
+      final invalidNext = next != null && (next is! int || next <= scope.page);
+      return _YaknigaScopeSlice(
+        results: _mapper.searchResults(items),
+        next: next is int && !invalidNext
+            ? _YaknigaScope(scope.kind, scope.alias, next)
+            : null,
+        limited: invalidNext,
+      );
+    } on SourceSearchCancelled {
+      rethrow;
+    } on SourceException {
+      // Keep usable autocomplete results if an optional entity page fails.
+      return const _YaknigaScopeSlice(limited: true);
+    }
   }
 
   @override
@@ -234,6 +383,33 @@ class YaknigaSourceConnector
     }
     return const _YaknigaAliases();
   }
+}
+
+class _YaknigaScope {
+  const _YaknigaScope(this.kind, this.alias, this.page);
+
+  final SearchKind kind;
+  final String alias;
+  final int page;
+}
+
+class _YaknigaSearchCursor implements SourceSearchPageCursor {
+  const _YaknigaSearchCursor(this.query, this.scopes);
+
+  final String query;
+  final List<_YaknigaScope> scopes;
+}
+
+class _YaknigaScopeSlice {
+  const _YaknigaScopeSlice({
+    this.results = const [],
+    this.next,
+    this.limited = false,
+  });
+
+  final List<BookSearchResult> results;
+  final _YaknigaScope? next;
+  final bool limited;
 }
 
 class _YaknigaAliases {

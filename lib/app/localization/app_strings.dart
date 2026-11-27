@@ -173,6 +173,12 @@ class AppStrings {
   String get noSearchResultsMessage => _text('noSearchResultsMessage');
   String get filteredNoSearchResults => _text('filteredNoSearchResults');
   String sourceResultsCount(int count) => _counted('sourceResultsCount', count);
+  String searchResultsSoFar(String results) =>
+      _text('searchResultsSoFar', {'results': results});
+  String searchLimitedSources(String names) =>
+      _text('searchLimitedSources', {'names': names});
+  String get searchLoadMore => _text('searchLoadMore');
+  String get searchRetryMore => _text('searchRetryMore');
 
   String get searchResults => _text('searchResults');
   String partialSearchSources(String names) =>

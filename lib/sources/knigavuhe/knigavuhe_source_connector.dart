@@ -10,7 +10,7 @@ import 'knigavuhe_client.dart';
 import 'knigavuhe_mapper.dart';
 
 class KnigavuheSourceConnector
-    implements SourceConnector, SourceCacheInvalidator {
+    implements SourceConnector, PagedSourceConnector, SourceCacheInvalidator {
   KnigavuheSourceConnector({
     KnigavuheClient? client,
     KnigavuheMapper? mapper,
@@ -99,14 +99,24 @@ class KnigavuheSourceConnector
   }
 
   @override
-  Future<List<BookSearchResult>> search(SearchRequest request) async {
+  Future<List<BookSearchResult>> search(SearchRequest request) async =>
+      (await searchPage(request)).results;
+
+  @override
+  Future<SourceSearchPage> searchPage(SearchRequest request) async {
     final html = await _client.searchBooksHtml(
       query: request.query,
       page: request.page,
     );
     return _useParserWorker
-        ? SourceHtmlParser.search(id, html)
-        : _mapper.searchResults(html);
+        ? SourceHtmlParser.searchPage(id, html, request)
+        : SourceHtmlParser.parsedSearchPage(
+            id,
+            html,
+            _mapper.searchResults(html),
+            request.page,
+            request.query,
+          );
   }
 
   @override

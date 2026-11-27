@@ -8,7 +8,8 @@ import '../source_request_cache.dart';
 import 'izib_graphql_client.dart';
 import 'izib_mapper.dart';
 
-class IzibSourceConnector implements SourceConnector, SourceCacheInvalidator {
+class IzibSourceConnector
+    implements SourceConnector, PagedSourceConnector, SourceCacheInvalidator {
   IzibSourceConnector({
     IzibGraphQlClient? client,
     IzibMapper? mapper,
@@ -94,12 +95,20 @@ class IzibSourceConnector implements SourceConnector, SourceCacheInvalidator {
   }
 
   @override
-  Future<List<BookSearchResult>> search(SearchRequest request) async {
+  Future<List<BookSearchResult>> search(SearchRequest request) async =>
+      (await searchPage(request)).results;
+
+  @override
+  Future<SourceSearchPage> searchPage(SearchRequest request) async {
     final page = request.page < 1 ? 1 : request.page;
     final pageSize = request.pageSize < 1 ? 20 : request.pageSize;
+    final cursor = request.sourceCursor;
+    final offset = cursor is _IzibSearchCursor
+        ? cursor.offset
+        : (page - 1) * pageSize;
     final data = await _client.searchBooks(
       query: request.query,
-      offset: (page - 1) * pageSize,
+      offset: offset,
       count: pageSize,
     );
     final collection = data['booksSearch'];
@@ -112,10 +121,25 @@ class IzibSourceConnector implements SourceConnector, SourceCacheInvalidator {
     }
     final items = collection['items'];
     if (items is! List<Object?>) {
-      return const [];
+      throw const SourceException(
+        sourceId: 'izib',
+        kind: SourceErrorKind.parser,
+        message: 'Izib search response is missing its item list.',
+      );
     }
 
-    return _mapper.searchResults(items);
+    final totalValue = collection['count'];
+    final total = totalValue is int ? totalValue : null;
+    final nextOffset = offset + items.length;
+    final hasNext =
+        items.isNotEmpty &&
+        (total == null ? items.length >= pageSize : nextOffset < total);
+    return SourceSearchPage(
+      results: _mapper.searchResults(items),
+      nextPage: hasNext ? page + 1 : null,
+      nextCursor: hasNext ? _IzibSearchCursor(nextOffset) : null,
+      limited: total != null && offset < total && items.isEmpty,
+    );
   }
 
   @override
@@ -227,4 +251,10 @@ class IzibSourceConnector implements SourceConnector, SourceCacheInvalidator {
     final match = RegExp(r'/art(\d+)(?:\D|$)').firstMatch(uri.path);
     return match == null ? null : int.tryParse(match.group(1)!);
   }
+}
+
+class _IzibSearchCursor implements SourceSearchPageCursor {
+  const _IzibSearchCursor(this.offset);
+
+  final int offset;
 }

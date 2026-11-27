@@ -21,6 +21,11 @@ abstract interface class SourceConnector {
   Future<SourceHealth> checkHealth();
 }
 
+/// Implemented by source adapters which can report pagination or truncation.
+abstract interface class PagedSourceConnector {
+  Future<SourceSearchPage> searchPage(SearchRequest request);
+}
+
 /// Implemented by connectors which cache metadata or temporary media URLs.
 abstract interface class SourceCacheInvalidator {
   void invalidateBook(SourceBookRef ref);

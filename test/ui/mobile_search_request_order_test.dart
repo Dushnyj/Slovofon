@@ -21,6 +21,71 @@ import 'package:slovofon/services/sources/source_catalog_service.dart';
 import 'package:slovofon/sources/sources.dart';
 
 void main() {
+  testWidgets('search starts in all fields and keeps results on paging retry', (
+    tester,
+  ) async {
+    final catalog = _StreamingCatalog();
+    final fixture = await _pump(
+      tester,
+      TargetPlatform.android,
+      overrideCatalog: catalog,
+    );
+    const query = 'Во мрак Андрей Дьяков Кузнецов Сергей Метро 2033';
+    await _submit(tester, query);
+    fixture.history.pending.single.complete([]);
+    await tester.pump();
+    final initial = catalog.requests.single;
+    expect(initial.query, query);
+    expect(initial.effectiveKinds, {
+      SearchKind.title,
+      SearchKind.author,
+      SearchKind.narrator,
+      SearchKind.series,
+      SearchKind.genre,
+    });
+
+    const first = BookSearchResult(
+      ref: SourceBookRef(sourceId: 'izib', sourceBookId: 'first'),
+      sourceName: 'Izib',
+      title: 'First page book',
+    );
+    const second = BookSearchResult(
+      ref: SourceBookRef(sourceId: 'izib', sourceBookId: 'second'),
+      sourceName: 'Izib',
+      title: 'Second page book',
+    );
+    final cursor = _TestContinuation();
+    catalog.calls.single.completer.complete(
+      SourceSearchResponse(results: const [first], continuation: cursor),
+    );
+    await tester.pumpAndSettle();
+    final more = find.byKey(const ValueKey('search-load-more'));
+    expect(find.text('Found so far: 1 result'), findsOneWidget);
+
+    await tester.tap(more);
+    await tester.pump();
+    expect(catalog.requests.last.continuation, same(cursor));
+    expect(catalog.requests.last.kinds, initial.kinds);
+    expect(find.text(first.title), findsOneWidget);
+    catalog.calls.last.completer.completeError(StateError('page unavailable'));
+    await tester.pumpAndSettle();
+    expect(find.text(first.title), findsOneWidget);
+    expect(find.text('Retry loading more results'), findsOneWidget);
+
+    await tester.tap(more);
+    await tester.pump();
+    expect(catalog.requests.last.continuation, same(cursor));
+    expect(fixture.history.pending, hasLength(1));
+    catalog.calls.last.completer.complete(
+      const SourceSearchResponse(results: [first, second]),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text(first.title), findsOneWidget);
+    expect(find.text(second.title), findsOneWidget);
+    expect(find.text('2 results'), findsOneWidget);
+    expect(more, findsNothing);
+  });
+
   testWidgets('cancelled old future cannot hide a replacement partial', (
     tester,
   ) async {
@@ -57,7 +122,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
     expect(replacement.completer.isCompleted, isFalse);
     expect(find.text('Replacement partial book'), findsOneWidget);
-    expect(find.text('1 result'), findsOneWidget);
+    expect(find.text('Found so far: 1 result'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('search-partial-progress')),
       findsOneWidget,
@@ -327,6 +392,7 @@ class _StreamingCatalog extends _Catalog {
     void Function(SourceSearchResponse)? onUpdate,
     SourceSearchCancellation? cancellation,
   }) {
+    requests.add(request);
     final completer = Completer<SourceSearchResponse>();
     calls.add((
       update: onUpdate,
@@ -336,3 +402,5 @@ class _StreamingCatalog extends _Catalog {
     return completer.future;
   }
 }
+
+class _TestContinuation implements SourceSearchContinuation {}

@@ -10,7 +10,7 @@ import 'knigoblud_client.dart';
 import 'knigoblud_mapper.dart';
 
 class KnigobludSourceConnector
-    implements SourceConnector, SourceCacheInvalidator {
+    implements SourceConnector, PagedSourceConnector, SourceCacheInvalidator {
   KnigobludSourceConnector({
     KnigobludClient? client,
     KnigobludMapper? mapper,
@@ -98,14 +98,24 @@ class KnigobludSourceConnector
   }
 
   @override
-  Future<List<BookSearchResult>> search(SearchRequest request) async {
+  Future<List<BookSearchResult>> search(SearchRequest request) async =>
+      (await searchPage(request)).results;
+
+  @override
+  Future<SourceSearchPage> searchPage(SearchRequest request) async {
     final html = await _client.searchBooksHtml(
       query: request.query,
       page: request.page,
     );
     return _useParserWorker
-        ? SourceHtmlParser.search(id, html)
-        : _mapper.searchResults(html);
+        ? SourceHtmlParser.searchPage(id, html, request)
+        : SourceHtmlParser.parsedSearchPage(
+            id,
+            html,
+            _mapper.searchResults(html),
+            request.page,
+            request.query,
+          );
   }
 
   @override

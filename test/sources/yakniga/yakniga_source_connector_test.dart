@@ -49,6 +49,75 @@ void main() {
     });
 
     test(
+      'reader scope expands autocomplete and advances its typed cursor',
+      () async {
+        final client = FakeYaknigaClient(
+          responses: [
+            {
+              'search': [
+                for (var i = 0; i < 20; i++) {..._book(), 'id': '$i'},
+                {
+                  '__typename': 'Reader',
+                  'name': 'Кузнецов Сергей',
+                  'aliasName': 'kuznetsov-sergey',
+                },
+              ],
+            },
+            _page(1, next: 2, id: '62685'),
+            _page(2, id: 'later'),
+          ],
+        );
+        final connector = YaknigaSourceConnector(client: client);
+        const request = SearchRequest(
+          query: 'Сергей Кузнецов',
+          kind: SearchKind.narrator,
+        );
+
+        final first = await connector.searchPage(request);
+        expect(
+          first.results.map((book) => book.sourceBookId),
+          contains('62685'),
+        );
+        expect(first.usedRequestedScope, isTrue);
+        expect(first.limited, isFalse);
+        expect(first.nextPage, 2);
+        final second = await connector.searchPage(
+          request.copyWith(
+            page: first.nextPage,
+            sourceCursor: first.nextCursor,
+          ),
+        );
+        expect(second.results.single.sourceBookId, 'later');
+        expect(second.nextPage, isNull);
+        expect(client.calls, [
+          'search:Сергей Кузнецов',
+          'scoped:narrator:kuznetsov-sergey:1:20',
+          'scoped:narrator:kuznetsov-sergey:2:20',
+        ]);
+      },
+    );
+
+    test('capped autocomplete without a scoped match is partial', () async {
+      final connector = YaknigaSourceConnector(
+        client: FakeYaknigaClient(
+          responses: [
+            {
+              'search': [
+                for (var i = 0; i < 20; i++) {..._book(), 'id': '$i'},
+              ],
+            },
+          ],
+        ),
+      );
+      final page = await connector.searchPage(
+        const SearchRequest(query: 'метро'),
+      );
+      expect(page.results, hasLength(20));
+      expect(page.limited, isTrue);
+      expect(page.nextPage, isNull);
+    });
+
+    test(
       'details, chapters, tracks, and media resolution use book API',
       () async {
         final client = FakeYaknigaClient(
@@ -132,6 +201,18 @@ class FakeYaknigaClient implements YaknigaGraphQlClient {
   }
 
   @override
+  Future<Map<String, Object?>> scopedBooks({
+    required SearchKind kind,
+    required String alias,
+    required int page,
+    required int pageSize,
+  }) async {
+    calls.add('scoped:${kind.name}:$alias:$page:$pageSize');
+    if (error != null) throw error!;
+    return responses[calls.length - 1];
+  }
+
+  @override
   Future<Map<String, Object?>> book({
     String? id,
     String? aliasName,
@@ -144,6 +225,17 @@ class FakeYaknigaClient implements YaknigaGraphQlClient {
     return responses[calls.length - 1];
   }
 }
+
+Map<String, Object?> _page(int page, {int? next, required String id}) => {
+  'entity': {
+    'books': {
+      'metadata': {'currentPage': page, 'nextPage': next, 'totalPages': 2},
+      'collection': [
+        {..._book(), 'id': id, 'title': 'Во мрак'},
+      ],
+    },
+  },
+};
 
 Map<String, Object?> _book({bool chapters = false}) {
   return {

@@ -5,10 +5,7 @@ import '../source_models.dart';
 import '../source_response_reader.dart';
 import '../source_search_cancellation.dart';
 
-const yaknigaSearchBooksQuery = '''query Search(\$term: String!) {
-  search(autocomplete: true, term: \$term) {
-    __typename
-    ... on Book {
+const _catalogBookFields = '''
       id
       title
       aliasName
@@ -22,7 +19,7 @@ const yaknigaSearchBooksQuery = '''query Search(\$term: String!) {
       rating
       price
       publishDate
-      description
+      seriesNum
       readers { id name aliasName __typename }
       authors { id name aliasName __typename }
       series { id name aliasName __typename }
@@ -31,7 +28,19 @@ const yaknigaSearchBooksQuery = '''query Search(\$term: String!) {
         __typename
       }
       __typename
+''';
+
+const yaknigaSearchBooksQuery =
+    '''query Search(\$term: String!) {
+  search(autocomplete: true, term: \$term) {
+    __typename
+    ... on Book {
+      $_catalogBookFields
     }
+    ... on Author { id name aliasName }
+    ... on Reader { id name aliasName }
+    ... on Series { id name aliasName }
+    ... on Genre { id name aliasName }
   }
 }''';
 
@@ -240,6 +249,35 @@ class YaknigaGraphQlClient {
       operationName: 'Search',
       variables: {'term': term},
       query: yaknigaSearchBooksQuery,
+    );
+  }
+
+  Future<Map<String, Object?>> scopedBooks({
+    required SearchKind kind,
+    required String alias,
+    required int page,
+    required int pageSize,
+  }) {
+    final (field, order) = switch (kind) {
+      SearchKind.author => ('author', 'by_date'),
+      SearchKind.narrator => ('reader', 'by_date'),
+      SearchKind.series => ('series', 'by_seriesNum'),
+      SearchKind.genre => ('genre', 'by_date'),
+      _ => throw ArgumentError.value(kind, 'kind', 'Not a scoped query.'),
+    };
+    return execute(
+      operationName: 'ScopedBooks',
+      variables: {'alias': alias, 'page': page, 'size': pageSize},
+      query:
+          '''query ScopedBooks(\$alias: String!, \$page: Int!, \$size: Int!) {
+        entity: $field(aliasName: \$alias) {
+          id
+          books(page: \$page, perPage: \$size, query: {$order: "desc"}) {
+            metadata { currentPage nextPage totalPages }
+            collection { $_catalogBookFields }
+          }
+        }
+      }''',
     );
   }
 

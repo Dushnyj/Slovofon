@@ -69,12 +69,18 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   );
   final _televisionFiltersFocus = FocusNode(debugLabel: 'TV search filters');
 
-  Set<SearchKind> _selectedKinds = const {SearchKind.title};
+  Set<SearchKind> _selectedKinds = _allSearchKinds;
   SearchSort _selectedSort = SearchSort.relevance;
   String _activeQuery = '';
   Future<SourceSearchResponse>? _searchFuture;
   final _searchUpdates = ValueNotifier<SourceSearchResponse?>(null);
   SourceSearchCancellation? _searchCancellation;
+  SearchRequest? _activeRequest;
+  SourceCatalogService? _activeCatalog;
+  SourceSearchResponse? _completedSearch;
+  bool _loadingMore = false;
+  bool _loadMoreFailed = false;
+  bool _scrollLoadScheduled = false;
   List<SearchHistoryEntry> _history = const [];
   bool _showResultsPage = false;
   final _playLoadingIds = <String>{};
@@ -169,45 +175,50 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
               _handleResultsBack(context);
             }
           },
-          child: CustomScrollView(
-            slivers: [
-              SliverAppBar(
-                toolbarHeight: appBarToolbarHeight(context),
-                floating: true,
-                automaticallyImplyLeading: false,
-                leading: AppIconButton(
-                  tooltip: MaterialLocalizations.of(context).backButtonTooltip,
-                  onPressed: () => _handleResultsBack(context),
-                  icon: const AppIcon(AppIconAssets.systemBack),
-                ),
-                title: preserveAppBarTextScale(
-                  context,
-                  _SearchResultsTitle(
-                    searchFuture: _searchFuture,
-                    updates: _searchUpdates,
+          child: _withSearchPaging(
+            CustomScrollView(
+              slivers: [
+                SliverAppBar(
+                  toolbarHeight: appBarToolbarHeight(context),
+                  floating: true,
+                  automaticallyImplyLeading: false,
+                  leading: AppIconButton(
+                    tooltip: MaterialLocalizations.of(
+                      context,
+                    ).backButtonTooltip,
+                    onPressed: () => _handleResultsBack(context),
+                    icon: const AppIcon(AppIconAssets.systemBack),
+                  ),
+                  title: preserveAppBarTextScale(
+                    context,
+                    _SearchResultsTitle(
+                      searchFuture: _searchFuture,
+                      updates: _searchUpdates,
+                    ),
                   ),
                 ),
-              ),
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                sliver: _SearchResults(
-                  query: _activeQuery,
-                  searchFuture: _searchFuture,
-                  updates: _searchUpdates,
-                  libraryStore: libraryStore,
-                  playLoadingIds: _playLoadingIds,
-                  downloadLoadingIds: _downloadLoadingIds,
-                  history: _history,
-                  onHistoryTap: _runHistorySearch,
-                  onHistoryDelete: _deleteHistoryEntry,
-                  onFavoriteToggle: _toggleFavorite,
-                  onLaterToggle: _toggleLater,
-                  onRetry: () => _submitSearch(_activeQuery),
-                  onPlayPressed: _playResult,
-                  onDownloadPressed: _downloadResult,
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                  sliver: _SearchResults(
+                    query: _activeQuery,
+                    searchFuture: _searchFuture,
+                    updates: _searchUpdates,
+                    libraryStore: libraryStore,
+                    playLoadingIds: _playLoadingIds,
+                    downloadLoadingIds: _downloadLoadingIds,
+                    history: _history,
+                    onHistoryTap: _runHistorySearch,
+                    onHistoryDelete: _deleteHistoryEntry,
+                    onFavoriteToggle: _toggleFavorite,
+                    onLaterToggle: _toggleLater,
+                    onRetry: _retrySearch,
+                    onLoadMore: _loadMore,
+                    onPlayPressed: _playResult,
+                    onDownloadPressed: _downloadResult,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       );
@@ -270,7 +281,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                 onHistoryDelete: _deleteHistoryEntry,
                 onFavoriteToggle: _toggleFavorite,
                 onLaterToggle: _toggleLater,
-                onRetry: () => _submitSearch(_activeQuery),
+                onRetry: _retrySearch,
+                onLoadMore: _loadMore,
                 onPlayPressed: _playResult,
                 onDownloadPressed: _downloadResult,
               ),
@@ -403,7 +415,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                   onHistoryDelete: _deleteHistoryEntry,
                   onFavoriteToggle: _toggleFavorite,
                   onLaterToggle: _toggleLater,
-                  onRetry: () => _submitSearch(_activeQuery),
+                  onRetry: _retrySearch,
+                  onLoadMore: _loadMore,
                   onPlayPressed: _playResult,
                   onDownloadPressed: _downloadResult,
                 ),
@@ -505,7 +518,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
             onHistoryDelete: _deleteHistoryEntry,
             onFavoriteToggle: _toggleFavorite,
             onLaterToggle: _toggleLater,
-            onRetry: () => _submitSearch(_activeQuery),
+            onRetry: _retrySearch,
+            onLoadMore: _loadMore,
             onPlayPressed: _playResult,
             onDownloadPressed: _downloadResult,
           ),
@@ -586,46 +600,51 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         _handleResultsBack(context);
         return true;
       },
-      child: CustomScrollView(
-        key: const PageStorageKey('desktop-search-scroll'),
-        slivers: [
-          SliverPadding(
-            padding: DesktopLayout.pagePadding(context),
-            sliver: SliverMainAxisGroup(
-              slivers: [
-                SliverList.list(
-                  children: [
-                    DesktopPageHeader(title: strings.search, bottomSpacing: 16),
-                    controls,
-                    SizedBox(height: _activeQuery.isEmpty ? 24 : 12),
-                  ],
-                ),
-                if (_activeQuery.isEmpty)
-                  SliverToBoxAdapter(
-                    child: _DesktopSearchContextPanels(
-                      key: const ValueKey('desktop-search-secondary'),
-                      children: contextPanels,
-                    ),
-                  )
-                else
-                  SliverWorkspaceColumns(
-                    key: const ValueKey('desktop-search-workspace'),
-                    minimumPrimaryWidth: 620,
-                    primary: primary,
-                    secondary: Column(
-                      key: const ValueKey('desktop-search-secondary'),
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        contextPanels[0],
-                        const SizedBox(height: 16),
-                        contextPanels[1],
-                      ],
-                    ),
+      child: _withSearchPaging(
+        CustomScrollView(
+          key: const PageStorageKey('desktop-search-scroll'),
+          slivers: [
+            SliverPadding(
+              padding: DesktopLayout.pagePadding(context),
+              sliver: SliverMainAxisGroup(
+                slivers: [
+                  SliverList.list(
+                    children: [
+                      DesktopPageHeader(
+                        title: strings.search,
+                        bottomSpacing: 16,
+                      ),
+                      controls,
+                      SizedBox(height: _activeQuery.isEmpty ? 24 : 12),
+                    ],
                   ),
-              ],
+                  if (_activeQuery.isEmpty)
+                    SliverToBoxAdapter(
+                      child: _DesktopSearchContextPanels(
+                        key: const ValueKey('desktop-search-secondary'),
+                        children: contextPanels,
+                      ),
+                    )
+                  else
+                    SliverWorkspaceColumns(
+                      key: const ValueKey('desktop-search-workspace'),
+                      minimumPrimaryWidth: 620,
+                      primary: primary,
+                      secondary: Column(
+                        key: const ValueKey('desktop-search-secondary'),
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          contextPanels[0],
+                          const SizedBox(height: 16),
+                          contextPanels[1],
+                        ],
+                      ),
+                    ),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -653,8 +672,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     }
     _appliedInitialRouteKey = routeKey;
     _searchRequestGeneration++;
-    _searchCancellation?.cancel();
-    _searchUpdates.value = null;
+    _cancelSearch();
 
     void apply() {
       if (initialKinds != null && initialKinds.isNotEmpty) {
@@ -702,12 +720,12 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   Future<void> _submitSearchWithKinds(
     String? submittedQuery, {
     Set<SearchKind>? searchKindsOverride,
+    SearchSort? sortOverride,
   }) async {
     final generation = ++_searchRequestGeneration;
-    _searchCancellation?.cancel();
+    _cancelSearch();
     final cancellation = SourceSearchCancellation();
     _searchCancellation = cancellation;
-    _searchUpdates.value = null;
     final query = (submittedQuery ?? _controller.text).trim();
     if (query.length < 2) {
       setState(() {
@@ -723,7 +741,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         ? Set<SearchKind>.unmodifiable(searchKindsOverride)
         : _selectedKinds;
     final historyKind = _historyKindFor(searchKinds);
-    final sort = _selectedSort;
+    final sort = sortOverride ?? _selectedSort;
     var history = _history;
     try {
       history = await ref
@@ -740,26 +758,128 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       _history = history;
       _activeQuery = query;
       _showResultsPage = true;
-      _searchFuture = ref
-          .read(sourceCatalogServiceProvider)
-          .search(
-            SearchRequest(
-              query: query,
-              kind: historyKind,
-              kinds: searchKinds,
-              sort: sort,
-            ),
-            cancellation: cancellation,
-            onUpdate: (response) {
-              if (!mounted ||
-                  generation != _searchRequestGeneration ||
-                  cancellation.isCancelled) {
-                return;
-              }
-              _searchUpdates.value = response;
-            },
-          );
+      final request = SearchRequest(
+        query: query,
+        kind: historyKind,
+        kinds: searchKinds,
+        sort: sort,
+      );
+      _activeRequest = request;
+      final catalog = ref.read(sourceCatalogServiceProvider);
+      _activeCatalog = catalog;
+      _searchFuture = _fetchSearch(catalog, request, cancellation, generation);
     });
+  }
+
+  Future<SourceSearchResponse> _fetchSearch(
+    SourceCatalogService catalog,
+    SearchRequest request,
+    SourceSearchCancellation cancellation,
+    int generation, {
+    SourceSearchResponse? previous,
+  }) async {
+    bool current() =>
+        mounted &&
+        generation == _searchRequestGeneration &&
+        !cancellation.isCancelled;
+    try {
+      final response = await catalog.search(
+        request,
+        cancellation: cancellation,
+        onUpdate: (response) {
+          if (current()) _searchUpdates.value = response;
+        },
+      );
+      if (current()) _completedSearch = response;
+      return response;
+    } catch (_) {
+      if (previous != null && current()) {
+        _searchUpdates.value = previous;
+        _loadMoreFailed = true;
+      }
+      rethrow;
+    } finally {
+      if (current() && previous != null) _loadingMore = false;
+    }
+  }
+
+  void _retrySearch() {
+    final request = _activeRequest;
+    if (request != null) {
+      unawaited(
+        _submitSearchWithKinds(
+          request.query,
+          searchKindsOverride: request.kinds,
+          sortOverride: request.sort,
+        ),
+      );
+    }
+  }
+
+  void _loadMore() {
+    final request = _activeRequest;
+    final catalog = _activeCatalog;
+    final previous = _completedSearch;
+    final next = previous?.continuation;
+    final cancellation = _searchCancellation;
+    if (_loadingMore ||
+        catalog == null ||
+        request == null ||
+        previous == null ||
+        next == null ||
+        cancellation == null ||
+        cancellation.isCancelled) {
+      return;
+    }
+
+    _searchUpdates.value = previous;
+    setState(() {
+      _loadingMore = true;
+      _loadMoreFailed = false;
+      _searchFuture = _fetchSearch(
+        catalog,
+        request.copyWith(continuation: next),
+        cancellation,
+        _searchRequestGeneration,
+        previous: previous,
+      );
+    });
+  }
+
+  Widget _withSearchPaging(Widget child) {
+    return NotificationListener<ScrollUpdateNotification>(
+      onNotification: (notification) {
+        if (notification.depth == 0 &&
+            notification.metrics.axis == Axis.vertical &&
+            (notification.scrollDelta ?? 0) > 0 &&
+            notification.metrics.extentAfter < 280 &&
+            _completedSearch?.hasMore == true &&
+            !_loadingMore &&
+            !_loadMoreFailed &&
+            !_scrollLoadScheduled) {
+          _scrollLoadScheduled = true;
+          final generation = _searchRequestGeneration;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted || generation != _searchRequestGeneration) return;
+            _scrollLoadScheduled = false;
+            if (!_loadMoreFailed) _loadMore();
+          });
+        }
+        return false;
+      },
+      child: child,
+    );
+  }
+
+  void _cancelSearch() {
+    _searchCancellation?.cancel();
+    _activeRequest = null;
+    _activeCatalog = null;
+    _completedSearch = null;
+    _loadingMore = false;
+    _loadMoreFailed = false;
+    _scrollLoadScheduled = false;
+    _searchUpdates.value = null;
   }
 
   void _runHistorySearch(SearchHistoryEntry entry) {
@@ -767,13 +887,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     _controller.selection = TextSelection.collapsed(offset: entry.query.length);
     setState(() {
       _selectedKinds = entry.kind == SearchKind.all
-          ? const {
-              SearchKind.title,
-              SearchKind.author,
-              SearchKind.narrator,
-              SearchKind.series,
-              SearchKind.genre,
-            }
+          ? _allSearchKinds
           : {entry.kind};
     });
     _submitSearch();
@@ -801,6 +915,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 
   void _handleResultsBack(BuildContext context) {
     _searchRequestGeneration++;
+    _cancelSearch();
     if (widget.popOnResultsBack && Navigator.of(context).canPop()) {
       Navigator.of(context).pop();
       return;
@@ -1239,20 +1354,27 @@ class _SearchResultsTitle extends StatelessWidget {
       builder: (context, partial, _) => FutureBuilder<SourceSearchResponse>(
         future: future,
         builder: (context, snapshot) {
+          final pending = snapshot.connectionState != ConnectionState.done;
           if (DesktopLayout.isActive(context) &&
-              snapshot.connectionState == ConnectionState.done &&
+              !pending &&
               snapshot.hasError &&
+              partial?.hasMore != true &&
               snapshot.error is! SourceSearchCancelled) {
             return Text(context.strings.sourceSearchError);
           }
-          final response = snapshot.connectionState == ConnectionState.done
-              ? snapshot.data
-              : partial;
+          final response = pending || snapshot.hasError
+              ? partial
+              : snapshot.data;
           if (response == null) {
             return Text(context.strings.searchingSources);
           }
+          final count = context.strings.sourceResultsCount(
+            response.results.length,
+          );
           return Text(
-            context.strings.sourceResultsCount(response.results.length),
+            pending || response.isPartial
+                ? context.strings.searchResultsSoFar(count)
+                : count,
           );
         },
       ),
@@ -1274,6 +1396,7 @@ class _SearchResults extends ConsumerWidget {
     required this.onFavoriteToggle,
     required this.onLaterToggle,
     required this.onRetry,
+    required this.onLoadMore,
     required this.onPlayPressed,
     required this.onDownloadPressed,
   });
@@ -1290,6 +1413,7 @@ class _SearchResults extends ConsumerWidget {
   final Future<void> Function(AudioBook book) onFavoriteToggle;
   final Future<void> Function(AudioBook book) onLaterToggle;
   final VoidCallback onRetry;
+  final VoidCallback onLoadMore;
   final ValueChanged<BookSearchResult> onPlayPressed;
   final ValueChanged<BookSearchResult> onDownloadPressed;
 
@@ -1340,7 +1464,12 @@ class _SearchResults extends ConsumerWidget {
 
             // FutureBuilder retains an old error while a replacement future is
             // waiting. A cancelled previous request must not hide new partials.
-            if (!pending && snapshot.hasError) {
+            final continuationFailed =
+                !pending &&
+                snapshot.hasError &&
+                partial?.hasMore == true &&
+                snapshot.error is! SourceSearchCancelled;
+            if (!pending && snapshot.hasError && !continuationFailed) {
               if (snapshot.error is SourceSearchCancelled) {
                 return const SliverToBoxAdapter(child: SizedBox.shrink());
               }
@@ -1352,18 +1481,11 @@ class _SearchResults extends ConsumerWidget {
               );
             }
 
-            final response = pending ? partial : snapshot.data;
+            final response = pending || continuationFailed
+                ? partial
+                : snapshot.data;
             final results = response?.results ?? const <BookSearchResult>[];
-            if (results.isEmpty) {
-              if (response?.failures.isNotEmpty == true) {
-                return SliverToBoxAdapter(
-                  child: _SearchFailuresNotice(
-                    failures: response!.failures,
-                    onRetry: onRetry,
-                  ),
-                );
-              }
-
+            if (results.isEmpty && response?.isPartial != true) {
               return SliverToBoxAdapter(
                 child: StatePlaceholder.empty(
                   title: strings.noSearchResults,
@@ -1393,66 +1515,97 @@ class _SearchResults extends ConsumerWidget {
                       ),
                     ),
                   ),
-                SliverResponsiveTileGrid.builder(
-                  stretchDesktopColumns: DesktopLayout.isActive(context),
-                  maxColumns: DesktopLayout.isActive(context) ? 1 : 5,
-                  itemCount: results.length,
-                  itemKeyBuilder: (index) =>
-                      ValueKey(_resultKey(results[index])),
-                  itemBuilder: (context, index) {
-                    final result = results[index];
-                    final audioBook = catalog
-                        .audioBookForSearchResult(result)
-                        .copyWith(
-                          progress: _progressForResult(
-                            playbackController.state,
-                            progressSnapshots,
-                            result,
-                          ),
-                        );
-                    final key = _resultKey(result);
-                    final isCurrentBook = _playbackBookMatchesResult(
-                      playbackController.state.book,
-                      result,
-                    );
-                    final downloadState = _downloadStateForResult(
-                      downloadManager,
-                      result,
-                    );
-                    return BookCard(
-                      book: audioBook,
-                      desktopPresentation: DesktopBookPresentation.result,
-                      yearLabel: result.year?.toString(),
-                      isFavorite: libraryStore.isFavorite(audioBook),
-                      isLater: libraryStore.isLater(audioBook),
-                      onLaterPressed: () => onLaterToggle(audioBook),
-                      downloadState: downloadState,
-                      downloadProgress: _downloadProgressForResult(
-                        downloadManager,
-                        result,
-                      ),
-                      isCurrentBook: isCurrentBook,
-                      isPlaying: playbackController.state.isPlaying,
-                      isPlaybackLoading:
-                          isCurrentBook &&
-                          (playbackController.state.status ==
-                                  AudioPlaybackStatus.loading ||
-                              playbackController.state.status ==
-                                  AudioPlaybackStatus.buffering),
-                      isPlayLoading:
-                          playLoadingIds.contains(key) && !isCurrentBook,
-                      isDownloadLoading: downloadLoadingIds.contains(key),
-                      onFavoritePressed: () => onFavoriteToggle(audioBook),
-                      onDownloadPressed: () => onDownloadPressed(result),
-                      onPlay: () => onPlayPressed(result),
-                      onTap: () => unawaited(
-                        context.push(
-                          '/source-book/${result.sourceId}/${Uri.encodeComponent(result.sourceBookId)}',
+                if (response?.limitedSourceIds.isNotEmpty == true)
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Text(
+                        strings.searchLimitedSources(
+                          response!.limitedSourceIds
+                              .map(strings.sourceDisplayName)
+                              .join(', '),
                         ),
                       ),
-                    );
-                  },
-                ),
+                    ),
+                  ),
+                if (results.isNotEmpty)
+                  SliverResponsiveTileGrid.builder(
+                    stretchDesktopColumns: DesktopLayout.isActive(context),
+                    maxColumns: DesktopLayout.isActive(context) ? 1 : 5,
+                    itemCount: results.length,
+                    itemKeyBuilder: (index) =>
+                        ValueKey(_resultKey(results[index])),
+                    itemBuilder: (context, index) {
+                      final result = results[index];
+                      final audioBook = catalog
+                          .audioBookForSearchResult(result)
+                          .copyWith(
+                            progress: _progressForResult(
+                              playbackController.state,
+                              progressSnapshots,
+                              result,
+                            ),
+                          );
+                      final key = _resultKey(result);
+                      final isCurrentBook = _playbackBookMatchesResult(
+                        playbackController.state.book,
+                        result,
+                      );
+                      final downloadState = _downloadStateForResult(
+                        downloadManager,
+                        result,
+                      );
+                      return BookCard(
+                        book: audioBook,
+                        desktopPresentation: DesktopBookPresentation.result,
+                        yearLabel: result.year?.toString(),
+                        isFavorite: libraryStore.isFavorite(audioBook),
+                        isLater: libraryStore.isLater(audioBook),
+                        onLaterPressed: () => onLaterToggle(audioBook),
+                        downloadState: downloadState,
+                        downloadProgress: _downloadProgressForResult(
+                          downloadManager,
+                          result,
+                        ),
+                        isCurrentBook: isCurrentBook,
+                        isPlaying: playbackController.state.isPlaying,
+                        isPlaybackLoading:
+                            isCurrentBook &&
+                            (playbackController.state.status ==
+                                    AudioPlaybackStatus.loading ||
+                                playbackController.state.status ==
+                                    AudioPlaybackStatus.buffering),
+                        isPlayLoading:
+                            playLoadingIds.contains(key) && !isCurrentBook,
+                        isDownloadLoading: downloadLoadingIds.contains(key),
+                        onFavoritePressed: () => onFavoriteToggle(audioBook),
+                        onDownloadPressed: () => onDownloadPressed(result),
+                        onPlay: () => onPlayPressed(result),
+                        onTap: () => unawaited(
+                          context.push(
+                            '/source-book/${result.sourceId}/${Uri.encodeComponent(result.sourceBookId)}',
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                if (!pending && response?.hasMore == true)
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 12),
+                      child: Center(
+                        child: OutlinedButton(
+                          key: const ValueKey('search-load-more'),
+                          onPressed: onLoadMore,
+                          child: Text(
+                            continuationFailed
+                                ? strings.searchRetryMore
+                                : strings.searchLoadMore,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
               ],
             );
           },
@@ -1573,6 +1726,14 @@ const _searchKindOptions = [
   SearchKind.genre,
 ];
 
+const _allSearchKinds = {
+  SearchKind.title,
+  SearchKind.author,
+  SearchKind.narrator,
+  SearchKind.series,
+  SearchKind.genre,
+};
+
 String _resultVersionId(BookSearchResult result) {
   return switch (result.sourceId) {
     'izib' => 'izib-${result.sourceBookId}',
@@ -1598,7 +1759,7 @@ SearchKind _historyKindFor(Set<SearchKind> selectedKinds) {
 }
 
 String _kindsLabel(BuildContext context, Set<SearchKind> kinds) {
-  final selected = kinds.isEmpty ? const {SearchKind.title} : kinds;
+  final selected = kinds.isEmpty ? _allSearchKinds : kinds;
   if (selected.length == _searchKindOptions.length) {
     return context.strings.all;
   }

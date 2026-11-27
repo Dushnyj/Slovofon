@@ -41,6 +41,22 @@ void main() {
       expect(client.calls, ['search:дыхание зоны:1']);
     });
 
+    test('an interstitial redirect is not a successful empty search', () async {
+      final connector = BazaKnigSourceConnector(
+        client: BazaKnigClient(transport: _InterstitialTransport()),
+      );
+      await expectLater(
+        connector.searchPage(const SearchRequest(query: 'метро')),
+        throwsA(
+          isA<SourceException>().having(
+            (error) => error.kind,
+            'kind',
+            SourceErrorKind.network,
+          ),
+        ),
+      );
+    });
+
     test(
       'details, chapters, tracks, and media resolution use page data',
       () async {
@@ -125,6 +141,18 @@ void main() {
       ]);
     });
   });
+}
+
+class _InterstitialTransport implements BazaKnigTransport {
+  @override
+  Future<BazaKnigTransportResponse> get(
+    Uri uri, {
+    required Map<String, String> headers,
+  }) async => BazaKnigTransportResponse(
+    statusCode: 200,
+    body: '<title>Please wait</title>',
+    finalUri: uri.replace(path: '/bk-chal'),
+  );
 }
 
 class FakeBazaKnigClient implements BazaKnigClient {

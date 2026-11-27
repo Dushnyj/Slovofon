@@ -38,12 +38,16 @@ class IzibMapper {
     final hasFiles = files.isNotEmpty;
     final genre = _entityName(book['genre']);
 
+    final authors = _peopleList(book['authors']);
+    final narrators = _peopleList(book['readers']);
     return BookSearchResult(
       ref: bookRef(book),
       sourceName: sourceName,
       title: _string(book['name']),
-      author: _people(book['authors']),
-      narrator: _people(book['readers']),
+      author: authors.join(', '),
+      narrator: narrators.join(', '),
+      authors: authors,
+      narrators: narrators,
       series: _entityName(book['serie']),
       seriesNumber: _seriesNumber(book['serieIndex']),
       genres: [if (genre.isNotEmpty) genre],
@@ -289,10 +293,6 @@ class IzibMapper {
       for (final poster in posters) _string(poster),
     ]);
     return SourceParserHelpers.safeResolveUri(sourceBaseUri, value);
-  }
-
-  static String _people(Object? value) {
-    return _peopleList(value).join(', ');
   }
 
   static List<String> _peopleList(Object? value) {

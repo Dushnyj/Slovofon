@@ -14,10 +14,12 @@ class BazaKnigTransportResponse {
   const BazaKnigTransportResponse({
     required this.statusCode,
     required this.body,
+    this.finalUri,
   });
 
   final int statusCode;
   final String body;
+  final Uri? finalUri;
 }
 
 class DartIoBazaKnigTransport implements BazaKnigTransport {
@@ -42,6 +44,7 @@ class DartIoBazaKnigTransport implements BazaKnigTransport {
     return BazaKnigTransportResponse(
       statusCode: response.statusCode,
       body: response.body,
+      finalUri: response.finalUri,
     );
   }
 }
@@ -102,6 +105,14 @@ class BazaKnigClient {
       uri,
       headers: _htmlHeaders(referer: referer),
     );
+    if (uri.path == '/index.php' && response.finalUri?.path == '/bk-chal') {
+      throw const SourceException(
+        sourceId: 'baza_knig',
+        kind: SourceErrorKind.network,
+        message:
+            'Baza Knig returned an interstitial instead of search results.',
+      );
+    }
     if (response.statusCode >= 200 && response.statusCode < 300) {
       return response.body;
     }

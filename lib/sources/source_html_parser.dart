@@ -1,3 +1,6 @@
+import 'package:html/dom.dart' as dom;
+import 'package:html/parser.dart' as html_parser;
+
 import '../domain/models/chapter.dart';
 import 'akniga/akniga_mapper.dart';
 import 'baza_knig/baza_knig_mapper.dart';
@@ -6,11 +9,100 @@ import 'knigoblud/knigoblud_mapper.dart';
 import 'source_models.dart';
 import 'source_parser_worker.dart';
 
-enum _HtmlOperation { search, details, chapters, bookId }
+enum _HtmlOperation { searchPage, details, chapters, bookId }
 
 class SourceHtmlParser {
-  static Future<List<BookSearchResult>> search(String sourceId, String html) =>
-      _run(sourceId, html, _HtmlOperation.search);
+  static Future<SourceSearchPage> searchPage(
+    String sourceId,
+    String html,
+    SearchRequest request,
+  ) => _run(
+    sourceId,
+    html,
+    _HtmlOperation.searchPage,
+    page: request.page,
+    query: request.query,
+  );
+
+  static SourceSearchPage parsedSearchPage(
+    String sourceId,
+    String html,
+    List<BookSearchResult> results,
+    int page,
+    String query, {
+    dom.Document? document,
+  }) {
+    if (sourceId == 'baza_knig' &&
+        results.isEmpty &&
+        (html.contains('/bk-chal') || html.contains('bk_challenge'))) {
+      throw const SourceException(
+        sourceId: 'baza_knig',
+        kind: SourceErrorKind.network,
+        message:
+            'Baza Knig returned an interstitial instead of search results.',
+      );
+    }
+    final current = page < 1 ? 1 : page;
+    final normalizedQuery = query.trim().toLowerCase();
+    int? next;
+    for (final anchor in (document ?? html_parser.parse(html)).querySelectorAll(
+      'a[href]',
+    )) {
+      final uri = Uri.tryParse(anchor.attributes['href'] ?? '');
+      if (uri == null || !_paginationHost(sourceId, uri)) continue;
+      late final Map<String, String> parameters;
+      try {
+        parameters = uri.queryParameters;
+      } on FormatException {
+        continue;
+      }
+      final candidateQuery =
+          parameters[sourceId == 'baza_knig' ? 'story' : 'q'];
+      if (candidateQuery?.trim().toLowerCase() != normalizedQuery) continue;
+      final candidate = switch (sourceId) {
+        'akniga' => RegExp(
+          r'^/search/books/page(\d+)/?$',
+        ).firstMatch(uri.path)?.group(1),
+        'knigavuhe' || 'knigoblud' =>
+          RegExp(r'^/search/?$').hasMatch(uri.path) || uri.path.isEmpty
+              ? parameters['page']
+              : null,
+        'baza_knig' =>
+          uri.path == '/index.php' && parameters['do'] == 'search'
+              ? parameters['page']
+              : null,
+        _ => null,
+      };
+      final number = int.tryParse(candidate ?? '');
+      if (number == current + 1) {
+        next = number;
+        break;
+      }
+    }
+    return SourceSearchPage(
+      results: results,
+      nextPage: next,
+      // The Baza pagination contract could not be confirmed on its live site.
+      limited: sourceId == 'baza_knig' && next == null,
+    );
+  }
+
+  static bool _paginationHost(String sourceId, Uri uri) {
+    if (!uri.hasAuthority) return !uri.hasScheme;
+    if (uri.hasScheme && uri.scheme != 'https' && uri.scheme != 'http') {
+      return false;
+    }
+    return switch (sourceId) {
+      'akniga' => uri.host == 'akniga.org' || uri.host == 'www.akniga.org',
+      'knigavuhe' =>
+        uri.host == 'knigavuhe.org' || uri.host == 'm.knigavuhe.org',
+      'knigoblud' =>
+        uri.host == 'www.knigoblud.club' || uri.host == 'knigoblud.club',
+      'baza_knig' =>
+        uri.host == 'baza-knig.top' || uri.host == 'www.baza-knig.top',
+      _ => false,
+    };
+  }
 
   static Future<BookVersionDetails> details(
     String sourceId,
@@ -44,9 +136,20 @@ class SourceHtmlParser {
     SourceBookRef? ref,
     DateTime? now,
     List<Map<String, Object?>> tracks = const [],
+    int page = 1,
+    String query = '',
   }) => SourceParserWorker.shared.run<T>(
     _parseHtml,
-    _HtmlInput(sourceId, html, operation, ref, now ?? DateTime.now(), tracks),
+    _HtmlInput(
+      sourceId,
+      html,
+      operation,
+      ref,
+      now ?? DateTime.now(),
+      tracks,
+      page,
+      query,
+    ),
     debugLabel: '$sourceId-${operation.name}-parser',
   );
 }
@@ -59,6 +162,8 @@ class _HtmlInput {
     this.ref,
     this.now,
     this.tracks,
+    this.page,
+    this.query,
   );
 
   final String sourceId;
@@ -67,6 +172,8 @@ class _HtmlInput {
   final SourceBookRef? ref;
   final DateTime now;
   final List<Map<String, Object?>> tracks;
+  final int page;
+  final String query;
 }
 
 Object? _parseHtml(Object? message) {
@@ -74,11 +181,21 @@ Object? _parseHtml(Object? message) {
   final html = input.html;
   final ref = input.ref;
   final now = input.now;
+  late final document = html_parser.parse(html);
+  SourceSearchPage page(List<BookSearchResult> results) =>
+      SourceHtmlParser.parsedSearchPage(
+        input.sourceId,
+        html,
+        results,
+        input.page,
+        input.query,
+        document: document,
+      );
   switch (input.sourceId) {
     case 'akniga':
       final mapper = AknigaMapper(clock: () => now);
       return switch (input.operation) {
-        _HtmlOperation.search => mapper.searchResults(html),
+        _HtmlOperation.searchPage => page(mapper.searchDocument(document)),
         _HtmlOperation.details => mapper.bookDetails(html, ref!),
         _HtmlOperation.chapters => mapper.chapters(html, ref!, input.tracks),
         _HtmlOperation.bookId => mapper.bookIdFromHtml(html),
@@ -86,7 +203,7 @@ Object? _parseHtml(Object? message) {
     case 'knigavuhe':
       final mapper = KnigavuheMapper(clock: () => now);
       return switch (input.operation) {
-        _HtmlOperation.search => mapper.searchResults(html),
+        _HtmlOperation.searchPage => page(mapper.searchDocument(document)),
         _HtmlOperation.details => mapper.bookDetails(html, ref!),
         _HtmlOperation.chapters => mapper.chapters(html, ref!),
         _HtmlOperation.bookId => throw StateError('Unsupported parser task.'),
@@ -94,7 +211,7 @@ Object? _parseHtml(Object? message) {
     case 'knigoblud':
       final mapper = KnigobludMapper(clock: () => now);
       return switch (input.operation) {
-        _HtmlOperation.search => mapper.searchResults(html),
+        _HtmlOperation.searchPage => page(mapper.searchDocument(document)),
         _HtmlOperation.details => mapper.bookDetails(html, ref!),
         _HtmlOperation.chapters => mapper.chapters(html, ref!),
         _HtmlOperation.bookId => throw StateError('Unsupported parser task.'),
@@ -102,7 +219,7 @@ Object? _parseHtml(Object? message) {
     case 'baza_knig':
       final mapper = BazaKnigMapper(clock: () => now);
       return switch (input.operation) {
-        _HtmlOperation.search => mapper.searchResults(html),
+        _HtmlOperation.searchPage => page(mapper.searchDocument(document)),
         _HtmlOperation.details => mapper.bookDetails(html, ref!),
         _HtmlOperation.chapters => mapper.chapters(html, ref!),
         _HtmlOperation.bookId => throw StateError('Unsupported parser task.'),

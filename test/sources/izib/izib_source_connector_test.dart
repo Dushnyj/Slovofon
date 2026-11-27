@@ -56,6 +56,39 @@ void main() {
       expect(results.single.title, 'Метро 2033');
     });
 
+    test(
+      'search offset follows received rows when the first API page is short',
+      () async {
+        String body(int id) => jsonEncode({
+          'data': {
+            'booksSearch': {
+              'count': 2,
+              'items': [
+                {'id': id, 'name': 'Метро $id'},
+              ],
+            },
+          },
+        });
+        final transport = QueueIzibTransport([body(1), body(2)]);
+        final connector = IzibSourceConnector(
+          client: IzibGraphQlClient(transport: transport),
+        );
+        const request = SearchRequest(query: 'метро');
+        final first = await connector.searchPage(request);
+        expect(first.nextPage, 2);
+        expect(first.nextCursor, isNotNull);
+        final second = await connector.searchPage(
+          request.copyWith(
+            page: first.nextPage,
+            sourceCursor: first.nextCursor,
+          ),
+        );
+        expect(second.results.single.sourceBookId, '2');
+        expect(second.nextPage, isNull);
+        expect(transport.requestOffsets, [0, 1]);
+      },
+    );
+
     test('details, chapters, tracks, and resolveMedia use API files', () async {
       final connector = IzibSourceConnector(
         client: IzibGraphQlClient(
@@ -143,6 +176,7 @@ class QueueIzibTransport implements IzibGraphQlTransport {
   QueueIzibTransport(this.responses);
 
   final List<String> responses;
+  final requestOffsets = <int>[];
 
   @override
   Future<IzibGraphQlTransportResponse> post(
@@ -150,6 +184,9 @@ class QueueIzibTransport implements IzibGraphQlTransport {
     required String body,
     required Map<String, String> headers,
   }) async {
+    final payload = jsonDecode(body);
+    final offset = payload['variables']?['offset'];
+    if (offset is int) requestOffsets.add(offset);
     if (responses.isEmpty) {
       throw StateError('No queued Izib response for $uri');
     }

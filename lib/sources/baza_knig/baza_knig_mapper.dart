@@ -21,8 +21,10 @@ class BazaKnigMapper {
 
   final DateTime Function() _clock;
 
-  List<BookSearchResult> searchResults(String html) {
-    final document = html_parser.parse(html);
+  List<BookSearchResult> searchResults(String html) =>
+      searchDocument(html_parser.parse(html));
+
+  List<BookSearchResult> searchDocument(dom.Document document) {
     return [
       for (final item in document.querySelectorAll('.short'))
         ?_searchResult(item),
@@ -310,6 +312,7 @@ class BazaKnigMapper {
       return null;
     }
     final seriesValue = _labelPeople(item, ['Цикл', 'Серия']).join(', ');
+    final narrators = _labelPeople(item, ['Читает', 'Исполнитель']);
 
     return BookSearchResult(
       ref: SourceBookRef(
@@ -320,7 +323,9 @@ class BazaKnigMapper {
       sourceName: sourceName,
       title: title,
       author: authors.join(', '),
-      narrator: _labelPeople(item, ['Читает', 'Исполнитель']).join(', '),
+      narrator: narrators.join(', '),
+      authors: authors,
+      narrators: narrators,
       series: _seriesFromValue(seriesValue),
       seriesNumber: _seriesNumberFromValue(seriesValue),
       genres: _genres(item),
