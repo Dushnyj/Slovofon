@@ -474,14 +474,14 @@ void main() {
     expect(find.text('1 result'), findsOneWidget);
     expect(find.text('Метро 2033'), findsOneWidget);
     expect(find.byType(TextField), findsNothing);
-    expect(find.text('Title'), findsNothing);
+    expect(find.text('Search in: All'), findsNothing);
     expect(find.text('Sort: relevance'), findsNothing);
 
     await tester.binding.handlePopRoute();
     await _pumpFrames(tester, frames: 12);
 
     expect(find.byType(TextField), findsOneWidget);
-    expect(find.text('Title'), findsWidgets);
+    expect(find.text('Search in: All'), findsOneWidget);
     expect(find.text('Метро 2033'), findsNothing);
   });
 

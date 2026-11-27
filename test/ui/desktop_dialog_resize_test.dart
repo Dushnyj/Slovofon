@@ -394,6 +394,7 @@ void _draftTests() {
             } else {
               final tile = tester.widget<AppCheckboxListTile>(control);
               selectedKind = (tile.title! as Text).data;
+              expect(tile.value, isTrue);
               await tester.tap(control);
             }
             await _frames(tester);
@@ -404,7 +405,7 @@ void _draftTests() {
               expect(value, isFalse);
               expect(fixture.sources.isEnabled('izib'), isTrue);
             } else if (surface == _Surface.searchScope) {
-              expect(value, isTrue);
+              expect(value, isFalse);
             } else {
               expect(value, lessThan(1));
               expect(fixture.settings.settings.accentColor, initialAccent);
@@ -453,12 +454,12 @@ void _draftTests() {
               );
               expect(
                 (tester.widget<InputChip>(chip).label as Text).data,
-                contains(selectedKind),
+                isNot(contains(selectedKind)),
               );
               await _open(tester, fixture, surface);
               expect(
                 tester.widget<AppCheckboxListTile>(draftControl()).value,
-                isTrue,
+                isFalse,
               );
               await tester.sendKeyEvent(LogicalKeyboardKey.escape);
               await _frames(tester);
