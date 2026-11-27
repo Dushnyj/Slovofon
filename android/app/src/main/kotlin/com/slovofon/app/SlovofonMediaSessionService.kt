@@ -2,6 +2,7 @@ package com.slovofon.app
 
 import android.app.PendingIntent
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.os.Process
 import androidx.media3.session.MediaSession
@@ -16,6 +17,7 @@ import java.lang.ref.WeakReference
 class SlovofonMediaSessionService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
     private var player: SlovofonMediaSessionPlayer? = null
+    private var artworkLoader: SlovofonMediaArtworkLoader? = null
     private var acceptsSnapshots = false
     private var stopping = false
     private var navigationAvailability: Pair<Boolean, Boolean>? = null
@@ -31,12 +33,14 @@ class SlovofonMediaSessionService : MediaSessionService() {
             }
         })
         setMediaNotificationProvider(SlovofonMediaNotificationProvider(this))
+        val bookDirectory = File(filesDir, "books")
+        val coverCacheDirectory = File(cacheDir, "verified-covers-v1")
         val sessionPlayer = SlovofonMediaSessionPlayer(
-            bookDirectory = File(filesDir, "books"),
-            coverCacheDirectory = File(cacheDir, "verified-covers-v1"),
+            bookDirectory = bookDirectory,
+            coverCacheDirectory = coverCacheDirectory,
         )
         player = sessionPlayer
-        val session = MediaSession.Builder(this, sessionPlayer)
+        val builder = MediaSession.Builder(this, sessionPlayer)
             .setId("slovofon-playback")
             .setSessionActivity(sessionActivity())
             .setCallback(SlovofonMediaSessionCallback())
@@ -46,7 +50,16 @@ class SlovofonMediaSessionService : MediaSessionService() {
                     state = SlovofonMediaSessionStore.state,
                 ),
             )
-            .build()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P &&
+            SlovofonMediaArtworkLoader.appliesTo(
+                Build.VERSION.SDK_INT, Build.MANUFACTURER, Build.BRAND,
+            )
+        ) {
+            artworkLoader = SlovofonMediaArtworkLoader(bookDirectory, coverCacheDirectory).also {
+                builder.setBitmapLoader(it)
+            }
+        }
+        val session = builder.build()
         mediaSession = session
         addSession(session)
     }
@@ -90,8 +103,10 @@ class SlovofonMediaSessionService : MediaSessionService() {
         }
         clearListener()
         mediaSession?.release()
+        artworkLoader?.close()
         player?.release()
         mediaSession = null
+        artworkLoader = null
         player = null
         super.onDestroy()
     }
