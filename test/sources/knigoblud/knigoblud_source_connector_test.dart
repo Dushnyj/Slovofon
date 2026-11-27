@@ -51,6 +51,69 @@ void main() {
     });
 
     test(
+      'keeps the live-style next page and roles parsed by the worker',
+      () async {
+        final connector = KnigobludSourceConnector(
+          client: FakeKnigobludClient(searchHtml: _searchHtml),
+        );
+
+        final page = await connector.searchPage(
+          const SearchRequest(query: 'дыхание зоны'),
+        );
+
+        expect(page.results.single.authors, ['Николай Грошев']);
+        expect(page.results.single.narrators, ['Тимофей Зобнин']);
+        expect(page.nextPage, 2);
+        expect(page.limited, isFalse);
+      },
+    );
+
+    test(
+      'recognizes the native no-results page as a valid empty search',
+      () async {
+        final connector = KnigobludSourceConnector(
+          client: FakeKnigobludClient(
+            searchHtml: '''
+          <div class="pageContent">
+            <div class="EmptyBlock">По словосочетанию <b>нет совпадений</b> ничего не найдено!</div>
+          </div>
+        ''',
+          ),
+        );
+
+        final page = await connector.searchPage(
+          const SearchRequest(query: 'нет совпадений'),
+        );
+
+        expect(page.results, isEmpty);
+        expect(page.nextPage, isNull);
+        expect(page.limited, isFalse);
+      },
+    );
+
+    test('an unknown HTML layout is not treated as an empty search', () async {
+      final connector = KnigobludSourceConnector(
+        client: FakeKnigobludClient(
+          searchHtml: '<main>Сервис недоступен</main>',
+        ),
+      );
+
+      await expectLater(
+        connector.searchPage(const SearchRequest(query: 'метро')),
+        throwsA(
+          isA<SourceException>().having(
+            (e) => e.kind,
+            'kind',
+            SourceErrorKind.parser,
+          ),
+        ),
+      );
+
+      final health = await connector.checkHealth();
+      expect(health.status, SourceHealthStatus.structureChanged);
+    });
+
+    test(
       'details, chapters, tracks, and media resolution use page data',
       () async {
         final client = FakeKnigobludClient(bookPageHtml: _bookHtml);
@@ -148,6 +211,13 @@ const _searchHtml = '''
     <a class="bookListItemCoverNameText" href="/09a908a6-0ff5-4080-b607-fc3ca3684672">
       S.T.A.L.K.E.R. Дыхание зоны
     </a>
+    <div class="bookListItemMetaBlock">
+      <span>✍️</span><a href="/author">Николай Грошев</a>
+      <span>🎙️</span><a href="/reader">Тимофей Зобнин</a>
+    </div>
+  </div>
+  <div class="PageNavPageButtons">
+    <a class="PageNavButton _page" href="/search?q=дыхание+зоны&amp;page=2" data-page="2">2</a>
   </div>
 </body></html>
 ''';

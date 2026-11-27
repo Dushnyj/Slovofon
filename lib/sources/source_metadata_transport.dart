@@ -42,11 +42,19 @@ class SourceMetadataPolicy {
 }
 
 class SourceMetadataResponse {
-  const SourceMetadataResponse(this.statusCode, this.body, {this.finalUri});
+  const SourceMetadataResponse(
+    this.statusCode,
+    this.body, {
+    this.finalUri,
+    this.redirectLocation,
+  });
 
   final int statusCode;
   final String body;
   final Uri? finalUri;
+
+  /// A policy-allowed redirect which method semantics prevented following.
+  final Uri? redirectLocation;
 }
 
 class SourceMetadataTransport {
@@ -104,8 +112,15 @@ class SourceMetadataTransport {
         final response = await request.close().timeout(timeout);
         _storeCookies(currentUri, response.cookies);
         final location = response.headers.value(HttpHeaders.locationHeader);
+        final isRedirect = const {
+          301,
+          302,
+          303,
+          307,
+          308,
+        }.contains(response.statusCode);
         final canRedirect =
-            const {301, 302, 303, 307, 308}.contains(response.statusCode) &&
+            isRedirect &&
             (currentMethod == 'GET' || response.statusCode == 303);
         if (canRedirect && location != null) {
           if (redirects >= 5) {
@@ -133,11 +148,24 @@ class SourceMetadataTransport {
           response.statusCode,
           body,
           finalUri: currentUri,
+          redirectLocation: isRedirect && location != null
+              ? _allowedRedirectLocation(currentUri, location)
+              : null,
         );
       }
     } finally {
       unlink?.call();
       client.close(force: true);
+    }
+  }
+
+  Uri? _allowedRedirectLocation(Uri from, String location) {
+    final target = Uri.tryParse(location);
+    if (target == null) return null;
+    try {
+      return policy.validate(from.resolveUri(target));
+    } on SourceException {
+      return null;
     }
   }
 

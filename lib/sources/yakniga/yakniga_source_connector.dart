@@ -123,7 +123,7 @@ class YaknigaSourceConnector
     final tokens = SourceSearchText.tokens(request.query).toSet();
     final eligible = <({bool exact, _YaknigaScope scope})>[];
     final seen = <(SearchKind, String)>{};
-    if (tokens.isNotEmpty && (strictScope || tokens.length >= 2)) {
+    if (tokens.isNotEmpty) {
       for (final item in items.whereType<Map<String, Object?>>()) {
         final kind = switch (item['__typename']) {
           'Author' => SearchKind.author,
@@ -134,8 +134,15 @@ class YaknigaSourceConnector
         };
         final alias = item['aliasName'];
         final name = item['name'];
+        // A one-word general query can name a real catalogue (e.g. «Метро»).
+        // Keep people scoped to multi-word or explicit searches; a short name
+        // returned as a suggestion can easily refer to an unrelated person.
         if (kind == null ||
             !kinds.contains(kind) ||
+            (!strictScope &&
+                tokens.length == 1 &&
+                kind != SearchKind.series &&
+                kind != SearchKind.genre) ||
             alias is! String ||
             alias.isEmpty ||
             name is! String) {
@@ -156,7 +163,10 @@ class YaknigaSourceConnector
     }
     eligible.sort((a, b) {
       if (a.exact != b.exact) return a.exact ? -1 : 1;
-      return a.scope.alias.compareTo(b.scope.alias);
+      final byAlias = a.scope.alias.compareTo(b.scope.alias);
+      return byAlias == 0
+          ? a.scope.kind.index.compareTo(b.scope.kind.index)
+          : byAlias;
     });
     final selected = eligible.take(_maxScopesPerTerm).toList();
     final scoped = selected.isEmpty

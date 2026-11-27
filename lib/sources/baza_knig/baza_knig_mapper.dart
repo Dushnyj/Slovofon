@@ -9,6 +9,7 @@ import '../../domain/models/book_version.dart';
 import '../../domain/models/chapter.dart';
 import '../source_models.dart';
 import '../source_parser_helpers.dart';
+import 'baza_knig_search_pager.dart';
 
 class BazaKnigMapper {
   BazaKnigMapper({DateTime Function()? clock}) : _clock = clock ?? DateTime.now;
@@ -30,6 +31,98 @@ class BazaKnigMapper {
         ?_searchResult(item),
     ];
   }
+
+  /// Reads declarative information from the public search result form. The
+  /// pager's next-page marker is recognized, not executed or used as a URL.
+  static ({int? nextPage, bool limited})? nativeSearchPagination(
+    dom.Document document,
+    int currentPage,
+    String query, {
+    required bool hasResults,
+  }) {
+    final form = document.querySelector('#dle-content form#fullsearch[method]');
+    if (form == null || form.attributes['method']?.toLowerCase() != 'post') {
+      return null;
+    }
+    final action = Uri.tryParse(form.attributes['action'] ?? '');
+    if (action == null ||
+        action.userInfo.isNotEmpty ||
+        action.path != '/index.php' ||
+        (action.hasScheme &&
+            action.scheme != 'https' &&
+            action.scheme != 'http') ||
+        (action.hasAuthority &&
+            action.host != 'baza-knig.top' &&
+            action.host != 'www.baza-knig.top')) {
+      return null;
+    }
+    try {
+      if (action.queryParameters['do'] != 'search') return null;
+    } on FormatException {
+      return null;
+    }
+    String? field(String name) =>
+        form.querySelector('input[name="$name"]')?.attributes['value'];
+    if (field('do') != 'search' ||
+        field('subaction') != 'search' ||
+        field('story')?.trim().toLowerCase() != query.trim().toLowerCase() ||
+        int.tryParse(field('search_start') ?? '') == null ||
+        int.tryParse(field('result_from') ?? '') == null ||
+        field('full_search') != '0') {
+      return null;
+    }
+
+    // A 200 from the pager can still contain a different or reset search.
+    // The site initializes the hidden controls for the next submission; its
+    // visible result range, not those mutable controls, identifies this page.
+    final range = _nativeSearchRange.firstMatch(form.text);
+    var hasMore = false;
+    if (range != null) {
+      final total = int.tryParse(range.group(1)!);
+      final start = int.tryParse(range.group(2)!);
+      final end = int.tryParse(range.group(3)!);
+      if (total == null ||
+          start == null ||
+          end == null ||
+          start != bazaKnigSearchPageStart(currentPage) ||
+          end < start ||
+          end > total ||
+          end >= start + bazaKnigSearchPageSize ||
+          !hasResults) {
+        throw searchPageMismatch;
+      }
+      hasMore = end < total;
+    } else if (currentPage > 1) {
+      throw searchPageMismatch;
+    }
+
+    final next = document.querySelector('#dle-content a#nextlink');
+    if (next == null) return (nextPage: null, limited: hasMore);
+    final handler = next.attributes['onclick'] ?? '';
+    final match = _nativeSearchNextHandler.firstMatch(handler);
+    final number = int.tryParse(match?.group(1) ?? '');
+    return (range == null || hasMore) && number == currentPage + 1
+        ? (nextPage: number, limited: false)
+        : (nextPage: null, limited: true);
+  }
+
+  static const searchPageMismatch = SourceException(
+    sourceId: sourceId,
+    kind: SourceErrorKind.parser,
+    message: 'Baza Knig did not return the requested search result page.',
+  );
+
+  static final _nativeSearchRange = RegExp(
+    r'найдено\s+(\d+)\s+[^()]+\(\s*результаты\s+запроса\s+'
+    r'(\d+)\s*[-–—]\s*(\d+)\s*\)',
+    caseSensitive: false,
+    unicode: true,
+  );
+
+  static final _nativeSearchNextHandler = RegExp(
+    r'^\s*(?:javascript:\s*)?list_submit\(\s*(\d+)\s*\)\s*;\s*'
+    r'return\s*(?:\(\s*false\s*\)|false)\s*;?\s*$',
+  );
 
   BookVersionDetails bookDetails(String html, SourceBookRef ref) {
     final document = html_parser.parse(html);

@@ -3,6 +3,173 @@ import 'package:slovofon/services/sources/source_catalog_service.dart';
 import 'package:slovofon/sources/sources.dart';
 
 void main() {
+  test(
+    'reports matched, empty, limited, filtered and disabled sources',
+    () async {
+      final matches = _Paged(
+        'matches',
+        (_) => SourceSearchPage(
+          results: [_book('matches', 'book', title: 'Метро 2033')],
+          usedRequestedScope: true,
+        ),
+      );
+      final empty = _Paged(
+        'empty',
+        (_) => const SourceSearchPage(results: [], usedRequestedScope: true),
+      );
+      final limited = _Paged(
+        'limited',
+        (_) => const SourceSearchPage(
+          results: [],
+          limited: true,
+          usedRequestedScope: true,
+        ),
+      );
+      final metadata = _Paged(
+        'metadata',
+        (_) => SourceSearchPage(
+          results: [_book('metadata', 'book', title: 'Метро')],
+          usedRequestedScope: true,
+        ),
+      );
+      final filtered = _Paged('filtered', (_) => throw StateError('filtered'));
+      final disabled = _Paged('disabled', (_) => throw StateError('disabled'));
+      final service = SourceCatalogService(
+        registry: SourceRegistry(
+          [matches, empty, limited, metadata, filtered, disabled],
+          enabledSourceIds: const {
+            'matches',
+            'empty',
+            'limited',
+            'metadata',
+            'filtered',
+          },
+        ),
+        searchEnrichmentLimit: 0,
+      );
+      final response = await service.search(
+        const SearchRequest(
+          query: 'Метро 2033',
+          sourceIds: {'matches', 'empty', 'limited', 'metadata', 'disabled'},
+        ),
+      );
+      final statuses = {
+        for (final item in response.sourceStatuses) item.sourceId: item,
+      };
+      expect(statuses.length, 6);
+      expect(statuses['matches']!.matchCount, 1);
+      expect(statuses['empty']!.matchCount, 0);
+      expect(
+        statuses['empty']!.participation,
+        SearchSourceParticipation.completed,
+      );
+      expect(statuses['empty']!.failureKind, isNull);
+      expect(statuses['empty']!.failedPage, isNull);
+      expect(statuses['limited']!.paginationLimited, isTrue);
+      expect(statuses['metadata']!.metadataIncomplete, isTrue);
+      expect(
+        statuses['filtered']!.participation,
+        SearchSourceParticipation.filtered,
+      );
+      expect(
+        statuses['disabled']!.participation,
+        SearchSourceParticipation.disabled,
+      );
+      expect(filtered.calls, isEmpty);
+      expect(disabled.calls, isEmpty);
+    },
+  );
+
+  test(
+    'restricted source keeps its cards and only retries explicitly',
+    () async {
+      const title = 'Метро 2033 Андрей Дьяков Книга';
+      var restricted = true;
+      final site = _Paged('site', (request) {
+        if (request.page != 1 || request.query != title) {
+          if (restricted) {
+            throw const SourceException(
+              sourceId: 'site',
+              kind: SourceErrorKind.accessRestricted,
+              message: 'verification',
+            );
+          }
+          return const SourceSearchPage(results: []);
+        }
+        return SourceSearchPage(
+          results: [_book('site', 'first', title: title)],
+          nextPage: 2,
+        );
+      });
+      final ordinary = _Paged(
+        'ordinary',
+        (request) => SourceSearchPage(
+          results: [_book('ordinary', '${request.page}', title: title)],
+          nextPage: request.page < 4 ? request.page + 1 : null,
+          usedRequestedScope: true,
+        ),
+      );
+      final service = _service([site, ordinary]);
+      const query = SearchRequest(query: title, kind: SearchKind.title);
+      final initial = await service.search(query);
+      expect(site.calls, hasLength(2));
+      expect(
+        initial.results.where((card) => card.sourceId == 'site'),
+        hasLength(1),
+      );
+      expect(
+        initial.sourceStatuses.first.failureKind,
+        SourceErrorKind.accessRestricted,
+      );
+      // With a long query the alternate lane is chosen before page 2.
+      expect(initial.sourceStatuses.first.failedPage, 1);
+      expect(initial.continuation, isNotNull);
+      final more = await service.search(
+        query.copyWith(continuation: initial.continuation),
+      );
+      expect(site.calls, hasLength(2));
+      expect(ordinary.calls, hasLength(4));
+      expect(more.hasMore, isFalse);
+      expect(more.retryContinuation, isNotNull);
+      expect(more.sourceStatuses.first.failedPage, 1);
+      restricted = false;
+      final retry = await service.search(
+        query.copyWith(continuation: more.retryContinuation),
+      );
+      expect(site.calls, hasLength(3));
+      expect(retry.failures, isEmpty);
+      expect(retry.sourceStatuses.first.matchCount, 1);
+      expect(retry.sourceStatuses.first.failedPage, isNull);
+      expect(
+        retry.hasMore,
+        isTrue,
+      ); // Other valid lanes can continue afterwards.
+    },
+  );
+
+  test(
+    'initial and non-retryable failures carry the real request page',
+    () async {
+      final connector = _Paged(
+        'site',
+        (_) => throw const SourceException(
+          sourceId: 'site',
+          kind: SourceErrorKind.unsupported,
+          message: 'not supported',
+        ),
+      );
+      final service = _service([connector]);
+      final first = await service.search(const SearchRequest(query: 'метро'));
+      final later = await service.search(
+        const SearchRequest(query: 'метро', page: 3),
+      );
+      expect(first.sourceStatuses.single.failedPage, 1);
+      expect(later.sourceStatuses.single.failedPage, 3);
+      expect(first.retryContinuation, isNull);
+      expect(later.retryContinuation, isNull);
+    },
+  );
+
   test('pages accumulate past 50 after a page with no local matches', () async {
     final connector = _Paged('books', (request) {
       final page = request.page;

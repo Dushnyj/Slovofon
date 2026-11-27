@@ -181,8 +181,26 @@ class AppStrings {
   String sourceResultsCount(int count) => _counted('sourceResultsCount', count);
   String searchResultsSoFar(String results) =>
       _text('searchResultsSoFar', {'results': results});
-  String searchLimitedSources(String names) =>
-      _text('searchLimitedSources', {'names': names});
+  String get searchSourceStatuses => _text('searchSourceStatuses');
+  String get searchSourceSearching => _text('searchSourceSearching');
+  String get searchSourceDisabled => _text('searchSourceDisabled');
+  String get searchSourceFiltered => _text('searchSourceFiltered');
+  String get searchSourcePaginationLimited =>
+      _text('searchSourcePaginationLimited');
+  String get searchSourceMetadataIncomplete =>
+      _text('searchSourceMetadataIncomplete');
+  String get searchSourceAccessRestricted =>
+      _text('searchSourceAccessRestricted');
+  String get searchSourceLoadFailed => _text('searchSourceLoadFailed');
+  String searchSourcePageLoadFailed(int page, {String? reason}) =>
+      reason == null
+      ? _text('searchSourcePageLoadFailed', {'page': page})
+      : _text('searchSourcePageLoadFailedDetail', {
+          'page': page,
+          'reason': reason,
+        });
+  String get searchSourceRateLimited => _text('searchSourceRateLimited');
+  String get searchSourceUnreadable => _text('searchSourceUnreadable');
   String get searchLoadMore => _text('searchLoadMore');
   String get searchRetryMore => _text('searchRetryMore');
 

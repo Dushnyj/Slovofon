@@ -37,17 +37,32 @@ class SourceHtmlParser {
         (html.contains('/bk-chal') || html.contains('bk_challenge'))) {
       throw const SourceException(
         sourceId: 'baza_knig',
-        kind: SourceErrorKind.network,
+        kind: SourceErrorKind.accessRestricted,
         message:
             'Baza Knig returned an interstitial instead of search results.',
       );
     }
     final current = page < 1 ? 1 : page;
+    final parsedDocument = document ?? html_parser.parse(html);
+    if (sourceId == 'baza_knig') {
+      final native = BazaKnigMapper.nativeSearchPagination(
+        parsedDocument,
+        current,
+        query,
+        hasResults: results.isNotEmpty,
+      );
+      if (native != null) {
+        return SourceSearchPage(
+          results: results,
+          nextPage: native.nextPage,
+          limited: native.limited,
+        );
+      }
+      if (current > 1) throw BazaKnigMapper.searchPageMismatch;
+    }
     final normalizedQuery = query.trim().toLowerCase();
     int? next;
-    for (final anchor in (document ?? html_parser.parse(html)).querySelectorAll(
-      'a[href]',
-    )) {
+    for (final anchor in parsedDocument.querySelectorAll('a[href]')) {
       final uri = Uri.tryParse(anchor.attributes['href'] ?? '');
       if (uri == null || !_paginationHost(sourceId, uri)) continue;
       late final Map<String, String> parameters;
@@ -79,10 +94,30 @@ class SourceHtmlParser {
         break;
       }
     }
+    if (results.isEmpty && next == null) {
+      final recognizedEmpty = switch (sourceId) {
+        'knigavuhe' => KnigavuheMapper.isKnownEmptySearchDocument(
+          parsedDocument,
+        ),
+        'knigoblud' => KnigobludMapper.isKnownEmptySearchDocument(
+          parsedDocument,
+        ),
+        _ => true,
+      };
+      if (!recognizedEmpty) {
+        throw SourceException(
+          sourceId: sourceId,
+          kind: SourceErrorKind.parser,
+          message:
+              'Search response has no recognizable results or empty state.',
+        );
+      }
+    }
     return SourceSearchPage(
       results: results,
       nextPage: next,
-      // The Baza pagination contract could not be confirmed on its live site.
+      // Without a recognized search form, absence of a Baza next link is
+      // still not proof that the upstream response was complete.
       limited: sourceId == 'baza_knig' && next == null,
     );
   }

@@ -33,7 +33,6 @@ import '../../ui/adaptive/adaptive_sheet.dart';
 import '../../ui/adaptive/desktop_layout.dart';
 import '../../ui/adaptive/television_layout.dart';
 import '../../ui/components/book_card.dart';
-import '../../ui/components/active_listenable_builder.dart';
 import '../../ui/components/filter_picker_sheet.dart';
 import '../../ui/components/responsive_tile_grid.dart';
 import '../../ui/components/section_header.dart';
@@ -1688,11 +1687,6 @@ class _SearchResults extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final strings = context.strings;
     final future = searchFuture;
-    final downloadManager = ref.watch(downloadManagerProvider.notifier);
-    final playbackController = ref.watch(playbackControllerProvider);
-    final progressSnapshots =
-        ref.watch(playbackProgressSnapshotsProvider).asData?.value ??
-        const <PlaybackProgressSnapshot>[];
 
     if (query.isEmpty && future == null) {
       return SliverToBoxAdapter(
@@ -1713,218 +1707,397 @@ class _SearchResults extends ConsumerWidget {
       );
     }
 
-    return ActiveListenableBuilder(
-      listenable: Listenable.merge([playbackController, downloadManager]),
-      builder: (context, _) => ValueListenableBuilder<SourceSearchResponse?>(
-        valueListenable: updates,
-        builder: (context, partial, _) => FutureBuilder<SourceSearchResponse>(
-          future: future,
-          builder: (context, snapshot) {
-            final pending = snapshot.connectionState != ConnectionState.done;
-            if (pending &&
-                visibleSearchResults(
-                  partial,
-                  edition: options.edition,
-                  groupEditions: false,
-                ).isEmpty) {
-              return SliverToBoxAdapter(
-                child: StatePlaceholder.loading(
-                  title: options.downloadedOnly
-                      ? strings.searchingDownloads
-                      : strings.searchingSources,
-                ),
-              );
-            }
-
-            // FutureBuilder retains an old error while a replacement future is
-            // waiting. A cancelled previous request must not hide new partials.
-            final continuationFailed =
-                !pending &&
-                snapshot.hasError &&
-                (partial?.hasMore == true ||
-                    partial?.retryContinuation != null) &&
-                snapshot.error is! SourceSearchCancelled;
-            if (!pending && snapshot.hasError && !continuationFailed) {
-              if (snapshot.error is SourceSearchCancelled) {
-                return const SliverToBoxAdapter(child: SizedBox.shrink());
-              }
-              return SliverToBoxAdapter(
-                child: StatePlaceholder.error(title: strings.sourceSearchError),
-              );
-            }
-
-            final response = pending || continuationFailed
-                ? partial
-                : snapshot.data;
-            final results = visibleSearchResults(
-              response,
-              edition: options.edition,
-              groupEditions: options.groupEditions,
+    return ValueListenableBuilder<SourceSearchResponse?>(
+      valueListenable: updates,
+      builder: (context, partial, _) => FutureBuilder<SourceSearchResponse>(
+        future: future,
+        builder: (context, snapshot) {
+          final pending = snapshot.connectionState != ConnectionState.done;
+          if (pending &&
+              (!kDebugMode || partial?.sourceStatuses.isNotEmpty != true) &&
+              visibleSearchResults(
+                partial,
+                edition: options.edition,
+                groupEditions: false,
+              ).isEmpty) {
+            return SliverToBoxAdapter(
+              child: StatePlaceholder.loading(
+                title: options.downloadedOnly
+                    ? strings.searchingDownloads
+                    : strings.searchingSources,
+              ),
             );
-            if (results.isEmpty && response?.isPartial != true) {
-              return SliverToBoxAdapter(
-                child: StatePlaceholder.empty(
-                  title: strings.noSearchResults,
-                  message: strings.filteredNoSearchResults,
-                ),
-              );
-            }
+          }
 
-            final cached = response is DownloadedSearchResponse
-                ? response
-                : null;
-            final catalog = cached == null
-                ? ref.read(sourceCatalogServiceProvider)
-                : null;
-            final cards = _SearchCardIndex(downloadManager, progressSnapshots);
-            return SliverMainAxisGroup(
-              slivers: [
-                if (pending)
-                  const SliverToBoxAdapter(
-                    child: Padding(
-                      key: ValueKey('search-partial-progress'),
-                      padding: EdgeInsets.only(bottom: 8),
-                      child: AppLinearProgressIndicator(),
+          // FutureBuilder retains an old error while a replacement future is
+          // waiting. A cancelled previous request must not hide new partials.
+          final continuationFailed =
+              !pending &&
+              snapshot.hasError &&
+              (partial?.hasMore == true ||
+                  partial?.retryContinuation != null) &&
+              snapshot.error is! SourceSearchCancelled;
+          if (!pending && snapshot.hasError && !continuationFailed) {
+            if (snapshot.error is SourceSearchCancelled) {
+              return const SliverToBoxAdapter(child: SizedBox.shrink());
+            }
+            return SliverToBoxAdapter(
+              child: StatePlaceholder.error(title: strings.sourceSearchError),
+            );
+          }
+
+          final response = pending || continuationFailed
+              ? partial
+              : snapshot.data;
+          final results = visibleSearchResults(
+            response,
+            edition: options.edition,
+            groupEditions: options.groupEditions,
+          );
+          final statuses =
+              response?.sourceStatuses ?? const <SearchSourceStatus>[];
+          final failures = response?.failures ?? const <SourceFailure>[];
+          final showDebugDiagnostics = kDebugMode && statuses.isNotEmpty;
+          final showEmpty =
+              !pending &&
+              results.isEmpty &&
+              failures.isEmpty &&
+              response?.hasMore != true;
+          if (showEmpty && !showDebugDiagnostics) {
+            return SliverToBoxAdapter(
+              child: StatePlaceholder.empty(
+                title: strings.noSearchResults,
+                message: strings.filteredNoSearchResults,
+              ),
+            );
+          }
+
+          final cached = response is DownloadedSearchResponse ? response : null;
+          final catalog = cached == null
+              ? ref.read(sourceCatalogServiceProvider)
+              : null;
+          return SliverMainAxisGroup(
+            slivers: [
+              if (pending)
+                const SliverToBoxAdapter(
+                  key: ValueKey('search-partial-progress'),
+                  child: Padding(
+                    padding: EdgeInsets.only(bottom: 8),
+                    child: AppLinearProgressIndicator(),
+                  ),
+                ),
+              if (!pending && failures.isNotEmpty)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: _SearchFailuresNotice(
+                      failures: failures,
+                      statuses: statuses,
+                      onRetry: onRetry,
                     ),
                   ),
-                if (response?.failures.isNotEmpty == true)
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: _SearchFailuresNotice(
-                        failures: response!.failures,
-                        onRetry: onRetry,
-                      ),
-                    ),
+                ),
+              if (showDebugDiagnostics)
+                SliverToBoxAdapter(
+                  key: const ValueKey('search-source-status-sliver'),
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: _SearchSourceStatuses(statuses: statuses),
                   ),
-                if (response?.limitedSourceIds.isNotEmpty == true)
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: Text(
-                        strings.searchLimitedSources(
-                          response!.limitedSourceIds
-                              .map(strings.sourceDisplayName)
-                              .join(', '),
-                        ),
-                      ),
-                    ),
-                  ),
-                if (results.isNotEmpty)
-                  SliverResponsiveTileGrid.builder(
-                    stretchDesktopColumns: DesktopLayout.isActive(context),
-                    maxColumns: DesktopLayout.isActive(context) ? 1 : 5,
-                    itemCount: results.length,
-                    itemKeyBuilder: (index) =>
-                        ValueKey(_resultKey(results[index])),
-                    itemBuilder: (context, index) {
-                      final result = results[index];
-                      final localBook = cached?.bookFor(result);
-                      final activeBook = playbackController.state.book;
-                      final isCurrentBook = localBook == null
-                          ? _playbackBookMatchesResult(activeBook, result) &&
-                                activeBook?.offlineOnly != true
-                          : activeBook?.sourceId == localBook.sourceId &&
-                                activeBook?.versionId == localBook.versionId &&
-                                activeBook?.offlineOnly == true;
-                      final audioBook = localBook == null
-                          ? catalog!
-                                .audioBookForSearchResult(result)
-                                .copyWith(
-                                  progress: _progressForResult(
-                                    playbackController.state,
-                                    cards.progress,
-                                    result,
-                                  ),
-                                )
+                ),
+              if (results.isNotEmpty)
+                SliverResponsiveTileGrid.builder(
+                  key: const ValueKey('search-results-grid'),
+                  stretchDesktopColumns: DesktopLayout.isActive(context),
+                  maxColumns: DesktopLayout.isActive(context) ? 1 : 5,
+                  itemCount: results.length,
+                  itemKeyBuilder: (index) =>
+                      ValueKey(_resultKey(results[index])),
+                  itemBuilder: (context, index) {
+                    final result = results[index];
+                    final localBook = cached?.bookFor(result);
+                    final key = _resultKey(result);
+                    return _SearchResultCard(
+                      result: result,
+                      localBook: localBook,
+                      baseBook: localBook == null
+                          ? catalog!.audioBookForSearchResult(result)
                           : libraryCardBook(localBook).copyWith(
                               coverUrl: result.coverUri?.toString() ?? '',
-                              progress: isCurrentBook
-                                  ? playbackController.state.bookProgress
-                                  : cards.progress[localBook.versionId] ?? 0,
-                            );
-                      final key = _resultKey(result);
-                      final cardDownload = localBook == null
-                          ? cards.downloadFor(result)
-                          : (
-                              state: BookCardDownloadState.downloaded,
-                              progress: 1.0,
-                            );
-                      return BookCard(
-                        book: audioBook,
-                        desktopPresentation: DesktopBookPresentation.result,
-                        yearLabel: result.year?.toString(),
-                        isFavorite: libraryStore.isFavorite(audioBook),
-                        isLater: libraryStore.isLater(audioBook),
-                        onLaterPressed: () => onLaterToggle(audioBook),
-                        downloadState: cardDownload.state,
-                        downloadProgress: cardDownload.progress,
-                        isCurrentBook: isCurrentBook,
-                        isPlaying: playbackController.state.isPlaying,
-                        isPlaybackLoading:
-                            isCurrentBook &&
-                            (playbackController.state.status ==
-                                    AudioPlaybackStatus.loading ||
-                                playbackController.state.status ==
-                                    AudioPlaybackStatus.buffering),
-                        isPlayLoading:
-                            playLoadingIds.contains(key) && !isCurrentBook,
-                        isDownloadLoading: downloadLoadingIds.contains(key),
-                        onFavoritePressed: () => onFavoriteToggle(audioBook),
-                        onDownloadPressed: localBook == null
-                            ? () => onDownloadPressed(result)
-                            : null,
-                        onPlay: () => onPlayPressed(result),
-                        onTap: localBook != null
-                            ? () => onPlayPressed(result)
-                            : () => unawaited(
-                                context.push(
-                                  '/source-book/${result.sourceId}/${Uri.encodeComponent(result.sourceBookId)}',
-                                  extra: result,
-                                ),
-                              ),
-                      );
-                    },
+                            ),
+                      libraryStore: libraryStore,
+                      isPlayLoading: playLoadingIds.contains(key),
+                      isDownloadLoading: downloadLoadingIds.contains(key),
+                      onFavoriteToggle: onFavoriteToggle,
+                      onLaterToggle: onLaterToggle,
+                      onPlayPressed: onPlayPressed,
+                      onDownloadPressed: onDownloadPressed,
+                    );
+                  },
+                ),
+              if (showEmpty)
+                SliverToBoxAdapter(
+                  child: StatePlaceholder.empty(
+                    title: strings.noSearchResults,
+                    message: strings.filteredNoSearchResults,
                   ),
-                if (!pending && response?.hasMore == true)
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.only(top: 12),
-                      child: Center(
-                        child: OutlinedButton(
-                          key: const ValueKey('search-load-more'),
-                          onPressed: onLoadMore,
-                          child: Text(
-                            continuationFailed
-                                ? strings.searchRetryMore
-                                : strings.searchLoadMore,
-                          ),
+                ),
+              if (!pending && response?.hasMore == true)
+                SliverToBoxAdapter(
+                  key: const ValueKey('search-load-more-sliver'),
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Center(
+                      child: OutlinedButton(
+                        key: const ValueKey('search-load-more'),
+                        onPressed: onLoadMore,
+                        child: Text(
+                          continuationFailed
+                              ? strings.searchRetryMore
+                              : strings.searchLoadMore,
                         ),
                       ),
                     ),
                   ),
-              ],
-            );
-          },
-        ),
+                ),
+            ],
+          );
+        },
       ),
     );
   }
 }
 
+final _searchPlaybackProvider =
+    NotifierProvider.autoDispose<_SearchPlayback, AudioPlaybackState>(
+      _SearchPlayback.new,
+    );
+
+class _SearchPlayback extends Notifier<AudioPlaybackState> {
+  @override
+  AudioPlaybackState build() {
+    final controller = ref.watch(playbackControllerProvider);
+    void changed() => state = controller.state;
+    controller.addListener(changed);
+    ref.onDispose(() => controller.removeListener(changed));
+    return controller.state;
+  }
+}
+
+final _searchSavedProgressProvider = Provider.autoDispose<Map<String, double>>((
+  ref,
+) {
+  final snapshots =
+      ref.watch(playbackProgressSnapshotsProvider).asData?.value ?? const [];
+  final progress = <String, double>{};
+  for (final snapshot in snapshots) {
+    progress.putIfAbsent(
+      snapshot.bookVersionId,
+      () => (snapshot.percent / 100).clamp(0, 1).toDouble(),
+    );
+  }
+  return progress;
+});
+
+final _searchDownloadIndexProvider = Provider.autoDispose<_SearchCardIndex>(
+  (ref) => _SearchCardIndex(ref.watch(downloadManagerProvider)),
+);
+
+// These selectors invalidate only the affected visible card, not the result
+// projection or sliver delegate, on a playback tick or download update.
+class _SearchResultCard extends ConsumerWidget {
+  const _SearchResultCard({
+    required this.result,
+    required this.localBook,
+    required this.baseBook,
+    required this.libraryStore,
+    required this.isPlayLoading,
+    required this.isDownloadLoading,
+    required this.onFavoriteToggle,
+    required this.onLaterToggle,
+    required this.onPlayPressed,
+    required this.onDownloadPressed,
+  });
+
+  final BookSearchResult result;
+  final AudioPlaybackBook? localBook;
+  final AudioBook baseBook;
+  final LibraryStore libraryStore;
+  final bool isPlayLoading;
+  final bool isDownloadLoading;
+  final Future<void> Function(AudioBook) onFavoriteToggle;
+  final Future<void> Function(AudioBook) onLaterToggle;
+  final ValueChanged<BookSearchResult> onPlayPressed;
+  final ValueChanged<BookSearchResult> onDownloadPressed;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final active = TickerMode.valuesOf(context).enabled;
+    final local = localBook;
+    final playbackProvider = _searchPlaybackProvider.select((state) {
+      final book = state.book;
+      final matchesRemote =
+          local == null && _playbackBookMatchesResult(book, result);
+      final isCurrent = local == null
+          ? matchesRemote && book?.offlineOnly != true
+          : book?.sourceId == local.sourceId &&
+                book?.versionId == local.versionId &&
+                book?.offlineOnly == true;
+      return (
+        current: isCurrent,
+        playing: isCurrent && state.isPlaying,
+        loading:
+            isCurrent &&
+            (state.status == AudioPlaybackStatus.loading ||
+                state.status == AudioPlaybackStatus.buffering),
+        progress: isCurrent || matchesRemote ? state.bookProgress : null,
+      );
+    });
+    final playback = active
+        ? ref.watch(playbackProvider)
+        : ref.read(playbackProvider);
+    final versionId = local?.versionId ?? _resultVersionId(result);
+    final savedProgress = _searchSavedProgressProvider.select(
+      (index) => index[versionId] ?? 0.0,
+    );
+    final audioBook = baseBook.copyWith(
+      progress:
+          playback.progress ??
+          (active ? ref.watch(savedProgress) : ref.read(savedProgress)),
+    );
+    final downloadProvider = _searchDownloadIndexProvider.select(
+      (index) => index.downloadFor(result),
+    );
+    final download = local == null
+        ? (active ? ref.watch(downloadProvider) : ref.read(downloadProvider))
+        : (state: BookCardDownloadState.downloaded, progress: 1.0);
+    return BookCard(
+      book: audioBook,
+      desktopPresentation: DesktopBookPresentation.result,
+      yearLabel: result.year?.toString(),
+      isFavorite: libraryStore.isFavorite(audioBook),
+      isLater: libraryStore.isLater(audioBook),
+      onLaterPressed: () => onLaterToggle(audioBook),
+      downloadState: download.state,
+      downloadProgress: download.progress,
+      isCurrentBook: playback.current,
+      isPlaying: playback.playing,
+      isPlaybackLoading: playback.loading,
+      isPlayLoading: isPlayLoading && !playback.current,
+      isDownloadLoading: isDownloadLoading,
+      onFavoritePressed: () => onFavoriteToggle(audioBook),
+      onDownloadPressed: local == null ? () => onDownloadPressed(result) : null,
+      onPlay: () => onPlayPressed(result),
+      onTap: local != null
+          ? () => onPlayPressed(result)
+          : () => unawaited(
+              context.push(
+                '/source-book/${result.sourceId}/${Uri.encodeComponent(result.sourceBookId)}',
+                extra: result,
+              ),
+            ),
+    );
+  }
+}
+
+class _SearchSourceStatuses extends StatelessWidget {
+  const _SearchSourceStatuses({required this.statuses});
+
+  final List<SearchSourceStatus> statuses;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    return ExpansionTile(
+      key: const PageStorageKey('search-source-statuses'),
+      tilePadding: const EdgeInsets.symmetric(horizontal: 12),
+      childrenPadding: const EdgeInsets.only(bottom: 4),
+      title: Text(strings.searchSourceStatuses),
+      children: [
+        for (final status in statuses)
+          ListTile(
+            key: ValueKey('search-status-${status.sourceId}'),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+            title: Text(strings.sourceDisplayName(status.sourceId)),
+            subtitle: Text(_describe(strings, status).join('\n')),
+          ),
+      ],
+    );
+  }
+
+  static List<String> _describe(AppStrings strings, SearchSourceStatus status) {
+    final failure = status.failureKind;
+    return switch (status.participation) {
+      SearchSourceParticipation.disabled => [strings.searchSourceDisabled],
+      SearchSourceParticipation.filtered => [strings.searchSourceFiltered],
+      SearchSourceParticipation.searching => [
+        strings.searchSourceSearching,
+        if (status.matchCount > 0)
+          strings.sourceResultsCount(status.matchCount),
+      ],
+      SearchSourceParticipation.completed => [
+        if (status.matchCount > 0 || failure == null)
+          strings.sourceResultsCount(status.matchCount),
+        if (failure != null)
+          _describeSearchFailure(strings, failure, status.failedPage),
+        if (status.paginationLimited) strings.searchSourcePaginationLimited,
+        if (status.metadataIncomplete) strings.searchSourceMetadataIncomplete,
+      ],
+    };
+  }
+}
+
+String _describeSearchFailure(
+  AppStrings strings,
+  SourceErrorKind failure,
+  int? page,
+) {
+  final reason = switch (failure) {
+    SourceErrorKind.accessRestricted => strings.searchSourceAccessRestricted,
+    SourceErrorKind.rateLimited => strings.searchSourceRateLimited,
+    SourceErrorKind.parser => strings.searchSourceUnreadable,
+    _ => null,
+  };
+  return page == null
+      ? (reason ?? strings.searchSourceLoadFailed)
+      : strings.searchSourcePageLoadFailed(page, reason: reason);
+}
+
 class _SearchFailuresNotice extends StatelessWidget {
-  const _SearchFailuresNotice({required this.failures, required this.onRetry});
+  const _SearchFailuresNotice({
+    required this.failures,
+    required this.statuses,
+    required this.onRetry,
+  });
   final List<SourceFailure> failures;
+  final List<SearchSourceStatus> statuses;
   final VoidCallback onRetry;
 
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
     final colors = Theme.of(context).colorScheme;
-    final names = failures
-        .map((failure) => strings.sourceDisplayName(failure.sourceId))
-        .toSet()
-        .join(', ');
+    final failedPages = {
+      for (final status in statuses)
+        if (status.failedPage case final int page when page > 1)
+          status.sourceId: page,
+    };
+    final names = <String>{};
+    final details = <String>{};
+    for (final failure in failures) {
+      final name = strings.sourceDisplayName(failure.sourceId);
+      final page = failedPages[failure.sourceId];
+      final bazaAccessRestricted =
+          failure.sourceId == 'baza_knig' &&
+          failure.kind == SourceErrorKind.accessRestricted;
+      if (page == null && !bazaAccessRestricted) {
+        names.add(name);
+      } else {
+        details.add(
+          '$name: ${_describeSearchFailure(strings, failure.kind, page)}',
+        );
+      }
+    }
     return Material(
       key: const ValueKey('search-source-failures'),
       color: colors.errorContainer,
@@ -1937,7 +2110,11 @@ class _SearchFailuresNotice extends StatelessWidget {
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             Text(
-              strings.partialSearchSources(names),
+              [
+                if (names.isNotEmpty)
+                  strings.partialSearchSources(names.join(', ')),
+                ...details,
+              ].join('\n'),
               style: Theme.of(
                 context,
               ).textTheme.bodyMedium?.copyWith(color: colors.onErrorContainer),
@@ -2063,31 +2240,10 @@ String _kindsLabel(BuildContext context, Set<SearchKind> kinds) {
   return selected.map((kind) => _kindLabel(context, kind)).join(', ');
 }
 
-double _progressForResult(
-  AudioPlaybackState playbackState,
-  Map<String, double> snapshots,
-  BookSearchResult result,
-) {
-  if (_playbackBookMatchesResult(playbackState.book, result)) {
-    return playbackState.bookProgress;
-  }
-
-  return snapshots[_resultVersionId(result)] ?? 0;
-}
-
 typedef _CardDownload = ({BookCardDownloadState state, double progress});
 
 class _SearchCardIndex {
-  _SearchCardIndex(
-    DownloadManager manager,
-    List<PlaybackProgressSnapshot> snapshots,
-  ) {
-    for (final snapshot in snapshots) {
-      progress.putIfAbsent(
-        snapshot.bookVersionId,
-        () => (snapshot.percent / 100).clamp(0, 1).toDouble(),
-      );
-    }
+  _SearchCardIndex(DownloadManager manager) {
     for (final task in manager.tasks) {
       if (task.status == DownloadTaskStatus.canceled) continue;
       final book = manager.bookForTask(task.id);
@@ -2104,7 +2260,6 @@ class _SearchCardIndex {
     }
   }
 
-  final progress = <String, double>{};
   final _versions = <(String, String), List<DownloadTask>>{};
   final _books = <(String, String), AudioPlaybackBook>{};
   final _bookTasks = <(String, String), List<DownloadTask>>{};
@@ -2141,7 +2296,7 @@ BookCardDownloadState _downloadStateForResult(
     return downloadStateForBook(manager, book);
   }
 
-  return _SearchCardIndex(manager, const []).downloadFor(result).state;
+  return _SearchCardIndex(manager).downloadFor(result).state;
 }
 
 BookCardDownloadState _downloadStateFromTasks(

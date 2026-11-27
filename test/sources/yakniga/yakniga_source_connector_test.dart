@@ -117,6 +117,183 @@ void main() {
       expect(page.nextPage, isNull);
     });
 
+    for (final (type, kind) in [
+      ('Series', SearchKind.series),
+      ('Genre', SearchKind.genre),
+    ]) {
+      test('one-word global $type uses the exact catalogue only', () async {
+        final client = FakeYaknigaClient(
+          responses: [
+            _suggestions([
+              _entity(type, 'МЕТРО', 'metro'),
+              _entity(type, 'Метро 2033', 'metro-2033'),
+              _entity('Reader', 'Метро', 'similarly-named-reader'),
+            ]),
+            _page(1, next: 3, id: 'first-catalogue'),
+            _page(3, id: 'later-catalogue'),
+          ],
+        );
+        final connector = YaknigaSourceConnector(client: client);
+        const request = SearchRequest(query: 'метро');
+
+        final first = await connector.searchPage(request);
+
+        expect(first.results, hasLength(21));
+        expect(first.results.last.sourceBookId, 'first-catalogue');
+        expect(first.limited, isTrue);
+        expect(first.usedRequestedScope, isFalse);
+        expect(first.nextPage, 2);
+        expect(first.nextCursor, isNotNull);
+
+        final later = await connector.searchPage(
+          request.copyWith(
+            page: first.nextPage,
+            sourceCursor: first.nextCursor,
+          ),
+        );
+
+        expect(later.results.single.sourceBookId, 'later-catalogue');
+        expect(later.nextPage, isNull);
+        expect(client.calls, [
+          'search:метро',
+          'scoped:${kind.name}:metro:1:20',
+          'scoped:${kind.name}:metro:3:20',
+        ]);
+      });
+    }
+
+    test(
+      'cycle and genre keep independent cursors even with the same alias',
+      () async {
+        final client = FakeYaknigaClient(
+          responses: [
+            _suggestions([
+              _entity('Genre', 'Метро 2033', 'metro-2033'),
+              _entity('Series', 'Метро 2033', 'metro-2033'),
+              _entity('Series', 'Мир Метро 2033', 'mir-metro-2033'),
+            ]),
+            _page(1, next: 3, id: 'series-first'),
+            _page(1, next: 2, id: 'genre-first'),
+            _page(3, id: 'series-last'),
+            _page(2, next: 4, id: 'genre-middle'),
+            _page(4, id: 'genre-last'),
+          ],
+        );
+        final connector = YaknigaSourceConnector(client: client);
+        const request = SearchRequest(query: 'метро 2033');
+
+        final first = await connector.searchPage(request);
+        expect(first.limited, isTrue);
+        expect(
+          first.results.map((x) => x.sourceBookId),
+          containsAll(['series-first', 'genre-first']),
+        );
+
+        final second = await connector.searchPage(
+          request.copyWith(
+            page: first.nextPage,
+            sourceCursor: first.nextCursor,
+          ),
+        );
+        expect(second.results.map((x) => x.sourceBookId), [
+          'series-last',
+          'genre-middle',
+        ]);
+        expect(second.nextPage, 3);
+
+        final third = await connector.searchPage(
+          request.copyWith(
+            page: second.nextPage,
+            sourceCursor: second.nextCursor,
+          ),
+        );
+        expect(third.results.single.sourceBookId, 'genre-last');
+        expect(third.nextPage, isNull);
+        expect(client.calls, [
+          'search:метро 2033',
+          'scoped:series:metro-2033:1:20',
+          'scoped:genre:metro-2033:1:20',
+          'scoped:series:metro-2033:3:20',
+          'scoped:genre:metro-2033:2:20',
+          'scoped:genre:metro-2033:4:20',
+        ]);
+      },
+    );
+
+    test(
+      'strict genre is covered by its catalogue, not a same-named cycle',
+      () async {
+        final client = FakeYaknigaClient(
+          responses: [
+            _suggestions([
+              _entity('Series', 'Метро 2033', 'series-metro-2033'),
+              _entity('Genre', 'Метро 2033', 'genre-metro-2033'),
+            ]),
+            _page(1, next: 2, id: 'genre-first'),
+            _page(2, id: 'genre-last'),
+          ],
+        );
+        final connector = YaknigaSourceConnector(client: client);
+        const request = SearchRequest(
+          query: 'Метро 2033',
+          kind: SearchKind.genre,
+        );
+
+        final first = await connector.searchPage(request);
+        expect(first.usedRequestedScope, isTrue);
+        expect(first.limited, isFalse);
+        expect(first.results.last.sourceBookId, 'genre-first');
+
+        final second = await connector.searchPage(
+          request.copyWith(
+            page: first.nextPage,
+            sourceCursor: first.nextCursor,
+          ),
+        );
+        expect(second.results.single.sourceBookId, 'genre-last');
+        expect(second.nextPage, isNull);
+        expect(client.calls, [
+          'search:Метро 2033',
+          'scoped:genre:genre-metro-2033:1:20',
+          'scoped:genre:genre-metro-2033:2:20',
+        ]);
+      },
+    );
+
+    test(
+      'a long mixed query does not open unrelated suggested catalogues',
+      () async {
+        const query = 'Во мрак Андрей Дьяков Кузнецов Сергей Метро 2033';
+        final client = FakeYaknigaClient(
+          responses: [
+            {
+              'search': [
+                {..._book(), 'id': '62685', 'title': 'Во мрак'},
+                _entity('Author', 'Андрей Дьяков', 'andrey-dyakov'),
+                _entity('Reader', 'Кузнецов Сергей', 'kuznetsov-sergey'),
+                _entity('Genre', 'Метро 2033', 'metro-2033'),
+                _entity(
+                  'Series',
+                  'Вселенная Метро 2033',
+                  'vselennaya-metro-2033',
+                ),
+              ],
+            },
+          ],
+        );
+        final connector = YaknigaSourceConnector(client: client);
+
+        final page = await connector.searchPage(
+          const SearchRequest(query: query),
+        );
+
+        expect(page.results.single.sourceBookId, '62685');
+        expect(page.nextPage, isNull);
+        expect(page.usedRequestedScope, isFalse);
+        expect(client.calls, ['search:$query']);
+      },
+    );
+
     test(
       'details, chapters, tracks, and media resolution use book API',
       () async {
@@ -226,10 +403,27 @@ class FakeYaknigaClient implements YaknigaGraphQlClient {
   }
 }
 
+Map<String, Object?> _entity(String type, String name, String aliasName) => {
+  '__typename': type,
+  'name': name,
+  'aliasName': aliasName,
+};
+
+Map<String, Object?> _suggestions(List<Map<String, Object?>> entities) => {
+  'search': [
+    for (var i = 0; i < 20; i++) {..._book(), 'id': '$i'},
+    ...entities,
+  ],
+};
+
 Map<String, Object?> _page(int page, {int? next, required String id}) => {
   'entity': {
     'books': {
-      'metadata': {'currentPage': page, 'nextPage': next, 'totalPages': 2},
+      'metadata': {
+        'currentPage': page,
+        'nextPage': next,
+        'totalPages': next ?? page,
+      },
       'collection': [
         {..._book(), 'id': id, 'title': 'Во мрак'},
       ],

@@ -25,6 +25,251 @@ import 'package:slovofon/sources/sources.dart';
 
 void main() {
   testWidgets(
+    'actual source failures stay visible; Debug statuses separate caps from failures',
+    (tester) async {
+      final catalog = _StreamingCatalog();
+      final fixture = await _pump(
+        tester,
+        TargetPlatform.android,
+        overrideCatalog: catalog,
+      );
+      await _submit(tester, 'metro');
+      fixture.history.pending.single.complete([]);
+      const book = BookSearchResult(
+        ref: SourceBookRef(sourceId: 'baza_knig', sourceBookId: 'book'),
+        sourceName: 'Baza Knig',
+        title: 'Metro book',
+      );
+      const statuses = [
+        SearchSourceStatus(
+          sourceId: 'knigavuhe',
+          participation: SearchSourceParticipation.completed,
+        ),
+        SearchSourceStatus(
+          sourceId: 'knigoblud',
+          participation: SearchSourceParticipation.disabled,
+        ),
+        SearchSourceStatus(
+          sourceId: 'baza_knig',
+          participation: SearchSourceParticipation.completed,
+          matchCount: 1,
+          failureKind: SourceErrorKind.accessRestricted,
+          failedPage: 2,
+        ),
+        SearchSourceStatus(
+          sourceId: 'akniga',
+          participation: SearchSourceParticipation.completed,
+          failureKind: SourceErrorKind.network,
+          failedPage: 1,
+        ),
+        SearchSourceStatus(
+          sourceId: 'yakniga',
+          participation: SearchSourceParticipation.completed,
+          paginationLimited: true,
+        ),
+      ];
+      final cursor = _TestContinuation();
+      final response = SourceSearchResponse(
+        results: const [book],
+        sourceStatuses: statuses,
+        limitedSourceIds: const {'yakniga'},
+        failures: const [
+          SourceFailure(
+            sourceId: 'baza_knig',
+            kind: SourceErrorKind.accessRestricted,
+            message: 'internal diagnostic',
+          ),
+          SourceFailure(
+            sourceId: 'akniga',
+            kind: SourceErrorKind.network,
+            message: 'internal diagnostic',
+          ),
+        ],
+        retryContinuation: cursor,
+      );
+      catalog.calls.single.completer.complete(response);
+      await tester.pumpAndSettle();
+      expect(find.text('Metro book'), findsOneWidget);
+      final failureNotice = find.byKey(
+        const ValueKey('search-source-failures'),
+      );
+      expect(
+        find.descendant(
+          of: failureNotice,
+          matching: find.text(
+            'Unavailable: Akniga\nBaza Knig: Page 2 could not be loaded. '
+            'Site returned a verification page instead of results',
+          ),
+        ),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Limits or errors'), findsNothing);
+      expect(find.text('Open website'), findsNothing);
+      final sourceStatuses = find.byKey(
+        const PageStorageKey('search-source-statuses'),
+      );
+      expect(tester.widget<ExpansionTile>(sourceStatuses).subtitle, isNull);
+      final statusesTitle = find.text('Source status');
+      await tester.tap(statusesTitle);
+      await tester.pumpAndSettle();
+      final empty = find.byKey(const ValueKey('search-status-knigavuhe'));
+      expect(
+        find.descendant(of: empty, matching: find.text('0 results')),
+        findsOneWidget,
+      );
+      expect(find.text('Not searched: disabled in settings'), findsOneWidget);
+      final restricted = find.byKey(const ValueKey('search-status-baza_knig'));
+      final subtitle = tester.widget<ListTile>(restricted).subtitle! as Text;
+      expect(
+        subtitle.data,
+        '1 result\nPage 2 could not be loaded. '
+        'Site returned a verification page instead of results',
+      );
+      final initialFailure = find.byKey(const ValueKey('search-status-akniga'));
+      final initialSubtitle =
+          tester.widget<ListTile>(initialFailure).subtitle! as Text;
+      expect(initialSubtitle.data, 'Page 1 could not be loaded');
+      final limited = find.byKey(const ValueKey('search-status-yakniga'));
+      expect(
+        (tester.widget<ListTile>(limited).subtitle! as Text).data,
+        '0 results\nSearch results are limited',
+      );
+      expect(find.text('internal diagnostic'), findsNothing);
+      final retry = find.byKey(const ValueKey('search-retry'));
+      await tester.ensureVisible(retry);
+      await tester.tap(retry);
+      await tester.pump();
+      expect(catalog.requests.last.continuation, same(cursor));
+      expect(retry, findsNothing);
+      catalog.calls.last.completer.complete(response);
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(statusesTitle);
+      await tester.tap(statusesTitle);
+      await tester.pumpAndSettle();
+      expect(find.text('Metro book'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('a source cap alone never renders an error or retry', (
+    tester,
+  ) async {
+    final catalog = _StreamingCatalog();
+    final fixture = await _pump(
+      tester,
+      TargetPlatform.android,
+      overrideCatalog: catalog,
+    );
+    await _submit(tester, 'metro');
+    fixture.history.pending.single.complete([]);
+    catalog.calls.single.completer.complete(
+      const SourceSearchResponse(
+        results: [],
+        limitedSourceIds: {'yakniga'},
+        sourceStatuses: [
+          SearchSourceStatus(
+            sourceId: 'yakniga',
+            participation: SearchSourceParticipation.completed,
+            paginationLimited: true,
+          ),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('search-source-failures')), findsNothing);
+    expect(find.byKey(const ValueKey('search-retry')), findsNothing);
+    expect(find.text('Source status'), findsOneWidget);
+    expect(find.text('No results'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('playback and download updates only rebuild the matching card', (
+    tester,
+  ) async {
+    final catalog = _StreamingCatalog();
+    final playback = _SearchPlaybackFixture();
+    final downloads = _EmptyDownloads();
+    addTearDown(playback.dispose);
+    final fixture = await _pump(
+      tester,
+      TargetPlatform.android,
+      overrideCatalog: catalog,
+      overridePlayback: playback,
+      overrideDownloads: downloads,
+    );
+    await _submit(tester, 'metro');
+    fixture.history.pending.single.complete([]);
+    const playing = BookSearchResult(
+      ref: SourceBookRef(sourceId: 'izib', sourceBookId: 'a'),
+      sourceName: 'Izib',
+      title: 'Playing edition',
+    );
+    const other = BookSearchResult(
+      ref: SourceBookRef(sourceId: 'izib', sourceBookId: 'b'),
+      sourceName: 'Izib',
+      title: 'Other edition',
+    );
+    catalog.calls.single.completer.complete(
+      const SourceSearchResponse(results: [playing, other]),
+    );
+    await tester.pumpAndSettle();
+    Finder card(String title) => find.byWidgetPredicate(
+      (widget) => widget is BookCard && widget.book.title == title,
+    );
+    final untouched = tester.widget<BookCard>(card(other.title));
+    const audioBook = AudioPlaybackBook(
+      id: 'a',
+      versionId: 'a',
+      sourceBookId: 'a',
+      sourceId: 'izib',
+      title: 'Playing edition',
+      author: '',
+      narrator: '',
+      sourceName: 'Izib',
+      chapters: [
+        AudioPlaybackChapter(
+          id: 'chapter',
+          index: 0,
+          title: 'Chapter',
+          duration: Duration(seconds: 100),
+        ),
+      ],
+    );
+    const state = AudioPlaybackState(
+      book: audioBook,
+      status: AudioPlaybackStatus.playing,
+    );
+    playback.update(state.copyWith(position: const Duration(seconds: 10)));
+    await tester.pump();
+    expect(tester.widget<BookCard>(card(playing.title)).book.progress, 0.1);
+    expect(tester.widget<BookCard>(card(playing.title)).isCurrentBook, isTrue);
+    expect(tester.widget<BookCard>(card(other.title)), same(untouched));
+    playback.update(state.copyWith(position: const Duration(seconds: 40)));
+    await tester.pump();
+    expect(tester.widget<BookCard>(card(playing.title)).book.progress, 0.4);
+    expect(tester.widget<BookCard>(card(other.title)), same(untouched));
+
+    final played = tester.widget<BookCard>(card(playing.title));
+    final now = DateTime.utc(2026);
+    downloads.replaceTasks([
+      DownloadTask(
+        id: 'download-b',
+        bookId: 'b',
+        bookVersionId: 'izib-b',
+        sourceId: 'izib',
+        type: DownloadTaskType.chapter,
+        status: DownloadTaskStatus.running,
+        progress: 0.3,
+        createdAt: now,
+        updatedAt: now,
+      ),
+    ]);
+    await tester.pump();
+    expect(tester.widget<BookCard>(card(other.title)).downloadProgress, 0.3);
+    expect(tester.widget<BookCard>(card(playing.title)), same(played));
+  });
+
+  testWidgets(
     'Downloaded only can browse local storage without source requests',
     (tester) async {
       final storage = _EmptyDownloadedStorage();
@@ -181,6 +426,13 @@ void main() {
               title: 'Partial book $i',
             ),
           ),
+          sourceStatuses: const [
+            SearchSourceStatus(
+              sourceId: 'izib',
+              participation: SearchSourceParticipation.searching,
+              matchCount: 120,
+            ),
+          ],
         );
         call.update!(partial);
         await tester.pump();
@@ -194,8 +446,23 @@ void main() {
           findsOneWidget,
         );
         expect(call.completer.isCompleted, isFalse);
-        call.completer.complete(partial);
+        final grid = find.byKey(const ValueKey('search-results-grid'));
+        final oldGridState = tester.state(grid);
+        call.completer.complete(
+          SourceSearchResponse(
+            results: partial.results,
+            continuation: _TestContinuation(),
+            sourceStatuses: const [
+              SearchSourceStatus(
+                sourceId: 'izib',
+                participation: SearchSourceParticipation.completed,
+                matchCount: 120,
+              ),
+            ],
+          ),
+        );
         await tester.pumpAndSettle();
+        expect(tester.state(grid), same(oldGridState));
         expect(
           find.byKey(const ValueKey('search-partial-progress')),
           findsNothing,
@@ -330,6 +597,8 @@ _pump(
   TargetPlatform platform, {
   _Catalog? overrideCatalog,
   FileDownloadStorage? overrideStorage,
+  PlaybackController? overridePlayback,
+  DownloadManager? overrideDownloads,
 }) async {
   tester.view.physicalSize = Size(
     platform == TargetPlatform.windows ? 1267 : 390,
@@ -363,12 +632,16 @@ _pump(
         searchHistoryStoreProvider.overrideWith((ref) => history),
         sourceCatalogServiceProvider.overrideWith((ref) => catalog),
         playbackControllerProvider.overrideWith(
-          (ref) => PlaybackController(engine: InMemoryAudioEngine()),
+          (ref) =>
+              overridePlayback ??
+              PlaybackController(engine: InMemoryAudioEngine()),
         ),
         playbackProgressSnapshotsProvider.overrideWith((ref) async => []),
         if (overrideStorage != null)
           downloadStorageProvider.overrideWithValue(overrideStorage),
-        downloadManagerProvider.overrideWith((ref) => _EmptyDownloads()),
+        downloadManagerProvider.overrideWith(
+          (ref) => overrideDownloads ?? _EmptyDownloads(),
+        ),
       ],
       child: MaterialApp.router(
         routerConfig: router,
@@ -395,6 +668,18 @@ class _EmptyDownloadedStorage extends FileDownloadStorage {
   Future<List<AudioPlaybackBook>> readDownloadedMetadata() async {
     scans++;
     return [];
+  }
+}
+
+class _SearchPlaybackFixture extends PlaybackController {
+  _SearchPlaybackFixture() : super(engine: InMemoryAudioEngine());
+
+  @override
+  AudioPlaybackState state = AudioPlaybackState.idle;
+
+  void update(AudioPlaybackState value) {
+    state = value;
+    notifyListeners();
   }
 }
 
@@ -431,7 +716,16 @@ class _Catalog extends SourceCatalogService {
 
 class _EmptyDownloads extends ChangeNotifier implements DownloadManager {
   @override
-  List<DownloadTask> get tasks => const [];
+  List<DownloadTask> tasks = const [];
+
+  @override
+  AudioPlaybackBook? bookForTask(String taskId) => null;
+
+  void replaceTasks(List<DownloadTask> newTasks) {
+    tasks = newTasks;
+    notifyListeners();
+  }
+
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

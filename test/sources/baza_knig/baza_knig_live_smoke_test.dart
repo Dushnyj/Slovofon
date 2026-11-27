@@ -7,6 +7,48 @@ void main() {
   final runLive = Platform.environment['SLOVOFON_LIVE_SOURCE_TESTS'] == '1';
 
   test(
+    'live Baza Knig public search form returns actual first-page cards',
+    () async {
+      final page = await BazaKnigSourceConnector().searchPage(
+        const SearchRequest(query: 'метро'),
+      );
+      expect(page.results, isNotEmpty);
+      expect(
+        page.results.every((result) => result.sourceId == 'baza_knig'),
+        isTrue,
+      );
+    },
+    skip: runLive ? false : 'Set SLOVOFON_LIVE_SOURCE_TESTS=1 to run.',
+    timeout: const Timeout(Duration(seconds: 25)),
+  );
+
+  test(
+    'live Baza Knig public pager returns different second-page cards',
+    () async {
+      const query = 'метро';
+      final connector = BazaKnigSourceConnector();
+      final first = await connector.searchPage(
+        const SearchRequest(query: query),
+      );
+      expect(first.results, isNotEmpty);
+      expect(first.nextPage, 2, reason: 'Look for the site\'s second page.');
+
+      final last = await connector.searchPage(
+        SearchRequest(query: query, page: first.nextPage!),
+      );
+      final firstIds = first.results.map((book) => book.sourceBookId).toSet();
+      expect(last.results, isNotEmpty);
+      expect(
+        last.results.any((book) => !firstIds.contains(book.sourceBookId)),
+        isTrue,
+        reason: 'A restarted search is not a successful second page.',
+      );
+    },
+    skip: runLive ? false : 'Set SLOVOFON_LIVE_SOURCE_TESTS=1 to run.',
+    timeout: const Timeout(Duration(seconds: 45)),
+  );
+
+  test(
     'live Baza Knig search, details, chapters, and media resolution work when audio is exposed',
     () async {
       final connector = BazaKnigSourceConnector();

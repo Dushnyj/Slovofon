@@ -1,8 +1,99 @@
 import 'dart:io';
 
+import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:slovofon/ui/icons/app_icons.dart';
 
 void main() {
+  test('bundled monochrome glyphs take paint only from SVG currentColor', () {
+    final files = Directory('assets/icons').listSync(recursive: true);
+    final paints = RegExp(
+      r'''\b(?:fill|stroke|color|stop-color|flood-color|lighting-color)\s*=\s*["']([^"']*)["']''',
+    );
+    for (final file in files.whereType<File>()) {
+      if (!file.path.endsWith('.svg') ||
+          file.path.replaceAll('\\', '/') == AppIconAssets.systemTelegram) {
+        continue;
+      }
+      final content = file.readAsStringSync().replaceAll(
+        RegExp(r'<!--.*?-->', dotAll: true),
+        '',
+      );
+      final root = RegExp(r'<svg\b[^>]*>').firstMatch(content)!.group(0)!;
+      expect(
+        root,
+        matches(RegExp(r'''\bfill\s*=\s*["'](?:none|currentColor)["']''')),
+        reason: file.path,
+      );
+      expect(
+        content,
+        isNot(
+          matches(
+            RegExp(
+              r'<(?:style|image|filter|use|linearGradient|radialGradient)\b|\bstyle\s*=',
+            ),
+          ),
+        ),
+        reason: file.path,
+      );
+      final values = paints.allMatches(content).map((m) => m.group(1));
+      expect(values, contains('currentColor'), reason: file.path);
+      expect(
+        values,
+        everyElement(isIn(['none', 'currentColor'])),
+        reason: file.path,
+      );
+    }
+  });
+
+  testWidgets('opaque themed icons skip the redundant offscreen tint layer', (
+    tester,
+  ) async {
+    const color = Color(0xff546bef);
+    const translucent = Color(0x80546bef);
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Column(
+          children: [
+            AppIcon(
+              AppIconAssets.bookAuthor,
+              color: color,
+              semanticsLabel: 'Author',
+            ),
+            AppIcon(AppIconAssets.bookAuthor, color: translucent),
+            AppIcon(AppIconAssets.systemTelegram, color: color),
+            AppIcon(
+              AppIconAssets.systemTelegram,
+              color: color,
+              preserveColors: true,
+            ),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final pictures = tester
+        .widgetList<SvgPicture>(find.byType(SvgPicture))
+        .toList();
+    expect(pictures[0].colorFilter, isNull);
+    expect(
+      (pictures[0].bytesLoader as SvgAssetLoader).theme!.currentColor,
+      color,
+    );
+    expect(pictures[0].semanticsLabel, 'Author');
+    expect(
+      pictures[1].colorFilter,
+      const ColorFilter.mode(translucent, BlendMode.srcIn),
+    );
+    expect(
+      pictures[2].colorFilter,
+      const ColorFilter.mode(color, BlendMode.srcIn),
+    );
+    expect(pictures[3].colorFilter, isNull);
+    expect(tester.takeException(), isNull);
+  });
+
   test('Stage 2 app icon draft assets exist', () {
     final iconDrafts = [
       'assets/app/app_icon_draft.svg',

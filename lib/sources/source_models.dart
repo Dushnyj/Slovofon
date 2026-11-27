@@ -16,6 +16,7 @@ enum SourceErrorKind {
   mediaValidation,
   notFound,
   unauthorized,
+  accessRestricted,
   rateLimited,
   unknown,
 }
@@ -389,6 +390,31 @@ class SourceFailure {
   final Object? cause;
 }
 
+enum SearchSourceParticipation { searching, completed, disabled, filtered }
+
+/// Canonical status for one registered source, before presentation-only filters.
+class SearchSourceStatus {
+  const SearchSourceStatus({
+    required this.sourceId,
+    required this.participation,
+    this.matchCount = 0,
+    this.paginationLimited = false,
+    this.metadataIncomplete = false,
+    this.failureKind,
+    this.failedPage,
+  }) : assert(failedPage == null || (failedPage > 0 && failureKind != null));
+
+  final String sourceId;
+  final SearchSourceParticipation participation;
+  final int matchCount;
+  final bool paginationLimited;
+  final bool metadataIncomplete;
+  final SourceErrorKind? failureKind;
+
+  /// The actual page request associated with [failureKind], when known.
+  final int? failedPage;
+}
+
 class SourceSearchResponse {
   const SourceSearchResponse({
     required this.results,
@@ -396,6 +422,7 @@ class SourceSearchResponse {
     this.continuation,
     this.retryContinuation,
     this.limitedSourceIds = const {},
+    this.sourceStatuses = const [],
   });
 
   final List<BookSearchResult> results;
@@ -405,6 +432,7 @@ class SourceSearchResponse {
   /// Resumes only failed source lanes without discarding previously found cards.
   final SourceSearchContinuation? retryContinuation;
   final Set<String> limitedSourceIds;
+  final List<SearchSourceStatus> sourceStatuses;
 
   bool get hasPartialFailures => results.isNotEmpty && failures.isNotEmpty;
   bool get hasFailures => failures.isNotEmpty;

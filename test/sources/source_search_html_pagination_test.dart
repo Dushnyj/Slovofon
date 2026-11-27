@@ -26,6 +26,9 @@ void main() {
     'external, unrelated and invalid URL links do not advance pages',
     () async {
       final page = await SourceHtmlParser.searchPage('knigavuhe', '''
+      <div class="page_content"><div class="empty_block">
+        По запросу <b>метро</b> ничего не найдено :(
+      </div></div>
       <a href="https://example.com/search/?q=метро&amp;page=2">Other site</a>
       <a href="/search/?q=не то&amp;page=2">Other query</a>
       <a href="/search/?q=%FF&amp;page=2">Malformed UTF-8 query</a>

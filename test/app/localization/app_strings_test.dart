@@ -5,6 +5,14 @@ import 'package:slovofon/app/localization/app_strings.dart';
 void main() {
   final ru = AppStrings.forLocale(const Locale('ru'));
   final en = AppStrings.forLocale(const Locale('en'));
+  test('failed search page describes the real page and a safe reason', () {
+    expect(
+      ru.searchSourcePageLoadFailed(2, reason: ru.searchSourceAccessRestricted),
+      'Страница 2 не загрузилась. '
+      'Сайт показал страницу проверки вместо результатов',
+    );
+    expect(ru.searchSourcePageLoadFailed(1), 'Страница 1 не загрузилась');
+  });
   final forms = [
     (
       name: 'one',

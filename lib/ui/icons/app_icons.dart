@@ -114,6 +114,14 @@ class AppIcon extends StatelessWidget {
         iconTheme.color ??
         DefaultTextStyle.of(context).style.color ??
         Theme.of(context).colorScheme.onSurface;
+    // The monochrome inventory paints using SVG currentColor. When the color
+    // is opaque the SVG theme already gives the final tint. Applying srcIn on
+    // top adds an offscreen saveLayer to every vector icon while scrolling.
+    // Keep the old compositing for translucent tints and fixed-color assets.
+    final usesSvgPaint =
+        asset.startsWith('assets/icons/') &&
+        asset != AppIconAssets.systemTelegram &&
+        effectiveColor.a == 1.0;
 
     return SvgPicture.asset(
       asset,
@@ -121,7 +129,7 @@ class AppIcon extends StatelessWidget {
       height: effectiveSize,
       matchTextDirection: matchTextDirection,
       theme: SvgTheme(currentColor: effectiveColor),
-      colorFilter: preserveColors
+      colorFilter: preserveColors || usesSvgPaint
           ? null
           : ColorFilter.mode(effectiveColor, BlendMode.srcIn),
       semanticsLabel: semanticsLabel,

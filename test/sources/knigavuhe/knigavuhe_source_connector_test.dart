@@ -41,6 +41,65 @@ void main() {
       expect(client.calls, ['search:дыхание зоны:1']);
     });
 
+    test('keeps live-style pagination and card genres in the worker', () async {
+      final connector = KnigavuheSourceConnector(
+        client: FakeKnigavuheClient(searchHtml: _searchHtml),
+      );
+
+      final page = await connector.searchPage(
+        const SearchRequest(query: 'дыхание зоны'),
+      );
+
+      expect(page.results.single.genres, ['Фантастика и фэнтези']);
+      expect(page.nextPage, 2);
+      expect(page.limited, isFalse);
+    });
+
+    test(
+      'recognizes the native no-results page as a valid empty search',
+      () async {
+        final connector = KnigavuheSourceConnector(
+          client: FakeKnigavuheClient(
+            searchHtml: '''
+          <div class="page_content">
+            <div class="empty_block">По запросу <b>нет совпадений</b> ничего не найдено :(</div>
+          </div>
+        ''',
+          ),
+        );
+
+        final page = await connector.searchPage(
+          const SearchRequest(query: 'нет совпадений'),
+        );
+
+        expect(page.results, isEmpty);
+        expect(page.nextPage, isNull);
+        expect(page.limited, isFalse);
+      },
+    );
+
+    test('an unknown HTML layout is not treated as an empty search', () async {
+      final connector = KnigavuheSourceConnector(
+        client: FakeKnigavuheClient(
+          searchHtml: '<main>Сервис недоступен</main>',
+        ),
+      );
+
+      await expectLater(
+        connector.searchPage(const SearchRequest(query: 'метро')),
+        throwsA(
+          isA<SourceException>().having(
+            (e) => e.kind,
+            'kind',
+            SourceErrorKind.parser,
+          ),
+        ),
+      );
+
+      final health = await connector.checkHealth();
+      expect(health.status, SourceHealthStatus.structureChanged);
+    });
+
     test(
       'details, chapters, tracks, and media resolution use page data',
       () async {
@@ -140,6 +199,10 @@ const _searchHtml = '''
     </a>
     <div class="bookkitem_author"><a>Николай Грошев</a></div>
     <div class="bookkitem_performer"><a>Тимофей Зобнин</a></div>
+    <div class="bookkitem_genre"><a href="/genre/fantastika/">Фантастика и фэнтези</a></div>
+  </div>
+  <div class="pn_page_buttons">
+    <a class="pn_button is_page" href="/search/?q=дыхание+зоны&amp;page=2" data-page="2">2</a>
   </div>
 </body></html>
 ''';

@@ -66,6 +66,35 @@ void main() {
       );
     });
 
+    test('search duration comes from its dedicated field, not book title', () {
+      final result = mapper.searchResults('''
+        <div class="bookListItem">
+          <a class="bookListItemCoverNameText" href="/72-metra">72 метра</a>
+          <div class="bookListItemDescription">В 12 минутах от станции.</div>
+          <div class="bookListItemMetaBlock">
+            <span>🕒</span><span class="bookListItemNameDur">3 ч. 27 мин.</span>
+          </div>
+        </div>
+      ''').single;
+
+      expect(result.duration, const Duration(hours: 3, minutes: 27));
+    });
+
+    test(
+      'search keeps an absent duration unknown despite descriptive text',
+      () {
+        final result = mapper.searchResults('''
+        <div class="bookListItem">
+          <a class="bookListItemCoverNameText" href="/72-metra">72 метра</a>
+          <div class="bookListItemDescription">В 12 минутах от станции.</div>
+          <div class="bookListItemInfo"><div>72 метра</div></div>
+        </div>
+      ''').single;
+
+        expect(result.duration, isNull);
+      },
+    );
+
     test('separates Poluraspad author and narrator in one search block', () {
       final result = mapper
           .searchResults(

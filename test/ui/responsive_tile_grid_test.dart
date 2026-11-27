@@ -376,10 +376,90 @@ void main() {
       }
     }
   });
+
+  testWidgets('scrolling a large keyed sliver reuses the row delegate', (
+    tester,
+  ) async {
+    _configureView(tester, size: const Size(420, 480));
+    final controller = ScrollController();
+    addTearDown(controller.dispose);
+    var keyCalls = 0;
+    var itemCalls = 0;
+    const count = 1200;
+    await tester.pumpWidget(
+      _sliverHost(
+        controller: controller,
+        itemCount: count,
+        keyBuilder: (index) {
+          keyCalls++;
+          return ValueKey(index);
+        },
+        itemBuilder: (context, index) {
+          itemCalls++;
+          return SizedBox(height: 60, child: Text('Book $index'));
+        },
+      ),
+    );
+    expect(keyCalls, count);
+    expect(itemCalls, lessThan(20));
+    final originalDelegate = tester
+        .widget<SliverList>(find.byType(SliverList))
+        .delegate;
+    keyCalls = 0;
+    itemCalls = 0;
+    for (var row = 1; row <= 24; row++) {
+      controller.jumpTo(row * 72.0);
+      await tester.pump();
+      expect(
+        tester.widget<SliverList>(find.byType(SliverList)).delegate,
+        same(originalDelegate),
+      );
+    }
+    expect(controller.offset, 1728);
+    expect(find.text('Book 26'), findsOneWidget);
+    expect(keyCalls, 0, reason: 'Scrolling must not reindex the result set.');
+    expect(itemCalls, inInclusiveRange(20, 34));
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final width in [420.0, 960.0]) {
+    testWidgets('same-count reorder keeps card state and focus at $width', (
+      tester,
+    ) async {
+      _configureView(tester, size: Size(width, 520));
+      var order = [0, 1, 2, 3, 4, 5];
+      // The callback has the same identity before and after the reorder.
+      LocalKey keyBuilder(int index) => ValueKey(order[index]);
+      Widget itemBuilder(BuildContext context, int index) =>
+          _StatefulTile(key: ValueKey('card-${order[index]}'));
+      Widget grid() => _sliverHost(
+        itemCount: order.length,
+        keyBuilder: keyBuilder,
+        itemBuilder: itemBuilder,
+      );
+
+      await tester.pumpWidget(grid());
+      final card = find.byKey(const ValueKey('card-4'));
+      final before = tester.state<_StatefulTileState>(card);
+      final beforePosition = tester.getTopLeft(card);
+      before.focus.requestFocus();
+      await tester.pump();
+      expect(before.focus.hasPrimaryFocus, isTrue);
+
+      // Keep the same count and move the focused card to the preceding row.
+      order = [0, 4, 2, 3, 1, 5];
+      await tester.pumpWidget(grid());
+      await tester.pump();
+      expect(tester.state<_StatefulTileState>(card), same(before));
+      expect(before.focus.hasPrimaryFocus, isTrue);
+      expect(tester.getTopLeft(card).dy, lessThan(beforePosition.dy));
+      expect(tester.takeException(), isNull);
+    });
+  }
 }
 
-void _configureView(WidgetTester tester) {
-  tester.view.physicalSize = const Size(4000, 2200);
+void _configureView(WidgetTester tester, {Size size = const Size(4000, 2200)}) {
+  tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
@@ -431,3 +511,47 @@ Future<void> _pumpGrid(
 
 Rect _tileRect(WidgetTester tester, int index) =>
     tester.getRect(find.byKey(ValueKey('tile-$index')));
+
+Widget _sliverHost({
+  ScrollController? controller,
+  required int itemCount,
+  required LocalKey Function(int) keyBuilder,
+  required IndexedWidgetBuilder itemBuilder,
+}) => MaterialApp(
+  theme: ThemeData(platform: TargetPlatform.android),
+  home: Scaffold(
+    body: CustomScrollView(
+      controller: controller,
+      slivers: [
+        SliverResponsiveTileGrid.builder(
+          itemCount: itemCount,
+          itemKeyBuilder: keyBuilder,
+          itemBuilder: itemBuilder,
+        ),
+      ],
+    ),
+  ),
+);
+
+class _StatefulTile extends StatefulWidget {
+  const _StatefulTile({required super.key});
+
+  @override
+  State<_StatefulTile> createState() => _StatefulTileState();
+}
+
+class _StatefulTileState extends State<_StatefulTile> {
+  final focus = FocusNode();
+
+  @override
+  void dispose() {
+    focus.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    height: 64,
+    child: Focus(focusNode: focus, child: const SizedBox.expand()),
+  );
+}

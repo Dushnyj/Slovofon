@@ -25,6 +25,7 @@ void main() {
       expect(result.author, 'Николай Грошев');
       expect(result.narrator, 'Тимофей Зобнин');
       expect(result.series, 'Велес');
+      expect(result.genres, ['Фантастика и фэнтези', 'Приключения']);
       expect(result.duration, const Duration(hours: 18, minutes: 1));
       expect(result.accessType, AccessType.free);
       expect(
@@ -128,6 +129,11 @@ const _searchHtml = '''
     <div class="bookkitem_name">
       <a href="/book/8996-stalker-dykhanie-zony/">S.T.A.L.K.E.R. Дыхание зоны</a>
       <span class="bookkitem_author">автор <a>Николай Грошев</a></span>
+    </div>
+    <div class="bookkitem_genre">
+      <a href="/genre/fantastika/">Фантастика и фэнтези</a>
+      <a href="/genre/priklucheniya/">Приключения</a>
+      <a href="/genre/fantastika/">Фантастика и фэнтези</a>
     </div>
     <div class="bookkitem_meta_block">
       <span class="bookkitem_icon -reader"></span>

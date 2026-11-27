@@ -179,6 +179,45 @@ void main() {
   );
 
   test(
+    'POST 302 reports only policy-allowed redirects without replaying requests',
+    () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      final base = Uri.parse('http://127.0.0.1:${server.port}/');
+      final requests = <String>[];
+      server.listen((request) async {
+        requests.add('${request.method} ${request.uri.path}');
+        await request.drain<void>();
+        request.response.statusCode = 302;
+        request.response.headers.set(
+          HttpHeaders.locationHeader,
+          request.uri.path == '/allowed'
+              ? '/bk-chal'
+              : 'http://localhost:${server.port}/bk-chal',
+        );
+        await request.response.close();
+      });
+      final transport = DartIoBazaKnigTransport(policy: fixturePolicy);
+      final allowed = await transport.post(
+        base.resolve('allowed'),
+        bodyBytes: [1, 2, 3],
+        headers: const {},
+      );
+      expect(allowed.statusCode, 302);
+      expect(allowed.finalUri, base.resolve('allowed'));
+      expect(allowed.redirectLocation, base.resolve('bk-chal'));
+      final rejected = await transport.post(
+        base.resolve('external'),
+        bodyBytes: [1, 2, 3],
+        headers: const {},
+      );
+      expect(rejected.statusCode, 302);
+      expect(rejected.redirectLocation, isNull);
+      expect(requests, ['POST /allowed', 'POST /external']);
+    },
+  );
+
+  test(
     'Akniga alias Domain session reaches apex POST, host-only stays scoped',
     () async {
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);

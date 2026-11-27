@@ -90,24 +90,55 @@ class SourceCatalogService {
                 source.connector.id,
           }
         : null;
-    SourceSearchResponse snapshot({bool finalResult = false}) =>
-        SourceSearchResponse(
-          results: state.sortedMatches,
-          failures: List.unmodifiable([
-            for (final source in state.sources.values) ?source.failure,
-          ]),
-          limitedSourceIds: Set.unmodifiable({
-            for (final source in state.sources.values)
-              if (source.limited) source.connector.id,
-            ...state.incompleteMetadataSourceIds,
-          }),
-          continuation: finalResult && state.hasMore
-              ? state.copy(retryFailuresOnly: false)
-              : null,
-          retryContinuation: finalResult && state.hasRetryableLane
-              ? state.copy(retryFailuresOnly: true)
-              : null,
-        );
+    final fetchable = [
+      for (final source in state.sources.values)
+        if (source.canFetch(retryOnly: state.retryFailuresOnly)) source,
+    ];
+    final searching = {for (final source in fetchable) source.connector.id};
+
+    SourceSearchResponse snapshot({bool finalResult = false}) {
+      final matches = state.sortedMatches;
+      final counts = state.matchCounts;
+      final failures = {
+        for (final entry in state.sources.entries)
+          entry.key: ?entry.value.failure,
+      };
+      return SourceSearchResponse(
+        results: matches,
+        failures: List.unmodifiable(failures.values.map((item) => item.error)),
+        limitedSourceIds: Set.unmodifiable({
+          for (final source in state.sources.values)
+            if (source.limited) source.connector.id,
+          ...state.incompleteMetadataSourceIds,
+        }),
+        sourceStatuses: List.unmodifiable([
+          for (final connector in _registry.connectors)
+            SearchSourceStatus(
+              sourceId: connector.id,
+              participation: !_registry.enabledSourceIds.contains(connector.id)
+                  ? SearchSourceParticipation.disabled
+                  : !request.allowsSource(connector.id)
+                  ? SearchSourceParticipation.filtered
+                  : searching.contains(connector.id)
+                  ? SearchSourceParticipation.searching
+                  : SearchSourceParticipation.completed,
+              matchCount: counts[connector.id] ?? 0,
+              paginationLimited: state.sources[connector.id]?.limited ?? false,
+              metadataIncomplete: state.incompleteMetadataSourceIds.contains(
+                connector.id,
+              ),
+              failureKind: failures[connector.id]?.error.kind,
+              failedPage: failures[connector.id]?.page,
+            ),
+        ]),
+        continuation: finalResult && state.hasMore
+            ? state.copy(retryFailuresOnly: false)
+            : null,
+        retryContinuation: finalResult && state.hasRetryableLane
+            ? state.copy(retryFailuresOnly: true)
+            : null,
+      );
+    }
 
     Timer? updateTimer;
     var publishedResults = false;
@@ -166,24 +197,29 @@ class SourceCatalogService {
           operation.throwIfCancelled();
         } on SourceSearchCancelled {
           if (operation.isTimedOut) {
-            lane.failure = SourceFailure(
-              sourceId: source.connector.id,
-              kind: SourceErrorKind.network,
-              message: 'Source search exceeded the overall time budget.',
+            lane.failure = (
+              error: SourceFailure(
+                sourceId: source.connector.id,
+                kind: SourceErrorKind.network,
+                message: 'Source search exceeded the overall time budget.',
+              ),
+              page: currentPage,
             );
             lane.retryPage = currentPage;
           }
           return;
         } on Object catch (error) {
-          lane.failure = SourceFailure.fromError(source.connector.id, error);
-          lane.retryPage = lane.failure?.kind == SourceErrorKind.unsupported
+          final failure = SourceFailure.fromError(source.connector.id, error);
+          lane.failure = (error: failure, page: currentPage);
+          lane.retryPage = failure.kind == SourceErrorKind.unsupported
               ? null
               : currentPage;
           lane.nextPage = null;
           attempts[lane] = _pagesPerLane;
           // Alternative spellings are not a network/proxy retry mechanism.
-          if (identical(lane, source.lanes.first) &&
-              !source.plannedAlternatives) {
+          if (source.pausesAutomaticRequests ||
+              (identical(lane, source.lanes.first) &&
+                  !source.plannedAlternatives)) {
             break;
           }
           continue;
@@ -240,8 +276,18 @@ class SourceCatalogService {
 
     try {
       cancellation?.throwIfCancelled();
-      if (_applySettledSearchDetails(state)) publish();
-      await Future.wait<void>(state.sources.values.map(fetchSource));
+      _applySettledSearchDetails(state);
+      publish();
+      await Future.wait<void>(
+        fetchable.map((source) async {
+          try {
+            await fetchSource(source);
+          } finally {
+            searching.remove(source.connector.id);
+            publish();
+          }
+        }),
+      );
       cancellation?.throwIfCancelled();
       // First results never wait for optional detail/enrichment requests.
       await _enrichSearchResults(state, operation, sourceIds: retrySourceIds);
@@ -256,7 +302,8 @@ class SourceCatalogService {
         state.incompleteMetadataSourceIds.add(result.sourceId);
         final key = _searchResultKey(result);
         if (state.pendingDetails.containsKey(key) ||
-            (_searchEnrichmentLimit > 0 &&
+            (state.sources[result.sourceId]?.pausesAutomaticRequests != true &&
+                _searchEnrichmentLimit > 0 &&
                 !state.attemptedDetails.contains(key) &&
                 _canEnrichSearchResult(result))) {
           state.metadataHasMore = true;
@@ -498,6 +545,10 @@ class SourceCatalogService {
     final candidates = <_SearchProjection>[];
     if (state.pendingDetails.length < limit) {
       for (final entry in state.results.entries) {
+        if (state.sources[entry.value.sourceId]?.pausesAutomaticRequests ==
+            true) {
+          continue;
+        }
         if (sourceIds != null && !sourceIds.contains(entry.value.sourceId)) {
           continue;
         }
@@ -1422,6 +1473,8 @@ class SourceCatalogService {
   }
 }
 
+typedef _PageSearchFailure = ({SourceFailure error, int page});
+
 class _SearchLane {
   _SearchLane(this.query, this.nextPage, [Set<String>? seenPages, this.cursor])
     : seenPages = seenPages ?? <String>{};
@@ -1431,7 +1484,7 @@ class _SearchLane {
   SourceSearchPageCursor? cursor;
   final Set<String> seenPages;
   int? retryPage;
-  SourceFailure? failure;
+  _PageSearchFailure? failure;
 
   _SearchLane copy() => _SearchLane(query, nextPage, {...seenPages}, cursor)
     ..retryPage = retryPage
@@ -1451,7 +1504,26 @@ class _SourceSearchState {
   bool plannedAlternatives;
   bool limited;
 
-  SourceFailure? get failure {
+  _PageSearchFailure? get _restriction {
+    for (final lane in lanes) {
+      final kind = lane.failure?.error.kind;
+      if (kind == SourceErrorKind.accessRestricted ||
+          kind == SourceErrorKind.rateLimited) {
+        return lane.failure;
+      }
+    }
+    return null;
+  }
+
+  bool get pausesAutomaticRequests => _restriction != null;
+
+  bool canFetch({required bool retryOnly}) => retryOnly
+      ? lanes.any((lane) => lane.retryPage != null)
+      : !pausesAutomaticRequests && lanes.any((lane) => lane.nextPage != null);
+
+  _PageSearchFailure? get failure {
+    final restriction = _restriction;
+    if (restriction != null) return restriction;
     for (final lane in lanes) {
       if (lane.failure != null) return lane.failure;
     }
@@ -1526,6 +1598,7 @@ class _CatalogSearchContinuation implements SourceSearchContinuation {
   final Set<String> incompleteMetadataSourceIds = {};
   bool metadataHasMore = false;
   List<BookSearchResult>? _sortedMatches;
+  Map<String, int>? _matchCounts;
   late final Set<SearchKind> _kinds = request.effectiveKinds;
   late final List<String> _tokens = SourceCatalogService._queryTokens(
     request.query,
@@ -1540,10 +1613,21 @@ class _CatalogSearchContinuation implements SourceSearchContinuation {
         request.sort,
       );
 
+  Map<String, int> get matchCounts {
+    final previous = _matchCounts;
+    if (previous != null) return previous;
+    final counts = <String, int>{};
+    for (final match in sortedMatches) {
+      counts.update(match.sourceId, (count) => count + 1, ifAbsent: () => 1);
+    }
+    return _matchCounts = counts;
+  }
+
   void setResult(String key, BookSearchResult result) {
     if (identical(results[key], result)) return;
     results[key] = result;
     _sortedMatches = null;
+    _matchCounts = null;
   }
 
   bool get hasRetryableLane => sources.values.any(
@@ -1552,9 +1636,7 @@ class _CatalogSearchContinuation implements SourceSearchContinuation {
 
   bool get hasMore =>
       metadataHasMore ||
-      sources.values.any(
-        (source) => source.lanes.any((lane) => lane.nextPage != null),
-      );
+      sources.values.any((source) => source.canFetch(retryOnly: false));
 
   bool belongsTo(SourceCatalogService service, SearchRequest incoming) {
     bool sameSet<T>(Set<T> a, Set<T> b) =>
@@ -1582,6 +1664,7 @@ class _CatalogSearchContinuation implements SourceSearchContinuation {
           retryFailuresOnly: retryFailuresOnly,
         )
         .._sortedMatches = _sortedMatches
+        .._matchCounts = _matchCounts
         ..incompleteMetadataSourceIds.addAll(incompleteMetadataSourceIds)
         ..metadataHasMore = metadataHasMore;
 }

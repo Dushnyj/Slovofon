@@ -194,6 +194,12 @@ void main() {
       expect(finalResult!.results.single.sourceId, 'fast');
       expect(finalResult!.failures.single.sourceId, 'slow');
       expect(
+        finalResult!.sourceStatuses
+            .singleWhere((status) => status.sourceId == 'slow')
+            .failedPage,
+        1,
+      );
+      expect(
         finalResult!.failures.single.message,
         contains('overall time budget'),
       );

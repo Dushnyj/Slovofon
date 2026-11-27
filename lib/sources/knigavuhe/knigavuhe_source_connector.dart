@@ -68,7 +68,7 @@ class KnigavuheSourceConnector
   Future<SourceHealth> checkHealth() async {
     final started = _clock();
     try {
-      await _client.searchBooksHtml(query: 'метро', page: 1);
+      await searchPage(const SearchRequest(query: 'метро'));
       return SourceHealth.working(
         sourceId: id,
         checkedAt: _clock(),

@@ -30,6 +30,13 @@ class KnigobludMapper {
     ];
   }
 
+  static bool isKnownEmptySearchDocument(dom.Document document) {
+    final notice = document.querySelector('.pageContent .EmptyBlock');
+    final text = SourceParserHelpers.normalizeTitle(notice?.text ?? '');
+    return text.startsWith('по словосочетанию ') &&
+        text.endsWith(' ничего не найдено');
+  }
+
   BookVersionDetails bookDetails(String html, SourceBookRef ref) {
     final document = html_parser.parse(html);
     final now = _clock();
@@ -228,7 +235,7 @@ class KnigobludMapper {
       ),
       genres: _genres(item),
       coverUri: _coverUri(item),
-      duration: SourceParserHelpers.parseDuration(item.text),
+      duration: _searchDuration(item),
       year: SourceParserHelpers.parseYear(_labelValue(item, ['Год'])),
       isFull: null,
       isFree: true,
@@ -560,6 +567,32 @@ class KnigobludMapper {
         _text(document, '.bookListItemNameDur'),
       ]),
     );
+  }
+
+  static final _legacySearchDuration = RegExp(
+    r'^(?:\d+:\d{2}(?::\d{2})?|'
+    r'(?:\d+\s*(?:ч(?:ас(?:а|ов)?)?|мин(?:ут(?:а|ы)?)?|сек(?:унд(?:а|ы)?)?)\.?\s*){1,3})$',
+    caseSensitive: false,
+  );
+
+  static Duration? _searchDuration(dom.Element item) {
+    final displayed = SourceParserHelpers.parseDuration(
+      _firstNonEmpty([
+        _text(item, '.bookListItemNameDur'),
+        _labelValue(item, ['Длительность', 'Время']),
+      ]),
+    );
+    if (displayed != null) return displayed;
+
+    // Legacy cards display the duration in a separate, unlabelled info row.
+    // Never interpret numbers in a title or description as the audio duration.
+    for (final line in item.querySelectorAll('.bookListItemInfo > *')) {
+      final text = SourceParserHelpers.normalizeWhitespace(line.text);
+      if (_legacySearchDuration.hasMatch(text)) {
+        return SourceParserHelpers.parseDuration(text);
+      }
+    }
+    return null;
   }
 
   static String _href(dom.Element item) {

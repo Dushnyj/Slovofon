@@ -30,6 +30,13 @@ class KnigavuheMapper {
     ];
   }
 
+  static bool isKnownEmptySearchDocument(dom.Document document) {
+    final notice = document.querySelector('.page_content .empty_block');
+    final text = SourceParserHelpers.normalizeTitle(notice?.text ?? '');
+    return text.startsWith('по запросу ') &&
+        text.endsWith(' ничего не найдено');
+  }
+
   BookVersionDetails bookDetails(String html, SourceBookRef ref) {
     final document = html_parser.parse(html);
     final now = _clock();
@@ -307,7 +314,7 @@ class KnigavuheMapper {
       narrators: narrators,
       series: seriesText,
       seriesNumber: SourceParserHelpers.parseSeriesNumber(seriesBlockText),
-      genres: _genres(item),
+      genres: _searchGenres(item),
       coverUri: _coverUri(item),
       duration: SourceParserHelpers.parseDuration(
         _firstNonEmpty([
@@ -430,6 +437,14 @@ class KnigavuheMapper {
     ];
     return _unique(values);
   }
+
+  static List<String> _searchGenres(dom.Element item) => _unique([
+    for (final link in item.querySelectorAll(
+      '.bookkitem_genre a, .bookitem_genre a',
+    ))
+      link.text,
+    ..._genres(item),
+  ]);
 
   static Uri? _coverUri(Object root) {
     final value = _firstNonEmpty([

@@ -240,96 +240,120 @@ class _SliverResponsiveTileGridState extends State<SliverResponsiveTileGrid> {
   // Stable, lazily allocated keys retain a focused card when incremental search
   // inserts/sorts results into different rows. Never key by list position.
   final _itemKeys = <LocalKey, GlobalKey>{};
-  int get itemCount => widget.itemCount;
-  IndexedWidgetBuilder get itemBuilder => widget.itemBuilder;
-  LocalKey Function(int)? get itemKeyBuilder => widget.itemKeyBuilder;
-  double get spacing => widget.spacing;
-  double get runSpacing => widget.runSpacing;
-  double get minTileWidth => widget.minTileWidth;
-  int get maxColumns => widget.maxColumns;
-  double get televisionMinTileWidth => widget.televisionMinTileWidth;
-  int? get televisionMaxColumns => widget.televisionMaxColumns;
-  bool get stretchDesktopColumns => widget.stretchDesktopColumns;
-  bool get singleColumn => widget.singleColumn;
+  ({List<LocalKey> keys, Map<LocalKey, int> positions})? _itemOrder;
+  ({int columns, double tileWidth})? _geometry;
+  SliverList? _list;
+
+  @override
+  void didUpdateWidget(SliverResponsiveTileGrid oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // The same callback and item count can now represent a different order.
+    _itemOrder = null;
+    _list = null;
+  }
+
+  ({List<LocalKey> keys, Map<LocalKey, int> positions})? _readItemOrder() {
+    final keyFor = widget.itemKeyBuilder;
+    if (keyFor == null) {
+      _itemKeys.clear();
+      return null;
+    }
+    final keys = List.generate(widget.itemCount, keyFor, growable: false);
+    final positions = <LocalKey, int>{
+      for (var index = 0; index < keys.length; index++) keys[index]: index,
+    };
+    _itemKeys.removeWhere((key, _) => !positions.containsKey(key));
+    return (keys: keys, positions: positions);
+  }
 
   @override
   Widget build(BuildContext context) => SliverLayoutBuilder(
     builder: (context, constraints) {
-      final width = constraints.crossAxisExtent;
       final geometry = resolveResponsiveTileGridGeometry(
         context,
-        width,
-        spacing: spacing,
-        minTileWidth: minTileWidth,
-        maxColumns: maxColumns,
-        televisionMinTileWidth: televisionMinTileWidth,
-        televisionMaxColumns: televisionMaxColumns,
-        stretchDesktopColumns: stretchDesktopColumns,
-        singleColumn: singleColumn,
+        constraints.crossAxisExtent,
+        spacing: widget.spacing,
+        minTileWidth: widget.minTileWidth,
+        maxColumns: widget.maxColumns,
+        televisionMinTileWidth: widget.televisionMinTileWidth,
+        televisionMaxColumns: widget.televisionMaxColumns,
+        stretchDesktopColumns: widget.stretchDesktopColumns,
+        singleColumn: widget.singleColumn,
       );
-      final columns = geometry.columns;
-      final tileWidth = geometry.tileWidth;
-      final rowCount = (itemCount / columns).ceil();
-      if (itemKeyBuilder != null && _itemKeys.isNotEmpty) {
-        final currentKeys = {
-          for (var i = 0; i < itemCount; i++) itemKeyBuilder!(i),
-        };
-        _itemKeys.removeWhere((key, _) => !currentKeys.contains(key));
+      // A scroll offset changes SliverConstraints even at a fixed width.
+      // Return the same delegate so a scroll neither indexes the full catalog
+      // nor rebuilds rows already attached to the sliver.
+      if (_list case final list? when geometry == _geometry) {
+        return list;
       }
-      // A keyed row lets the sliver retain state when entries reorder. The
-      // item keys inside it also keep focus/state aligned with book identity.
-      final rowIndices = itemKeyBuilder == null
-          ? null
-          : <Key, int>{
-              for (var row = 0; row < rowCount; row++)
-                ValueKey<LocalKey>(itemKeyBuilder!(row * columns)): row,
-            };
-      return SliverList(
-        delegate: SliverChildBuilderDelegate(
-          (context, row) {
-            final start = row * columns;
-            return Padding(
-              key: itemKeyBuilder == null
-                  ? null
-                  : ValueKey<LocalKey>(itemKeyBuilder!(start)),
-              padding: EdgeInsets.only(
-                bottom: row == rowCount - 1 ? 0 : runSpacing,
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  for (
-                    var column = 0;
-                    column < columns && start + column < itemCount;
-                    column++
-                  ) ...[
-                    if (column > 0) SizedBox(width: spacing),
-                    SizedBox(
-                      key: itemKeyBuilder?.call(start + column),
-                      width: tileWidth,
-                      child: itemKeyBuilder == null
-                          ? itemBuilder(context, start + column)
-                          : KeyedSubtree(
-                              key: _itemKeys.putIfAbsent(
-                                itemKeyBuilder!(start + column),
-                                GlobalKey.new,
-                              ),
-                              child: itemBuilder(context, start + column),
-                            ),
-                    ),
-                  ],
-                ],
-              ),
-            );
-          },
-          childCount: rowCount,
-          findChildIndexCallback: rowIndices == null
-              ? null
-              : (key) => rowIndices[key],
-        ),
-      );
+      _geometry = geometry;
+      return _list = _buildList(geometry);
     },
   );
+
+  SliverList _buildList(({int columns, double tileWidth}) geometry) {
+    final (columns: columns, tileWidth: tileWidth) = geometry;
+    final itemCount = widget.itemCount;
+    final itemBuilder = widget.itemBuilder;
+    final spacing = widget.spacing;
+    final runSpacing = widget.runSpacing;
+    final rowCount = (itemCount / columns).ceil();
+    final order = _itemOrder ??= _readItemOrder();
+    final keys = order?.keys;
+
+    Widget tile(BuildContext context, int index) {
+      final key = keys?[index];
+      final child = itemBuilder(context, index);
+      return SizedBox(
+        key: key,
+        width: tileWidth,
+        child: key == null
+            ? child
+            : KeyedSubtree(
+                key: _itemKeys.putIfAbsent(key, GlobalKey.new),
+                child: child,
+              ),
+      );
+    }
+
+    return SliverList(
+      delegate: SliverChildBuilderDelegate(
+        (context, row) {
+          final start = row * columns;
+          return Padding(
+            key: keys == null ? null : ValueKey<LocalKey>(keys[start]),
+            padding: EdgeInsets.only(
+              bottom: row == rowCount - 1 ? 0 : runSpacing,
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (
+                  var column = 0;
+                  column < columns && start + column < itemCount;
+                  column++
+                ) ...[
+                  if (column > 0) SizedBox(width: spacing),
+                  tile(context, start + column),
+                ],
+              ],
+            ),
+          );
+        },
+        childCount: rowCount,
+        // The row key is its leading item; item keys preserve nested state,
+        // including when a card is moved across rows.
+        findChildIndexCallback: order == null
+            ? null
+            : (key) {
+                if (key is! ValueKey<LocalKey>) return null;
+                final index = order.positions[key.value];
+                if (index == null || index % columns != 0) return null;
+                return index ~/ columns;
+              },
+      ),
+    );
+  }
 }
 
 /// Scroll-native desktop split: both columns share the same scroll offset but
