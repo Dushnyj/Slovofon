@@ -85,6 +85,7 @@
   "filteredNoSearchResults": "The source returned data, but none matched every query word.",
   "searchResults": "Results",
   "partialSearchSources": "Unavailable: {names}",
+  "partialSearchUnavailable": "Some results are unavailable",
   "searchResultsSoFar": "Found so far: {results}",
   "searchSourceStatuses": "Source status",
   "searchSourceSearching": "Searching…",

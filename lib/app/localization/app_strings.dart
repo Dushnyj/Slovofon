@@ -207,6 +207,7 @@ class AppStrings {
   String get searchResults => _text('searchResults');
   String partialSearchSources(String names) =>
       _text('partialSearchSources', {'names': names});
+  String get partialSearchUnavailable => _text('partialSearchUnavailable');
   String get partialSearchRetry => _text('partialSearchRetry');
 
   String get izibSearchSubtitle => _text('izibSearchSubtitle');

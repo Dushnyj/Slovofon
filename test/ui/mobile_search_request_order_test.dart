@@ -25,7 +25,7 @@ import 'package:slovofon/sources/sources.dart';
 
 void main() {
   testWidgets(
-    'actual source failures stay visible; Debug statuses separate caps from failures',
+    'partial failure is neutral; only expanded Debug statuses expose reasons',
     (tester) async {
       final catalog = _StreamingCatalog();
       final fixture = await _pump(
@@ -93,16 +93,17 @@ void main() {
       final failureNotice = find.byKey(
         const ValueKey('search-source-failures'),
       );
+      expect(tester.widget(failureNotice), isA<Wrap>());
+      final neutralLabel = find.text('Some results are unavailable');
       expect(
-        find.descendant(
-          of: failureNotice,
-          matching: find.text(
-            'Unavailable: Akniga\nBaza Knig: Page 2 could not be loaded. '
-            'Site returned a verification page instead of results',
-          ),
-        ),
+        find.descendant(of: failureNotice, matching: neutralLabel),
         findsOneWidget,
       );
+      expect(
+        tester.widget<Text>(neutralLabel).style?.color,
+        Theme.of(tester.element(neutralLabel)).colorScheme.onSurfaceVariant,
+      );
+      expect(find.textContaining('Page 2 could not be loaded'), findsNothing);
       expect(find.textContaining('Limits or errors'), findsNothing);
       expect(find.text('Open website'), findsNothing);
       final sourceStatuses = find.byKey(
@@ -150,6 +151,46 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('a fully failed search offers a neutral retry in light theme', (
+    tester,
+  ) async {
+    final catalog = _StreamingCatalog();
+    final fixture = await _pump(
+      tester,
+      TargetPlatform.android,
+      overrideCatalog: catalog,
+      theme: AppTheme.light(),
+    );
+    await _submit(tester, 'metro');
+    fixture.history.pending.single.complete([]);
+    catalog.calls.single.completer.completeError(StateError('internal error'));
+    await tester.pumpAndSettle();
+
+    final notice = find.byKey(const ValueKey('search-source-failures'));
+    expect(tester.widget(notice), isA<Wrap>());
+    final label = find.text('Search failed');
+    expect(find.descendant(of: notice, matching: label), findsOneWidget);
+    expect(
+      tester.widget<Text>(label).style?.color,
+      Theme.of(tester.element(label)).colorScheme.onSurfaceVariant,
+    );
+    expect(find.text('internal error'), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('search-retry')));
+    await tester.pump();
+    expect(catalog.requests.map((request) => request.query), [
+      'metro',
+      'metro',
+    ]);
+    catalog.calls.last.completer.complete(
+      const SourceSearchResponse(results: []),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('No results'), findsOneWidget);
+    expect(notice, findsNothing);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('a source cap alone never renders an error or retry', (
     tester,
@@ -599,6 +640,7 @@ _pump(
   FileDownloadStorage? overrideStorage,
   PlaybackController? overridePlayback,
   DownloadManager? overrideDownloads,
+  ThemeData? theme,
 }) async {
   tester.view.physicalSize = Size(
     platform == TargetPlatform.windows ? 1267 : 390,
@@ -645,7 +687,7 @@ _pump(
       ],
       child: MaterialApp.router(
         routerConfig: router,
-        theme: AppTheme.dark().copyWith(platform: platform),
+        theme: (theme ?? AppTheme.dark()).copyWith(platform: platform),
         locale: const Locale('en'),
         supportedLocales: AppStrings.supportedLocales,
         localizationsDelegates: const [

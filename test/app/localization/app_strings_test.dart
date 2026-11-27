@@ -208,6 +208,8 @@ void main() {
     );
     expect(ru.partialSearchRetry, 'Повторить поиск');
     expect(en.partialSearchRetry, 'Retry search');
+    expect(ru.partialSearchUnavailable, 'Часть результатов недоступна');
+    expect(en.partialSearchUnavailable, 'Some results are unavailable');
     expect(ru.searchResults, 'Результаты');
     expect(en.searchResults, 'Results');
   });
@@ -280,6 +282,7 @@ List<String> _newUiStrings(AppStrings strings) => [
   strings.searchResults,
   strings.partialSearchSources('Akniga'),
   strings.partialSearchRetry,
+  strings.partialSearchUnavailable,
   strings.emptyDownloadsMessage,
   strings.selectAtLeastOneSource,
   strings.selectAtLeastOneSearchKind,

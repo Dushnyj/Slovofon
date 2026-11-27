@@ -2095,20 +2095,12 @@ List<Map<String, Object>> _resizeVisualChecks(
     );
   }
   if (page == 'search-partial-errors') {
-    final failureNames = [
-      strings.sourceDisplayName('izib'),
-      strings.sourceDisplayName('akniga'),
-    ].join(', ');
     final retry = find.byKey(const ValueKey('search-retry'));
     check(
-      'partial failures name both real fixture sources and expose Retry',
+      'partial failures show a neutral notice and expose Retry',
       find.byKey(const ValueKey('search-source-failures')).evaluate().length ==
               1 &&
-          find
-                  .text(strings.partialSearchSources(failureNames))
-                  .evaluate()
-                  .length ==
-              1 &&
+          find.text(strings.partialSearchUnavailable).evaluate().length == 1 &&
           retry.evaluate().length == 1 &&
           tester.widget<TextButton>(retry).onPressed != null,
     );

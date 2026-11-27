@@ -85,6 +85,7 @@
   "filteredNoSearchResults": "Крыніца вярнула даныя, але ніводзін вынік не адпавядае ўсім словам запыту.",
   "searchResults": "Вынікі",
   "partialSearchSources": "Не адказалі: {names}",
+  "partialSearchUnavailable": "Частка вынікаў недаступная",
   "searchResultsSoFar": "Пакуль знойдзена: {results}",
   "searchSourceStatuses": "Стан крыніц",
   "searchSourceSearching": "Ідзе пошук…",

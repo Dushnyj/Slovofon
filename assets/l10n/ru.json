@@ -85,6 +85,7 @@
   "filteredNoSearchResults": "Источник вернул данные, но после фильтра по полному запросу подходящих результатов нет.",
   "searchResults": "Результаты",
   "partialSearchSources": "Не ответили: {names}",
+  "partialSearchUnavailable": "Часть результатов недоступна",
   "searchResultsSoFar": "Пока найдено: {results}",
   "searchSourceStatuses": "Статус источников",
   "searchSourceSearching": "Идёт поиск…",

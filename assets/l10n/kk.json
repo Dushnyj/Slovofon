@@ -85,6 +85,7 @@
   "filteredNoSearchResults": "Дереккөз мәліметтер қайтарды, бірақ сұраудың барлық сөзіне сай нәтиже жоқ.",
   "searchResults": "Нәтижелер",
   "partialSearchSources": "Жауап бермегендер: {names}",
+  "partialSearchUnavailable": "Нәтижелердің бір бөлігі қолжетімсіз",
   "searchResultsSoFar": "Әзірге табылғаны: {results}",
   "searchSourceStatuses": "Дереккөздердің күйі",
   "searchSourceSearching": "Іздеу жүріп жатыр…",

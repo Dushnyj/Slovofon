@@ -612,7 +612,7 @@ void main() {
   }
 
   testWidgets(
-    'partial search names failed sources and retries original query',
+    'partial search shows a neutral notice and retries the original query',
     (tester) async {
       final catalog = _SearchWorkspaceCatalog(
         failures: const [
@@ -637,9 +637,7 @@ void main() {
       expect(
         find.descendant(
           of: find.byKey(const ValueKey('search-source-failures')),
-          matching: find.textContaining(
-            AppStrings.forLocale(const Locale('en')).sourceDisplayName('izib'),
-          ),
+          matching: find.text('Some results are unavailable'),
         ),
         findsOneWidget,
       );

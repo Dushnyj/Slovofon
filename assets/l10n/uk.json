@@ -85,6 +85,7 @@
   "filteredNoSearchResults": "Джерело повернуло дані, але жоден результат не відповідає всім словам запиту.",
   "searchResults": "Результати",
   "partialSearchSources": "Не відповіли: {names}",
+  "partialSearchUnavailable": "Частина результатів недоступна",
   "searchResultsSoFar": "Поки знайдено: {results}",
   "searchSourceStatuses": "Стан джерел",
   "searchSourceSearching": "Триває пошук…",

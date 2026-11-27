@@ -1742,7 +1742,7 @@ class _SearchResults extends ConsumerWidget {
               return const SliverToBoxAdapter(child: SizedBox.shrink());
             }
             return SliverToBoxAdapter(
-              child: StatePlaceholder.error(title: strings.sourceSearchError),
+              child: _SearchRecoveryNotice(partial: false, onRetry: onRetry),
             );
           }
 
@@ -1756,12 +1756,12 @@ class _SearchResults extends ConsumerWidget {
           );
           final statuses =
               response?.sourceStatuses ?? const <SearchSourceStatus>[];
-          final failures = response?.failures ?? const <SourceFailure>[];
+          final hasFailures = response?.hasFailures == true;
           final showDebugDiagnostics = kDebugMode && statuses.isNotEmpty;
           final showEmpty =
               !pending &&
               results.isEmpty &&
-              failures.isEmpty &&
+              !hasFailures &&
               response?.hasMore != true;
           if (showEmpty && !showDebugDiagnostics) {
             return SliverToBoxAdapter(
@@ -1786,13 +1786,14 @@ class _SearchResults extends ConsumerWidget {
                     child: AppLinearProgressIndicator(),
                   ),
                 ),
-              if (!pending && failures.isNotEmpty)
+              if (!pending && hasFailures)
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.only(bottom: 12),
-                    child: _SearchFailuresNotice(
-                      failures: failures,
-                      statuses: statuses,
+                    child: _SearchRecoveryNotice(
+                      partial:
+                          response?.results.isNotEmpty == true ||
+                          response?.hasMore == true,
                       onRetry: onRetry,
                     ),
                   ),
@@ -2063,74 +2064,35 @@ String _describeSearchFailure(
       : strings.searchSourcePageLoadFailed(page, reason: reason);
 }
 
-class _SearchFailuresNotice extends StatelessWidget {
-  const _SearchFailuresNotice({
-    required this.failures,
-    required this.statuses,
-    required this.onRetry,
-  });
-  final List<SourceFailure> failures;
-  final List<SearchSourceStatus> statuses;
+class _SearchRecoveryNotice extends StatelessWidget {
+  const _SearchRecoveryNotice({required this.partial, required this.onRetry});
+
+  final bool partial;
   final VoidCallback onRetry;
 
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
-    final colors = Theme.of(context).colorScheme;
-    final failedPages = {
-      for (final status in statuses)
-        if (status.failedPage case final int page when page > 1)
-          status.sourceId: page,
-    };
-    final names = <String>{};
-    final details = <String>{};
-    for (final failure in failures) {
-      final name = strings.sourceDisplayName(failure.sourceId);
-      final page = failedPages[failure.sourceId];
-      final bazaAccessRestricted =
-          failure.sourceId == 'baza_knig' &&
-          failure.kind == SourceErrorKind.accessRestricted;
-      if (page == null && !bazaAccessRestricted) {
-        names.add(name);
-      } else {
-        details.add(
-          '$name: ${_describeSearchFailure(strings, failure.kind, page)}',
-        );
-      }
-    }
-    return Material(
+    final theme = Theme.of(context);
+    return Wrap(
       key: const ValueKey('search-source-failures'),
-      color: colors.errorContainer,
-      borderRadius: BorderRadius.circular(12),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Wrap(
-          spacing: 16,
-          runSpacing: 8,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            Text(
-              [
-                if (names.isNotEmpty)
-                  strings.partialSearchSources(names.join(', ')),
-                ...details,
-              ].join('\n'),
-              style: Theme.of(
-                context,
-              ).textTheme.bodyMedium?.copyWith(color: colors.onErrorContainer),
-            ),
-            TextButton.icon(
-              key: const ValueKey('search-retry'),
-              style: TextButton.styleFrom(
-                foregroundColor: colors.onErrorContainer,
-              ),
-              onPressed: onRetry,
-              icon: const AppIcon(AppIconAssets.systemRefresh, size: 18),
-              label: Text(strings.partialSearchRetry),
-            ),
-          ],
+      spacing: 8,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        Text(
+          partial
+              ? strings.partialSearchUnavailable
+              : strings.sourceSearchError,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
         ),
-      ),
+        TextButton(
+          key: const ValueKey('search-retry'),
+          onPressed: onRetry,
+          child: Text(strings.partialSearchRetry),
+        ),
+      ],
     );
   }
 }
