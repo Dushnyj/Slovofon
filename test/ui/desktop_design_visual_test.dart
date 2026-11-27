@@ -398,7 +398,9 @@ void main() {
                   await tester.pump();
                 }
                 if (page.key == 'other-narrations') {
-                  final heading = find.text(strings.otherNarrations);
+                  final action = find.byKey(
+                    const ValueKey('source-details-find-other-narrations'),
+                  );
                   // The details ListView mounts its trailing section lazily.
                   // Scroll the outer viewport before resolving the heading.
                   final details = find.byKey(
@@ -413,10 +415,14 @@ void main() {
                             )
                             .first;
                   await tester.scrollUntilVisible(
-                    heading,
+                    action,
                     300,
                     scrollable: scrollable,
                   );
+                  await tester.ensureVisible(action);
+                  await tester.tap(action);
+                  await tester.pumpAndSettle();
+                  final heading = find.text(strings.otherNarrations);
                   await Scrollable.ensureVisible(
                     tester.element(heading),
                     alignment: 0.15,
@@ -1641,6 +1647,7 @@ class _VisualNarrationService extends SourceCatalogService {
   Future<List<BookSearchResult>> findOtherNarrations(
     SourceBookSnapshot snapshot, {
     int limit = 12,
+    SourceSearchCancellation? cancellation,
   }) async => [
     ...KnigobludMapper().searchResults(
       File(
@@ -2375,10 +2382,9 @@ class _ResizeVisualCatalog extends _VisualSearchCatalog {
   }
 
   @override
-  Future<SourceBookSnapshot> loadBook(
+  Future<SourceBookSnapshot> loadBookPreview(
     SourceBookRef ref, {
     bool forceRefresh = false,
-    MediaResolvePurpose purpose = MediaResolvePurpose.playback,
   }) {
     if (page == 'source-details-loading') {
       return Completer<SourceBookSnapshot>().future;
@@ -2392,16 +2398,21 @@ class _ResizeVisualCatalog extends _VisualSearchCatalog {
         ),
       );
     }
-    return super.loadBook(ref, forceRefresh: forceRefresh, purpose: purpose);
+    return super.loadBookPreview(ref, forceRefresh: forceRefresh);
   }
 
   @override
   Future<List<BookSearchResult>> findOtherNarrations(
     SourceBookSnapshot snapshot, {
     int limit = 12,
+    SourceSearchCancellation? cancellation,
   }) async {
     if (page != 'other-narrations') {
-      return super.findOtherNarrations(snapshot, limit: limit);
+      return super.findOtherNarrations(
+        snapshot,
+        limit: limit,
+        cancellation: cancellation,
+      );
     }
     return KnigobludMapper().searchResults(
       File(

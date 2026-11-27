@@ -21,8 +21,13 @@ void main() {
     });
     final service = _service([connector]);
     const query = SearchRequest(query: 'Метро', kind: SearchKind.title);
-    final partial = await service.search(query);
+    final publishedCounts = <int>[];
+    final partial = await service.search(
+      query,
+      onUpdate: (update) => publishedCounts.add(update.results.length),
+    );
     expect(partial.results, hasLength(40));
+    expect(publishedCounts, [20, 40]);
     expect(partial.hasMore, isTrue);
     expect(partial.isPartial, isTrue);
 
@@ -33,6 +38,60 @@ void main() {
     expect(complete.hasMore, isFalse);
     expect(complete.isPartial, isFalse);
     expect(connector.calls.map((call) => call.page), [1, 2, 3, 4]);
+  });
+
+  test('retry resumes only the failed lane and keeps other pages', () async {
+    final cursor = _Cursor();
+    var failSecondPage = true;
+    final flaky = _Paged('flaky', (request) {
+      if (request.page == 2) {
+        expect(request.sourceCursor, same(cursor));
+        if (failSecondPage) {
+          failSecondPage = false;
+          throw const SourceException(
+            sourceId: 'flaky',
+            kind: SourceErrorKind.network,
+            message: 'temporary failure',
+          );
+        }
+      }
+      return SourceSearchPage(
+        results: [_book('flaky', '${request.page}', title: 'Метро')],
+        nextPage: request.page == 1 ? 2 : null,
+        nextCursor: request.page == 1 ? cursor : null,
+        usedRequestedScope: true,
+      );
+    });
+    final stable = _Paged(
+      'stable',
+      (request) => SourceSearchPage(
+        results: [_book('stable', '${request.page}', title: 'Метро')],
+        nextPage: request.page == 4 ? null : request.page + 1,
+        usedRequestedScope: true,
+      ),
+    );
+    final service = _service([flaky, stable]);
+    const query = SearchRequest(query: 'Метро', kind: SearchKind.title);
+    final first = await service.search(query);
+    expect(first.results, hasLength(4));
+    expect(first.failures.single.sourceId, 'flaky');
+    expect(first.retryContinuation, isNotNull);
+    expect(first.continuation, isNotNull);
+
+    final retried = await service.search(
+      query.copyWith(continuation: first.retryContinuation),
+    );
+    expect(retried.results, hasLength(5));
+    expect(retried.failures, isEmpty);
+    expect(retried.retryContinuation, isNull);
+    expect(stable.calls.map((call) => call.page), [1, 2, 3]);
+    expect(flaky.calls.map((call) => call.page), [1, 2, 2]);
+    final done = await service.search(
+      query.copyWith(continuation: retried.continuation),
+    );
+    expect(done.results, hasLength(6));
+    expect(done.isPartial, isFalse);
+    expect(stable.calls.map((call) => call.page), [1, 2, 3, 4]);
   });
 
   test(
@@ -246,3 +305,5 @@ class _Paged implements SourceConnector, PagedSourceConnector {
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
+
+class _Cursor implements SourceSearchPageCursor {}

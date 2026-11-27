@@ -135,6 +135,10 @@ class KnigobludMapper {
             sourceId: sourceId,
             sourceBookId: sourceBookId,
             sourceChapterId: _trackId(playlist[index], index),
+            storageIdentity: SourceParserHelpers.providerTrackIdentity([
+              _string(playlist[index]['fileId']),
+              _string(playlist[index]['id']),
+            ], mediaReference: mediaUrl),
             index: index + 1,
             title: _trackTitle(playlist[index], index),
             normalizedTitle: SourceParserHelpers.normalizeTitle(

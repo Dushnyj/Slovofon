@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../app/localization/app_strings.dart';
 import '../../domain/models/audio_book.dart';
+import '../../domain/models/download_task.dart';
 import '../../services/audio/audio_persistence.dart';
 import '../../services/audio/audio_state.dart';
 import '../../services/audio/playback_controller.dart';
@@ -76,17 +77,13 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
     return ActiveListenableBuilder(
       listenable: Listenable.merge([playbackController, downloadManager]),
       builder: (context, _) {
+        final downloads = _LibraryDownloadIndex(downloadManager);
         final catalog = projectLibraryShelves(
           favorites: libraryStore.favorites,
           later: libraryStore.later,
-          metadata: [
-            ...?metadata.asData?.value,
-            for (final task in downloadManager.tasks)
-              if (downloadManager.bookForTask(task.id) != null)
-                downloadManager.bookForTask(task.id)!,
-          ],
+          metadata: [...?metadata.asData?.value, ...downloads.books],
           progress: progressSnapshots,
-          downloads: downloadManager.tasks,
+          downloads: downloads.tasks,
           bookmarks: bookmarkStore.entries,
           current: playbackController.state,
         );
@@ -300,7 +297,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
                             ),
                             entry: item.cardEntry,
                             playbackController: playbackController,
-                            downloadManager: downloadManager,
+                            downloads: downloads,
                             isPlayLoading: _playLoadingKeys.contains(
                               _bookKey(item.book),
                             ),
@@ -408,14 +405,19 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
 
   Future<void> _jumpToBookmark(PlaybackBookmark bookmark) async {
     final controller = ref.read(playbackControllerProvider);
+    int? selection;
+    bool isLatest() =>
+        mounted &&
+        (selection == null || controller.isPlaybackSelectionCurrent(selection));
     try {
       var book = controller.state.book?.versionId == bookmark.bookVersionId
           ? controller.state.book
           : bookmark.book;
       if (book == null) throw StateError('Bookmark metadata unavailable');
       if (controller.state.book?.versionId != bookmark.bookVersionId) {
+        selection = controller.beginPlaybackSelection();
         book = await _loadPlaybackBook(libraryCardBook(book)) ?? book;
-        if (!mounted) return;
+        if (!isLatest()) return;
         final index = book.chapters.indexWhere(
           (c) => c.id == bookmark.chapterId,
         );
@@ -425,20 +427,23 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
           chapterIndex: index,
           position: Duration(milliseconds: bookmark.positionMs),
           autoPlay: true,
+          playbackSelection: selection,
         );
       } else {
         final index = book.chapters.indexWhere(
           (c) => c.id == bookmark.chapterId,
         );
         if (index < 0) throw StateError('Bookmark chapter unavailable');
-        await controller.seekChapterAt(
+        final action = controller.seekChapterAt(
           index,
           Duration(milliseconds: bookmark.positionMs),
         );
+        selection = controller.playbackSelectionRevision;
+        await action;
       }
-      if (mounted) await context.push('/player');
+      if (mounted && isLatest()) await context.push('/player');
     } catch (_) {
-      if (mounted) {
+      if (mounted && isLatest()) {
         ScaffoldMessenger.of(context).showMotionSnackBar(
           SnackBar(content: Text(context.strings.bookmarkUnavailable)),
         );
@@ -507,13 +512,17 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
       return;
     }
 
+    final selection = playbackController.beginPlaybackSelection();
+    bool isLatest() =>
+        mounted && playbackController.isPlaybackSelectionCurrent(selection);
     setState(() => _playLoadingKeys.add(key));
     try {
       final playbackBook = await _loadPlaybackBook(book);
-      if (playbackBook != null) {
+      if (playbackBook != null && isLatest()) {
         final progressSnapshots =
             await ref.read(playbackPersistenceStoreProvider)?.loadProgress() ??
             const [];
+        if (!isLatest()) return;
         final resumePoint = playbackResumePointForBook(
           playbackBook,
           progressSnapshots,
@@ -523,11 +532,13 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
           chapterIndex: resumePoint.chapterIndex,
           position: resumePoint.position,
           autoPlay: true,
+          playbackSelection: selection,
         );
+        if (!isLatest()) return;
         await ref
             .read(homeListeningVisibilityStoreProvider)
             .show(homeListeningBookKeyFor(playbackBook));
-        ref.invalidate(playbackProgressSnapshotsProvider);
+        if (isLatest()) ref.invalidate(playbackProgressSnapshotsProvider);
       }
     } finally {
       if (mounted) {
@@ -581,7 +592,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
     try {
       final snapshot = await ref
           .read(sourceCatalogServiceProvider)
-          .loadBook(
+          .loadBookPreview(
             SourceBookRef(sourceId: book.sourceId, sourceBookId: sourceBookId),
           );
       _cacheSnapshot(snapshot);
@@ -605,7 +616,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
         downloadManager: ref.read(downloadManagerProvider),
         libraryStore: ref.read(libraryStoreProvider),
       ).refresh(snapshot).catchError((Object error, StackTrace stackTrace) {
-        debugPrint('Failed to cache source book metadata: $error');
+        debugPrint('Failed to cache source book metadata.');
         return snapshot;
       }),
     );
@@ -629,7 +640,7 @@ class _LibraryBookCard extends StatelessWidget {
   const _LibraryBookCard({
     required this.entry,
     required this.playbackController,
-    required this.downloadManager,
+    required this.downloads,
     required this.isPlayLoading,
     required this.isDownloadLoading,
     required this.onPlay,
@@ -643,7 +654,7 @@ class _LibraryBookCard extends StatelessWidget {
 
   final LibraryBookEntry entry;
   final PlaybackController playbackController;
-  final DownloadManager downloadManager;
+  final _LibraryDownloadIndex downloads;
   final bool isPlayLoading;
   final bool isDownloadLoading;
   final VoidCallback onPlay;
@@ -661,7 +672,10 @@ class _LibraryBookCard extends StatelessWidget {
     if (isCurrentBook && state.bookProgress > book.progress) {
       book = book.copyWith(progress: state.bookProgress);
     }
-    final downloadBook = _downloadBookForAudioBook(downloadManager, book);
+    final downloadBook = downloads.bookFor(book);
+    final tasks = downloadBook == null
+        ? const <DownloadTask>[]
+        : downloads.tasksFor(downloadBook);
 
     return BookCard(
       book: book,
@@ -682,10 +696,10 @@ class _LibraryBookCard extends StatelessWidget {
       isDownloadLoading: isDownloadLoading,
       downloadState: downloadBook == null
           ? BookCardDownloadState.none
-          : downloadStateForBook(downloadManager, downloadBook),
+          : downloadStateForBookTasks(tasks, downloadBook),
       downloadProgress: downloadBook == null
           ? 0
-          : downloadProgressForBook(downloadManager, downloadBook),
+          : downloadProgressForBookTasks(tasks, downloadBook),
       onPlay: onPlay,
       onDownloadPressed: onDownload,
       onFavoritePressed: onFavoritePressed,
@@ -703,9 +717,47 @@ bool _playbackMatchesBook(AudioPlaybackBook? playbackBook, AudioBook book) {
     return false;
   }
 
-  return playbackBook.sourceBookId == book.sourceBookId ||
+  return (book.sourceBookId != null &&
+          playbackBook.sourceBookId == book.sourceBookId) ||
       playbackBook.id == book.id ||
       playbackBook.versionId == book.sourceBookId;
+}
+
+class _LibraryDownloadIndex {
+  _LibraryDownloadIndex(DownloadManager manager) : tasks = manager.tasks {
+    for (final task in tasks) {
+      if (task.status == DownloadTaskStatus.canceled) continue;
+      _byVersion
+          .putIfAbsent((task.sourceId, task.bookVersionId), () => [])
+          .add(task);
+      final book = manager.bookForTask(task.id);
+      if (book == null) continue;
+      _books.putIfAbsent((book.sourceId, book.versionId), () => book);
+      _byInternal.putIfAbsent((book.sourceId, book.id), () => book);
+      if (book.sourceBookId case final sourceBookId?) {
+        _byExternal.putIfAbsent((book.sourceId, sourceBookId), () => book);
+      }
+    }
+  }
+
+  final List<DownloadTask> tasks;
+  final _books = <(String, String), AudioPlaybackBook>{};
+  final _byInternal = <(String, String), AudioPlaybackBook>{};
+  final _byExternal = <(String, String), AudioPlaybackBook>{};
+  final _byVersion = <(String, String), List<DownloadTask>>{};
+
+  Iterable<AudioPlaybackBook> get books => _books.values;
+
+  AudioPlaybackBook? bookFor(AudioBook book) =>
+      _byExternal[(book.sourceId, book.sourceBookId)] ??
+      _byInternal[(book.sourceId, book.id)] ??
+      _books[(book.sourceId, book.sourceBookId)];
+
+  List<DownloadTask> tasksFor(AudioPlaybackBook book) => [
+    ...?_byVersion[(book.sourceId, book.versionId)],
+    if (book.sourceBookId != book.versionId)
+      ...?_byVersion[(book.sourceId, book.sourceBookId)],
+  ];
 }
 
 AudioPlaybackBook? _downloadBookForAudioBook(

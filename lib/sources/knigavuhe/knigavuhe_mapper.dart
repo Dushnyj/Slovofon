@@ -150,6 +150,10 @@ class KnigavuheMapper {
             sourceId: sourceId,
             sourceBookId: sourceBookId,
             sourceChapterId: _trackId(tracks[index], index),
+            storageIdentity: SourceParserHelpers.providerTrackIdentity([
+              _string(tracks[index]['id']),
+              _string(tracks[index]['fileId']),
+            ], mediaReference: mediaUrl),
             index: index + 1,
             title: _trackTitle(tracks[index], index),
             normalizedTitle: SourceParserHelpers.normalizeTitle(

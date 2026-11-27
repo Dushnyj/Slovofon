@@ -6,7 +6,10 @@ import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../../core/network/media_request_policy.dart';
 import '../../core/storage/atomic_json_file.dart';
+import '../../sources/built_in_source_policies.dart';
+import '../../sources/source_parser_helpers.dart';
 import '../audio/audio_persistence.dart';
 import '../audio/audio_state.dart';
 
@@ -181,6 +184,7 @@ class FileDownloadStorage implements PlaybackBookMetadataStore {
     AudioPlaybackBook book,
     AudioPlaybackChapter chapter,
   ) async {
+    _ensureUniqueTrack(book, chapter);
     await _resolveDirectory(book.sourceId, book.versionId, destructive: false);
     final partFile = partFileFor(book, chapter);
     if (!await partFile.exists()) {
@@ -194,6 +198,7 @@ class FileDownloadStorage implements PlaybackBookMetadataStore {
     AudioPlaybackChapter chapter, {
     required bool append,
   }) async {
+    _ensureUniqueTrack(book, chapter);
     await _resolveDirectory(book.sourceId, book.versionId, destructive: false);
     final partFile = partFileFor(book, chapter);
     await partFile.parent.create(recursive: true);
@@ -207,11 +212,85 @@ class FileDownloadStorage implements PlaybackBookMetadataStore {
   }) async {
     await _resolveDirectory(book.sourceId, book.versionId, destructive: true);
     final partFile = partFileFor(book, chapter);
-    final finalFile = chapterFileFor(book, chapter, extension: extension);
+    _ensureUniqueTrack(book, chapter);
+    var finalFile = chapterFileFor(book, chapter, extension: extension);
+    // Fresh downloads never rescan the entire directory at finalize. Only a
+    // same-slot legacy candidate needs its frozen identity rechecked. If an
+    // old chapter has moved, leave its original file intact.
+    final legacyCandidate = File(
+      p.join(
+        chaptersDirectoryFor(book).path,
+        '${_numberedStem(chapter.index)}.${_safeExtension(extension)}',
+      ),
+    );
+    if (await legacyCandidate.exists()) {
+      final existing = await completedChapterFile(book, chapter);
+      if (existing?.path == legacyCandidate.path) finalFile = legacyCandidate;
+    }
     await finalFile.parent.create(recursive: true);
     // Replace atomically; deleting first loses a good download when rename
     // fails (for example a missing/locked part or a full disk).
-    return partFile.rename(finalFile.path);
+    final result = await partFile.rename(finalFile.path);
+    try {
+      await _clearPartValidator(book, chapter);
+    } on FileSystemException {
+      // The part has already been renamed; a locked auxiliary file cannot
+      // invalidate the completed audio or seed a resume without a part.
+    }
+    return result;
+  }
+
+  File _partValidatorFile(
+    AudioPlaybackBook book,
+    AudioPlaybackChapter chapter,
+  ) => File('${partFileFor(book, chapter).path}.resume');
+
+  Future<({String entityTag, String representationKey})?> partValidatorFor(
+    AudioPlaybackBook book,
+    AudioPlaybackChapter chapter,
+  ) async {
+    try {
+      final value = jsonDecode(
+        await _partValidatorFile(book, chapter).readAsString(),
+      );
+      if (value is Map && value['entityTag'] is String) {
+        final entityTag = value['entityTag'] as String;
+        final key = value['representationKey'];
+        if (key is String && RegExp(r'^[0-9a-f]{64}$').hasMatch(key)) {
+          return (entityTag: entityTag, representationKey: key);
+        }
+      }
+    } on FileSystemException {
+      return null;
+    } on FormatException {
+      return null;
+    }
+    return null;
+  }
+
+  Future<void> setPartValidator(
+    AudioPlaybackBook book,
+    AudioPlaybackChapter chapter, {
+    required String entityTag,
+    required String representationKey,
+  }) async {
+    _ensureUniqueTrack(book, chapter);
+    final file = _partValidatorFile(book, chapter);
+    await AtomicJsonFile(
+      file,
+    ).write({'entityTag': entityTag, 'representationKey': representationKey});
+  }
+
+  Future<void> _clearPartValidator(
+    AudioPlaybackBook book,
+    AudioPlaybackChapter chapter,
+  ) async {
+    // The validator is intentionally not read from backup: a previous
+    // representation must never be used after replacing its bytes.
+    final file = _partValidatorFile(book, chapter);
+    if (await file.exists()) await file.delete();
+    final backup = File('${file.path}.bak');
+    if (await backup.exists()) await backup.delete();
   }
 
   Future<void> resetPart(
@@ -219,6 +298,8 @@ class FileDownloadStorage implements PlaybackBookMetadataStore {
     AudioPlaybackChapter chapter,
   ) async {
     await _resolveDirectory(book.sourceId, book.versionId, destructive: true);
+    if (!_hasUniqueTrack(book, chapter)) return;
+    await _clearPartValidator(book, chapter);
     final partFile = partFileFor(book, chapter);
     if (await partFile.exists()) {
       await partFile.delete();
@@ -230,10 +311,7 @@ class FileDownloadStorage implements PlaybackBookMetadataStore {
     AudioPlaybackChapter chapter,
   ) async {
     await _resolveDirectory(book.sourceId, book.versionId, destructive: true);
-    final partFile = partFileFor(book, chapter);
-    if (await partFile.exists()) {
-      await partFile.delete();
-    }
+    await resetPart(book, chapter);
 
     final completed = await completedChapterFile(book, chapter);
     if (completed != null && await completed.exists()) {
@@ -331,11 +409,20 @@ class FileDownloadStorage implements PlaybackBookMetadataStore {
   }
 
   Future<void> _writeMetadata(AudioPlaybackBook book) async {
-    final existing = await readMetadataForIds(book.sourceId, book.versionId);
+    await _resolveDirectory(book.sourceId, book.versionId);
+    final metadataFile = metadataFileFor(book);
+    final prior = await AtomicJsonFile(metadataFile).read();
+    final existing = _decodeBook(
+      prior,
+      fallbackSourceId: book.sourceId,
+      fallbackVersionId: book.versionId,
+    );
+    // Freeze the complete old binding before replacing the chapter list.
+    // Never infer that old numbered bytes belong to the incoming order.
+    final legacy = _legacyBindings(prior, book.sourceId, book.versionId);
     final mergedBook = existing == null
         ? book
         : _mergeCachedBook(existing, book);
-    final metadataFile = metadataFileFor(book);
     await metadataFile.parent.create(recursive: true);
     final metadata = <String, Object?>{
       'bookId': mergedBook.id,
@@ -356,6 +443,7 @@ class FileDownloadStorage implements PlaybackBookMetadataStore {
       'publishedYear': mergedBook.publishedYear,
       'sourceUrl': mergedBook.sourceUrl,
       'isFragment': mergedBook.isFragment,
+      'legacyChapterBindings': [for (final binding in legacy) binding.json],
       'chapters': [
         for (final chapter in mergedBook.chapters)
           {
@@ -363,9 +451,14 @@ class FileDownloadStorage implements PlaybackBookMetadataStore {
             'index': chapter.index,
             'title': chapter.title,
             'durationMs': chapter.duration.inMilliseconds,
+            'storageIdentity': chapter.storageIdentity,
+            'storageMediaReference': _mediaReference(chapter),
             'isDownloaded': chapter.isDownloaded,
             // Persist the original source, not the transient offline overlay.
-            'mediaSource': _mediaSourceToJson(_originalSource(chapter)),
+            'mediaSource': _mediaSourceToJson(
+              _originalSource(chapter),
+              mergedBook.sourceId,
+            ),
           },
       ],
     };
@@ -399,9 +492,20 @@ class FileDownloadStorage implements PlaybackBookMetadataStore {
     );
   }
 
-  Future<List<AudioPlaybackBook>> readAllMetadata() async {
+  Future<List<AudioPlaybackBook>> readAllMetadata() =>
+      _readAllMetadata(downloadedCandidatesOnly: false);
+
+  /// Avoid parsing unrelated cached cards; callers must still check the
+  /// matching book's completed files since this can include a pending .part.
+  Future<List<AudioPlaybackBook>> readDownloadedMetadata() =>
+      _readAllMetadata(downloadedCandidatesOnly: true);
+
+  Future<List<AudioPlaybackBook>> _readAllMetadata({
+    required bool downloadedCandidatesOnly,
+  }) async {
     final books = <String, AudioPlaybackBook>{};
     await for (final entity in _bookDirectories()) {
+      if (downloadedCandidatesOnly && !await _hasChapterFiles(entity)) continue;
       final metadataFile = File(p.join(entity.path, 'metadata.json'));
       final book = await _readMetadataFile(metadataFile);
       if (book != null) {
@@ -472,10 +576,23 @@ class FileDownloadStorage implements PlaybackBookMetadataStore {
     String? fallbackVersionId,
   }) async {
     final decoded = await AtomicJsonFile(metadataFile).read();
+    return _decodeBook(
+      decoded,
+      fallbackSourceId: fallbackSourceId,
+      fallbackVersionId: fallbackVersionId,
+    );
+  }
+
+  AudioPlaybackBook? _decodeBook(
+    Object? decoded, {
+    String? fallbackSourceId,
+    String? fallbackVersionId,
+  }) {
     if (decoded is! Map<String, Object?>) {
       return null;
     }
 
+    final sourceId = _string(decoded['sourceId']) ?? fallbackSourceId;
     final chaptersJson = decoded['chapters'];
     final chapters = <AudioPlaybackChapter>[];
     if (chaptersJson is List) {
@@ -495,8 +612,13 @@ class FileDownloadStorage implements PlaybackBookMetadataStore {
             index: _int(rawChapter['index']) ?? chapters.length,
             title: title,
             duration: Duration(milliseconds: durationMs),
+            storageIdentity: _string(rawChapter['storageIdentity']),
+            storageMediaReference: _storedMediaReference(rawChapter),
             isDownloaded: rawChapter['isDownloaded'] == true,
-            mediaSource: _mediaSourceFromJson(rawChapter['mediaSource']),
+            mediaSource: _mediaSourceFromJson(
+              rawChapter['mediaSource'],
+              sourceId,
+            ),
           ),
         );
       }
@@ -505,7 +627,6 @@ class FileDownloadStorage implements PlaybackBookMetadataStore {
     final bookId = _string(decoded['bookId']);
     final title = _string(decoded['title']);
     final versionId = _string(decoded['bookVersionId']) ?? fallbackVersionId;
-    final sourceId = _string(decoded['sourceId']) ?? fallbackSourceId;
     if (bookId == null ||
         title == null ||
         versionId == null ||
@@ -545,29 +666,83 @@ class FileDownloadStorage implements PlaybackBookMetadataStore {
     AudioPlaybackBook book,
     AudioPlaybackChapter chapter,
   ) async {
-    return (await completedChapterFiles(book))[chapter.index];
+    return (await _completedFiles(book, [chapter]))[chapter.index];
   }
 
   /// One asynchronous directory scan per book, never one scan per chapter.
   /// No persistent cache: external file removal must be visible on next play.
-  Future<Map<int, File>> completedChapterFiles(AudioPlaybackBook book) async {
+  Future<Map<int, File>> completedChapterFiles(AudioPlaybackBook book) =>
+      _completedFiles(book, book.chapters);
+
+  Future<Map<int, File>> _completedFiles(
+    AudioPlaybackBook book,
+    List<AudioPlaybackChapter> chapters,
+  ) async {
     await _resolveDirectory(book.sourceId, book.versionId, destructive: false);
     final directory = chaptersDirectoryFor(book);
     final files = <int, File>{};
     if (!await directory.exists()) {
       return files;
     }
+    final byStem = <String, List<File>>{};
     await for (final entity in directory.list(followLinks: false)) {
-      if (entity is! File || p.extension(entity.path) == '.part') {
+      if (entity is! File ||
+          !_finalExtensions.contains(p.extension(entity.path).toLowerCase())) {
         continue;
       }
-      final stem = int.tryParse(p.basenameWithoutExtension(entity.path));
-      if (stem == null) {
+      final stem = p.basenameWithoutExtension(entity.path);
+      byStem.putIfAbsent(stem, () => []).add(entity);
+    }
+    if (byStem.isEmpty) return files;
+    final legacy = byStem.keys.any((stem) => int.tryParse(stem) != null)
+        ? _legacyBindings(
+            await AtomicJsonFile(metadataFileFor(book)).read(),
+            book.sourceId,
+            book.versionId,
+          )
+        : const <_LegacyChapterBinding>[];
+    final chapterKeyCounts = <String, int>{};
+    final indexCounts = <int, int>{};
+    for (final chapter in book.chapters) {
+      chapterKeyCounts.update(
+        _chapterStem(chapter),
+        (n) => n + 1,
+        ifAbsent: () => 1,
+      );
+      indexCounts.update(chapter.index, (n) => n + 1, ifAbsent: () => 1);
+    }
+    for (final chapter in chapters) {
+      final key = _chapterStem(chapter);
+      if ((chapterKeyCounts[key] ?? 0) > 1 ||
+          (indexCounts[chapter.index] ?? 0) > 1) {
         continue;
       }
-      final previous = files[stem];
-      if (previous == null || entity.path.compareTo(previous.path) < 0) {
-        files[stem] = entity;
+      var candidates = byStem[key];
+      if (candidates == null) {
+        final matching = legacy.where(
+          (binding) => binding.matches(chapter, book.sourceId),
+        );
+        if (matching.length == 1 &&
+            legacy
+                    .where((binding) => binding.index == matching.single.index)
+                    .length ==
+                1 &&
+            book.chapters
+                    .where(
+                      (item) => matching.single.matches(item, book.sourceId),
+                    )
+                    .length <=
+                1) {
+          candidates = byStem[_numberedStem(matching.single.index)];
+        }
+      }
+      if (candidates?.length == 1) {
+        final file = candidates!.single;
+        try {
+          if (await file.length() > 0) files[chapter.index] = file;
+        } on FileSystemException {
+          // A concurrent explicit deletion should not break book playback.
+        }
       }
     }
     return files;
@@ -577,9 +752,16 @@ class FileDownloadStorage implements PlaybackBookMetadataStore {
     final cached = await readMetadataForIds(book.sourceId, book.versionId);
     final baseBook = cached == null ? book : _mergeCachedBook(cached, book);
     final cachedCoverFile = coverFileFor(baseBook);
-    final coverUrl = await cachedCoverFile.exists()
+    final hasCachedCover = baseBook.offlineOnly
+        ? await FileSystemEntity.type(
+                cachedCoverFile.path,
+                followLinks: false,
+              ) ==
+              FileSystemEntityType.file
+        : await cachedCoverFile.exists();
+    final coverUrl = hasCachedCover
         ? cachedCoverFile.uri.toString()
-        : baseBook.coverUrl;
+        : (baseBook.offlineOnly ? null : baseBook.coverUrl);
     final chapters = <AudioPlaybackChapter>[];
     final localFiles = await completedChapterFiles(baseBook);
     for (final chapter in baseBook.chapters) {
@@ -598,9 +780,11 @@ class FileDownloadStorage implements PlaybackBookMetadataStore {
           index: chapter.index,
           title: chapter.title,
           duration: chapter.duration,
+          storageIdentity: chapter.storageIdentity,
+          storageMediaReference: chapter.storageMediaReference,
           isDownloaded: localFile != null,
           mediaSource: localFile == null
-              ? originalSource
+              ? (baseBook.offlineOnly ? null : originalSource)
               : AudioMediaSource.file(localFile.path),
           originalMediaSource: originalSource,
         ),
@@ -626,6 +810,7 @@ class FileDownloadStorage implements PlaybackBookMetadataStore {
       publishedYear: baseBook.publishedYear,
       sourceUrl: baseBook.sourceUrl,
       isFragment: baseBook.isFragment,
+      offlineOnly: baseBook.offlineOnly,
       chapters: chapters,
     );
   }
@@ -656,6 +841,7 @@ class FileDownloadStorage implements PlaybackBookMetadataStore {
       publishedYear: incoming.publishedYear ?? cached.publishedYear,
       sourceUrl: _meaningfulOrNull(incoming.sourceUrl, cached.sourceUrl),
       isFragment: incoming.isFragment || cached.isFragment,
+      offlineOnly: incoming.offlineOnly || cached.offlineOnly,
       chapters: _mergeCachedChapters(cached.chapters, incoming.chapters),
     );
   }
@@ -668,14 +854,25 @@ class FileDownloadStorage implements PlaybackBookMetadataStore {
       return cached;
     }
 
-    final cachedById = {for (final chapter in cached) chapter.id: chapter};
-    final cachedByIndex = {
-      for (final chapter in cached) chapter.index: chapter,
-    };
+    final cachedByKey = <String, List<AudioPlaybackChapter>>{};
+    final incomingCounts = <String, int>{};
+    for (final chapter in cached) {
+      cachedByKey.putIfAbsent(_chapterStem(chapter), () => []).add(chapter);
+    }
+    for (final chapter in incoming) {
+      incomingCounts.update(
+        _chapterStem(chapter),
+        (n) => n + 1,
+        ifAbsent: () => 1,
+      );
+    }
     return [
       for (final chapter in incoming)
         _mergeCachedChapter(
-          cachedById[chapter.id] ?? cachedByIndex[chapter.index],
+          incomingCounts[_chapterStem(chapter)] == 1 &&
+                  cachedByKey[_chapterStem(chapter)]?.length == 1
+              ? cachedByKey[_chapterStem(chapter)]!.single
+              : null,
           chapter,
         ),
     ];
@@ -701,6 +898,9 @@ class FileDownloadStorage implements PlaybackBookMetadataStore {
       id: _meaningful(incoming.id, cached.id),
       index: incoming.index,
       title: _meaningful(incoming.title, cached.title),
+      storageIdentity: incoming.storageIdentity,
+      storageMediaReference:
+          incoming.storageMediaReference ?? cached.storageMediaReference,
       duration: incoming.duration > Duration.zero
           ? incoming.duration
           : cached.duration,
@@ -752,15 +952,153 @@ class FileDownloadStorage implements PlaybackBookMetadataStore {
   }
 
   String _chapterStem(AudioPlaybackChapter chapter) {
-    return chapter.index.toString().padLeft(3, '0');
+    return 'track-${trackKeyFor(chapter)}';
   }
+
+  String trackKeyFor(AudioPlaybackChapter chapter) {
+    final identity = chapter.storageIdentity == null
+        ? ['fallback', chapter.id, _chapterTitle(chapter.title)]
+        : ['provider', chapter.storageIdentity];
+    return sha256.convert(utf8.encode(jsonEncode(identity))).toString();
+  }
+
+  bool sameTrack(
+    String sourceId,
+    AudioPlaybackChapter a,
+    AudioPlaybackChapter b,
+  ) => _LegacyChapterBinding(
+    index: a.index,
+    id: a.id,
+    title: _chapterTitle(a.title),
+    storageIdentity: a.storageIdentity,
+    mediaReference: _mediaReference(a),
+  ).matches(b, sourceId);
+
+  Future<AudioPlaybackChapter?> restoreLegacyTaskChapter(
+    AudioPlaybackBook book,
+    String chapterId,
+  ) async {
+    await _resolveDirectory(book.sourceId, book.versionId);
+    final legacy = _legacyBindings(
+      await AtomicJsonFile(metadataFileFor(book)).read(),
+      book.sourceId,
+      book.versionId,
+    ).where((binding) => binding.id == chapterId);
+    if (legacy.length != 1) return null;
+    final chapters = book.chapters.where(
+      (chapter) => legacy.single.matches(chapter, book.sourceId),
+    );
+    return chapters.length == 1 ? chapters.single : null;
+  }
+
+  bool _hasUniqueTrack(AudioPlaybackBook book, AudioPlaybackChapter chapter) {
+    final key = _chapterStem(chapter);
+    return book.chapters
+            .where(
+              (other) =>
+                  _chapterStem(other) == key || other.index == chapter.index,
+            )
+            .take(2)
+            .length <=
+        1;
+  }
+
+  void _ensureUniqueTrack(
+    AudioPlaybackBook book,
+    AudioPlaybackChapter chapter,
+  ) {
+    if (!_hasUniqueTrack(book, chapter)) {
+      throw const FileSystemException('Ambiguous chapter identity');
+    }
+  }
+
+  static String _numberedStem(int index) => index.toString().padLeft(3, '0');
+
+  static String _chapterTitle(String title) =>
+      SourceParserHelpers.normalizeWhitespace(title).toLowerCase();
+
+  static bool mayHaveOrdinalTrackId(String sourceId, String chapterId) =>
+      BuiltInSourcePolicies.byId(sourceId) != null &&
+      RegExp(r'(?:^|-chapter-)\d+$').hasMatch(chapterId);
+
+  static String? _mediaReference(AudioPlaybackChapter chapter) {
+    final source = chapter.originalMediaSource ?? chapter.mediaSource;
+    return chapter.storageMediaReference ??
+        (source?.type == AudioMediaSourceType.url
+            ? SourceParserHelpers.mediaReferenceIdentity(source!.uri.toString())
+            : null);
+  }
+
+  String? _storedMediaReference(Map row, {bool includeLegacySource = true}) {
+    final media = row['mediaSource'];
+    return _string(row['storageMediaReference']) ??
+        (includeLegacySource && media is Map && media['type'] == 'url'
+            ? SourceParserHelpers.mediaReferenceIdentity(_string(media['uri']))
+            : null);
+  }
+
+  List<_LegacyChapterBinding> _legacyBindings(
+    Object? metadata,
+    String sourceId,
+    String versionId,
+  ) {
+    if (metadata is! Map ||
+        metadata['sourceId'] != sourceId ||
+        metadata['bookVersionId'] != versionId) {
+      return const [];
+    }
+    final frozen = metadata.containsKey('legacyChapterBindings');
+    final rows = metadata[frozen ? 'legacyChapterBindings' : 'chapters'];
+    if (rows is! List) return const [];
+    return [
+      for (final row in rows)
+        if (row is Map &&
+            row['index'] is int &&
+            row['id'] is String &&
+            row['title'] is String)
+          _LegacyChapterBinding(
+            index: row['index'] as int,
+            id: row['id'] as String,
+            title: _chapterTitle(row['title'] as String),
+            storageIdentity: _string(row['storageIdentity']),
+            mediaReference: _storedMediaReference(
+              row,
+              includeLegacySource: !frozen,
+            ),
+          ),
+    ];
+  }
+
+  static const _finalExtensions = {
+    '.mp3',
+    '.m4a',
+    '.m4b',
+    '.mp4',
+    '.aac',
+    '.adts',
+    '.ogg',
+    '.oga',
+    '.opus',
+    '.flac',
+    '.wav',
+    '.wave',
+    '.webm',
+    '.mka',
+    '.mkv',
+    '.amr',
+    '.aif',
+    '.aiff',
+    '.wma',
+    '.asf',
+    '.bin',
+  };
 
   String _safeExtension(String extension) {
     final normalized = extension
         .replaceFirst('.', '')
         .replaceAll(RegExp(r'[^a-zA-Z0-9]'), '')
         .toLowerCase();
-    return normalized.isEmpty ? 'bin' : normalized;
+    return _finalExtensions.contains('.$normalized') ? normalized : 'bin';
   }
 
   String _safeSegment(String value) {
@@ -770,19 +1108,29 @@ class FileDownloadStorage implements PlaybackBookMetadataStore {
     return normalized.isEmpty ? 'unknown' : normalized;
   }
 
-  Map<String, Object?>? _mediaSourceToJson(AudioMediaSource? source) {
+  Map<String, Object?>? _mediaSourceToJson(
+    AudioMediaSource? source,
+    String sourceId,
+  ) {
     if (source == null) {
       return null;
     }
 
+    final known = BuiltInSourcePolicies.byId(sourceId);
+    if (known != null &&
+        source.type == AudioMediaSourceType.url &&
+        !_hasReusableRemoteSource(source.uri, source.headers)) {
+      // Reload expiring/opaque sources through the selected chapter resolver.
+      return null;
+    }
     return {
       'type': source.type.name,
       'uri': source.uri.toString(),
-      'headers': source.headers,
+      'headers': _cacheableHeaders(source.headers),
     };
   }
 
-  AudioMediaSource? _mediaSourceFromJson(Object? value) {
+  AudioMediaSource? _mediaSourceFromJson(Object? value, String? sourceId) {
     if (value is! Map<String, Object?>) {
       return null;
     }
@@ -797,10 +1145,26 @@ class FileDownloadStorage implements PlaybackBookMetadataStore {
     if (uri == null) {
       return null;
     }
-    final headers = _stringMap(value['headers']);
+    final known = sourceId == null
+        ? null
+        : BuiltInSourcePolicies.byId(sourceId);
+    final policy = known == null
+        ? null
+        : MediaRequestPolicy.allowedHosts(known.mediaHosts);
+    final rawHeaders = _stringMap(value['headers']);
+    if (type == 'url' &&
+        known != null &&
+        !_hasReusableRemoteSource(uri, rawHeaders)) {
+      return null;
+    }
+    final headers = _cacheableHeaders(rawHeaders);
     try {
       return switch (type) {
-        'url' => AudioMediaSource.url(uri, headers: headers),
+        'url' => AudioMediaSource.url(
+          uri,
+          headers: headers,
+          requestPolicy: policy,
+        ),
         'file' => AudioMediaSource.file(uri.toFilePath()),
         'asset' => AudioMediaSource.asset(uri.path),
         _ => null,
@@ -854,6 +1218,71 @@ class FileDownloadStorage implements PlaybackBookMetadataStore {
         if (entry.key is String && entry.value is String)
           entry.key as String: entry.value as String,
     };
+  }
+
+  static const _cacheableHeaderNames = {
+    'accept',
+    'accept-language',
+    'user-agent',
+  };
+
+  bool _hasReusableRemoteSource(Uri uri, Map<String, String> headers) =>
+      !uri.hasQuery &&
+      !uri.hasFragment &&
+      !uri.authority.contains('@') &&
+      headers.keys.every(
+        (name) => _cacheableHeaderNames.contains(name.toLowerCase()),
+      );
+
+  Map<String, String> _cacheableHeaders(Map<String, String> headers) => {
+    for (final header in headers.entries)
+      if (_cacheableHeaderNames.contains(header.key.toLowerCase()))
+        header.key: header.value,
+  };
+}
+
+class _LegacyChapterBinding {
+  const _LegacyChapterBinding({
+    required this.index,
+    required this.id,
+    required this.title,
+    required this.storageIdentity,
+    required this.mediaReference,
+  });
+
+  final int index;
+  final String id;
+  final String title;
+  final String? storageIdentity;
+  final String? mediaReference;
+
+  Map<String, Object?> get json => {
+    'index': index,
+    'id': id,
+    'title': title,
+    'storageIdentity': storageIdentity,
+    'storageMediaReference': mediaReference,
+  };
+
+  bool matches(AudioPlaybackChapter chapter, String sourceId) {
+    final currentIdentity = chapter.storageIdentity;
+    if (storageIdentity != null && currentIdentity != null) {
+      return storageIdentity == currentIdentity;
+    }
+    final sameKnownId =
+        id == chapter.id &&
+        !FileDownloadStorage.mayHaveOrdinalTrackId(sourceId, id);
+    final sameTitle = title == FileDownloadStorage._chapterTitle(chapter.title);
+    if (sameKnownId && sameTitle) return true;
+    if (id != chapter.id &&
+        (!FileDownloadStorage.mayHaveOrdinalTrackId(sourceId, id) ||
+            !FileDownloadStorage.mayHaveOrdinalTrackId(sourceId, chapter.id))) {
+      return false;
+    }
+    final currentRef = FileDownloadStorage._mediaReference(chapter);
+    // Old built-in IDs could be generated from the ordinal. A fresh list
+    // without the old media evidence must not inherit those files.
+    return mediaReference != null && mediaReference == currentRef && sameTitle;
   }
 }
 

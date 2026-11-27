@@ -19,6 +19,7 @@ object SlovofonFlutterEngine {
             created.dartExecutor.binaryMessenger,
             context.applicationContext,
         )
+        SlovofonDownloadNetwork(context.applicationContext, created.dartExecutor.binaryMessenger)
         // Attach before executing main: initial restored-player snapshots can arrive
         // before an Activity is configured, or while no Activity is attached.
         SlovofonMediaSessionBridge.attach(

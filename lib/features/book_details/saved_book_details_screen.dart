@@ -384,6 +384,7 @@ class _SavedBookDetailsScreenState
             coverBuilder: (width) => BookCover(
               title: book.title,
               imageUrl: book.coverUrl,
+              sourceId: book.sourceId,
               width: width,
               height: width * 1.4,
               showProgressPercent: false,
@@ -440,6 +441,7 @@ class _SavedBookDetailsScreenState
                       child: BookCover(
                         title: book.title,
                         imageUrl: book.coverUrl,
+                        sourceId: book.sourceId,
                         width: 112,
                         height: 156,
                         showProgressPercent: false,
@@ -510,27 +512,38 @@ class _SavedBookDetailsScreenState
     final controller = ref.read(playbackControllerProvider);
     final downloads = ref.read(downloadManagerProvider);
     final strings = context.strings;
+    int? selection;
+    bool isLatest() =>
+        mounted &&
+        operation == _operation &&
+        (selection == null || controller.isPlaybackSelectionCurrent(selection));
     try {
       final current = controller.state.book;
       if (current?.sourceId == book.sourceId &&
           current?.versionId == book.versionId) {
         if (chapterIndex != null) {
-          await controller.playChapterAt(chapterIndex);
+          final action = controller.playChapterAt(chapterIndex);
+          selection = controller.playbackSelectionRevision;
+          await action;
         } else if (!controller.state.isPlaying) {
-          await controller.play();
+          final action = controller.play();
+          selection = controller.playbackSelectionRevision;
+          await action;
         }
       } else {
+        selection = controller.beginPlaybackSelection();
         final resolved = await downloads.offlinePlaybackBook(book);
-        if (!mounted || operation != _operation) return;
+        if (!isLatest()) return;
         final snapshots = await ref.read(
           playbackProgressSnapshotsProvider.future,
         );
-        if (!mounted || operation != _operation) return;
+        if (!isLatest()) return;
         final resume = playbackResumePointForBook(resolved, snapshots);
         final index = chapterIndex ?? resume.chapterIndex;
         if (resolved.chapters.isEmpty ||
             index >= resolved.chapters.length ||
-            resolved.chapters[index].mediaSource == null) {
+            (resolved.chapters[index].mediaSource == null &&
+                (resolved.sourceBookId?.isNotEmpty != true))) {
           _error(strings.savedBookMediaUnavailable);
           return;
         }
@@ -539,9 +552,11 @@ class _SavedBookDetailsScreenState
           chapterIndex: index,
           position: chapterIndex == null ? resume.position : Duration.zero,
           autoPlay: true,
+          playbackSelection: selection,
+          replayChapterAtEnd: chapterIndex != null,
         );
       }
-      if (!mounted || operation != _operation) return;
+      if (!mounted || !isLatest()) return;
       if (controller.state.status == AudioPlaybackStatus.error ||
           controller.state.book?.sourceId != book.sourceId ||
           controller.state.book?.versionId != book.versionId) {
@@ -550,7 +565,7 @@ class _SavedBookDetailsScreenState
       }
       unawaited(context.push('/player'));
     } catch (_) {
-      if (mounted && operation == _operation) {
+      if (isLatest()) {
         _error(strings.savedBookPlaybackError);
       }
     } finally {

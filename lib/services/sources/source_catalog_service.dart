@@ -40,7 +40,9 @@ class SourceCatalogService {
   final Duration _searchTimeout;
   final Duration _searchEnrichmentTimeout;
   final int _searchEnrichmentLimit;
-  final _searchDetailsCache = SourceRequestCache<String, BookVersionDetails?>();
+  final _bookDetailsCache = SourceRequestCache<String, BookVersionDetails>();
+  final _chapterDescriptorsCache = SourceRequestCache<String, List<Chapter>>();
+  final _chapterDescriptorRefreshes = <String, Future<List<Chapter>>>{};
   final _bookRefreshes = <String, Future<SourceBookSnapshot>>{};
   static const _pagesPerLane = 3;
   static const _requestsPerSource = 6;
@@ -62,7 +64,7 @@ class SourceCatalogService {
     final state =
         previous is _CatalogSearchContinuation &&
             previous.belongsTo(this, request)
-        ? previous.copy()
+        ? previous.copy(retryFailuresOnly: previous.retryFailuresOnly)
         : _CatalogSearchContinuation(
             owner: this,
             request: request,
@@ -81,19 +83,16 @@ class SourceCatalogService {
       _searchTimeout > Duration.zero ? _searchTimeout : Duration.zero,
       () => operation.cancel(timedOut: true),
     );
-    final results = state.results;
+    final retrySourceIds = state.retryFailuresOnly
+        ? {
+            for (final source in state.sources.values)
+              if (source.lanes.any((lane) => lane.retryPage != null))
+                source.connector.id,
+          }
+        : null;
     SourceSearchResponse snapshot({bool finalResult = false}) =>
         SourceSearchResponse(
-          results: List.unmodifiable(
-            _sortResults(
-              results.values.where(
-                (result) => _matchesRequest(result, kinds, tokens),
-              ),
-              kinds,
-              tokens,
-              request.sort,
-            ),
-          ),
+          results: state.sortedMatches,
           failures: List.unmodifiable([
             for (final source in state.sources.values) ?source.failure,
           ]),
@@ -102,11 +101,31 @@ class SourceCatalogService {
               if (source.limited) source.connector.id,
             ...state.incompleteMetadataSourceIds,
           }),
-          continuation: finalResult && state.hasMore ? state : null,
+          continuation: finalResult && state.hasMore
+              ? state.copy(retryFailuresOnly: false)
+              : null,
+          retryContinuation: finalResult && state.hasRetryableLane
+              ? state.copy(retryFailuresOnly: true)
+              : null,
         );
 
+    Timer? updateTimer;
+    var publishedResults = false;
     void publish() {
-      if (!operation.isCancelled) onUpdate?.call(snapshot());
+      if (operation.isCancelled || onUpdate == null) return;
+      // The first ready results must not wait for other connectors. Thereafter
+      // publish at most one update per frame-sized burst of upstream pages.
+      if (!publishedResults && state.sortedMatches.isNotEmpty) {
+        updateTimer?.cancel();
+        updateTimer = null;
+        publishedResults = true;
+        onUpdate(snapshot());
+        return;
+      }
+      updateTimer ??= Timer(const Duration(milliseconds: 16), () {
+        updateTimer = null;
+        if (!operation.isCancelled) onUpdate(snapshot());
+      });
     }
 
     Future<void> fetchSource(_SourceSearchState source) async {
@@ -120,13 +139,18 @@ class SourceCatalogService {
         var least = _pagesPerLane;
         for (final candidate in source.lanes) {
           final count = attempts[candidate] ?? 0;
-          if (candidate.nextPage != null && count < least) {
+          final page = state.retryFailuresOnly
+              ? candidate.retryPage
+              : candidate.nextPage;
+          if (page != null && count < least) {
             lane = candidate;
             least = count;
           }
         }
         if (lane == null) break;
-        final currentPage = lane.nextPage!;
+        final currentPage = state.retryFailuresOnly
+            ? lane.retryPage!
+            : lane.nextPage!;
         attempts[lane] = least + 1;
         SourceSearchPage page;
         try {
@@ -142,30 +166,30 @@ class SourceCatalogService {
           operation.throwIfCancelled();
         } on SourceSearchCancelled {
           if (operation.isTimedOut) {
-            source.failure = SourceFailure(
+            lane.failure = SourceFailure(
               sourceId: source.connector.id,
               kind: SourceErrorKind.network,
               message: 'Source search exceeded the overall time budget.',
             );
-            source.retryingTimeout = true;
+            lane.retryPage = currentPage;
           }
           return;
         } on Object catch (error) {
-          source.failure = SourceFailure.fromError(source.connector.id, error);
-          source.retryingTimeout = false;
+          lane.failure = SourceFailure.fromError(source.connector.id, error);
+          lane.retryPage = lane.failure?.kind == SourceErrorKind.unsupported
+              ? null
+              : currentPage;
           lane.nextPage = null;
+          attempts[lane] = _pagesPerLane;
           // Alternative spellings are not a network/proxy retry mechanism.
           if (identical(lane, source.lanes.first) &&
               !source.plannedAlternatives) {
-            source.plannedAlternatives = true;
             break;
           }
           continue;
         }
-        if (source.retryingTimeout) {
-          source.retryingTimeout = false;
-          source.failure = null;
-        }
+        lane.retryPage = null;
+        lane.failure = null;
         final pageKeys = page.results.map(_searchResultKey).toSet().toList()
           ..sort();
         final repeated =
@@ -180,17 +204,20 @@ class SourceCatalogService {
             : null;
         lane.cursor = lane.nextPage == null ? null : page.nextCursor;
         for (final result in page.results) {
-          results.update(
-            _searchResultKey(result),
-            (existing) => _combineSearchCards(existing, result),
-            ifAbsent: () => result,
+          final key = _searchResultKey(result);
+          final existing = state.results[key];
+          state.setResult(
+            key,
+            existing == null || identical(existing, result)
+                ? result
+                : _combineSearchCards(existing, result),
           );
         }
 
         if (!source.plannedAlternatives) {
           source.plannedAlternatives = true;
           final alreadyMatched = page.results.any(
-            (result) => _matchesRequest(result, kinds, tokens),
+            (result) => state.project(result).matches,
           );
           if (request.page <= 1 &&
               !page.usedRequestedScope &&
@@ -213,37 +240,25 @@ class SourceCatalogService {
 
     try {
       cancellation?.throwIfCancelled();
+      if (_applySettledSearchDetails(state)) publish();
       await Future.wait<void>(state.sources.values.map(fetchSource));
       cancellation?.throwIfCancelled();
       // First results never wait for optional detail/enrichment requests.
-      final enriched = await _enrichSearchResults(
-        _searchCandidates(results.values, kinds, tokens),
-        request.pageSize,
-        kinds: kinds,
-        tokens: tokens,
-        attempted: state.attemptedDetails,
-        cancellation: operation,
-      );
+      await _enrichSearchResults(state, operation, sourceIds: retrySourceIds);
       cancellation?.throwIfCancelled();
-      for (final result in enriched) {
-        results[_searchResultKey(result)] = result;
-      }
       state.metadataHasMore = false;
       state.incompleteMetadataSourceIds.clear();
-      for (final result in results.values) {
-        if (_matchesRequest(result, kinds, tokens) ||
-            !_couldMatchWithDetails(result, kinds, tokens)) {
+      for (final result in state.results.values) {
+        final projected = state.project(result);
+        if (projected.matches || !projected.couldMatchWithDetails) {
           continue;
         }
         state.incompleteMetadataSourceIds.add(result.sourceId);
-        if (state
-                    .sources[result.sourceId]
-                    ?.connector
-                    .capabilities
-                    .supportsDetails ==
-                true &&
-            _searchEnrichmentLimit > 0 &&
-            !state.attemptedDetails.contains(_searchResultKey(result))) {
+        final key = _searchResultKey(result);
+        if (state.pendingDetails.containsKey(key) ||
+            (_searchEnrichmentLimit > 0 &&
+                !state.attemptedDetails.contains(key) &&
+                _canEnrichSearchResult(result))) {
           state.metadataHasMore = true;
         }
       }
@@ -251,6 +266,7 @@ class SourceCatalogService {
       if (!operation.isCancelled) onUpdate?.call(response);
       return response;
     } finally {
+      updateTimer?.cancel();
       deadline.cancel();
       unlink?.call();
       operation.cancel();
@@ -354,25 +370,6 @@ class SourceCatalogService {
     return variants.take(4);
   }
 
-  static List<BookSearchResult> _searchCandidates(
-    Iterable<BookSearchResult> results,
-    Set<SearchKind> kinds,
-    List<String> tokens,
-  ) {
-    // Missing metadata is not evidence of a mismatch. Give sparse cards the
-    // existing bounded enrichment budget before applying the exact filter.
-    return _sortResults(
-      results.where(
-        (result) =>
-            _matchesRequest(result, kinds, tokens) ||
-            _couldMatchWithDetails(result, kinds, tokens),
-      ),
-      kinds,
-      tokens,
-      SearchSort.relevance,
-    );
-  }
-
   static bool _couldMatchWithDetails(
     BookSearchResult result,
     Set<SearchKind> kinds,
@@ -404,117 +401,149 @@ class SourceCatalogService {
     Iterable<BookSearchResult> results,
     Set<SearchKind> kinds,
     List<String> tokens,
+  ) => _sortedProjections(
+    results
+        .map((result) => _SearchProjection(result, kinds, tokens))
+        .where((projection) => projection.matches),
+    SearchSort.relevance,
+  );
+
+  /// Applies the same field matching and ordering to already available books.
+  /// Unlike [search], this has no connector access or enrichment.
+  static List<BookSearchResult> searchMetadata(
+    Iterable<BookSearchResult> books,
+    SearchRequest request,
   ) {
-    final filtered = results
-        .where((result) => _matchesRequest(result, kinds, tokens))
-        .toList();
-    return _sortResults(filtered, kinds, tokens, SearchSort.relevance);
+    final tokens = _queryTokens(request.query).toSet().toList();
+    final kinds = request.effectiveKinds;
+    return _sortedProjections(
+      books
+          .where((book) => request.allowsSource(book.sourceId))
+          .map((book) => _SearchProjection(book, kinds, tokens))
+          .where((projection) => tokens.isEmpty || projection.matches),
+      request.sort,
+    );
   }
 
-  static List<BookSearchResult> _sortResults(
-    Iterable<BookSearchResult> results,
-    Set<SearchKind> kinds,
-    List<String> tokens,
+  static List<BookSearchResult> _sortedProjections(
+    Iterable<_SearchProjection> results,
     SearchSort sort,
   ) {
-    final sorted = results.toList();
-    sorted.sort((left, right) {
-      return switch (sort) {
-            SearchSort.relevance => _compareInt(
-              _sortScore(right, kinds, tokens),
-              _sortScore(left, kinds, tokens),
-            ),
-            SearchSort.rating => _compareNullableDouble(
-              right.ratingValue,
-              left.ratingValue,
-            ).ifZero(_compareNullableInt(right.ratingCount, left.ratingCount)),
-            SearchSort.year => _compareNullableInt(
-              right.audioYear ?? right.year,
-              left.audioYear ?? left.year,
-            ),
-            SearchSort.duration => _compareNullableDuration(
-              right.duration,
-              left.duration,
-            ),
-            SearchSort.title => _compareNormalizedTitle(
-              left.title,
-              right.title,
-            ),
-          }
-          .ifZero(_compareNormalizedTitle(left.title, right.title))
-          .ifZero(
-            _compareInt(
-              _sortScore(right, kinds, tokens),
-              _sortScore(left, kinds, tokens),
-            ),
-          );
-    });
-    return sorted;
+    final sorted = results.toList()
+      ..sort((a, b) => _compareProjections(a, b, sort));
+    return List.unmodifiable(sorted.map((projection) => projection.result));
   }
 
-  Future<List<BookSearchResult>> _enrichSearchResults(
-    List<BookSearchResult> results,
-    int pageSize, {
-    required Set<SearchKind> kinds,
-    required List<String> tokens,
-    required Set<String> attempted,
-    SourceSearchCancellation? cancellation,
-  }) async {
-    if (results.isEmpty) {
-      return const [];
-    }
+  static int _compareProjections(
+    _SearchProjection a,
+    _SearchProjection b,
+    SearchSort sort,
+  ) {
+    final left = a.result;
+    final right = b.result;
+    final primary = switch (sort) {
+      SearchSort.relevance => b.score.compareTo(a.score),
+      SearchSort.rating => _compareNullableDouble(
+        right.ratingValue,
+        left.ratingValue,
+      ).ifZero(_compareNullableInt(right.ratingCount, left.ratingCount)),
+      SearchSort.year => _compareNullableInt(
+        right.audioYear ?? right.year,
+        left.audioYear ?? left.year,
+      ),
+      SearchSort.duration => _compareNullableDuration(
+        right.duration,
+        left.duration,
+      ),
+      SearchSort.title => a.normalizedTitle.compareTo(b.normalizedTitle),
+    };
+    if (primary != 0) return primary;
+    final byTitle = a.normalizedTitle.compareTo(b.normalizedTitle);
+    if (byTitle != 0) return byTitle;
+    final byScore = b.score.compareTo(a.score);
+    if (byScore != 0) return byScore;
+    return left.sourceId
+        .compareTo(right.sourceId)
+        .ifZero(left.sourceBookId.compareTo(right.sourceBookId));
+  }
 
-    final limit = _effectiveEnrichmentLimit(results.length, pageSize);
-    if (limit == 0 || cancellation?.isCancelled == true) {
-      return results;
-    }
-
-    final enrichedByIndex = <int, BookSearchResult>{};
-    final jobs = <Future<void>>[];
-    final indexes = <int>[
-      // Missing searchable fields take precedence over display-only updates.
-      for (var index = 0; index < results.length; index++)
-        if (!_matchesRequest(results[index], kinds, tokens)) index,
-      for (var index = 0; index < results.length; index++)
-        if (_matchesRequest(results[index], kinds, tokens)) index,
-    ];
-    for (final index in indexes) {
-      if (jobs.length >= limit) break;
-      final result = results[index];
-      if (!_needsSearchEnrichment(result) ||
-          !_canEnrichSearchResult(result) ||
-          !attempted.add(_searchResultKey(result))) {
-        continue;
+  bool _applySettledSearchDetails(_CatalogSearchContinuation state) {
+    var changed = false;
+    state.pendingDetails.removeWhere((key, pending) {
+      if (!pending.completed) return false;
+      final result = state.results[key];
+      final details = pending.details;
+      if (result != null && details != null) {
+        state.setResult(key, _mergeSearchDetails(result, details));
+        changed = true;
       }
-      jobs.add(
-        _detailsForSearchResult(result).then((details) {
-          if (details != null) {
-            enrichedByIndex[index] = _mergeSearchDetails(result, details);
-          }
-        }),
+      return true;
+    });
+    return changed;
+  }
+
+  Future<void> _enrichSearchResults(
+    _CatalogSearchContinuation state,
+    SourceSearchCancellation cancellation, {
+    Set<String>? sourceIds,
+  }) async {
+    _applySettledSearchDetails(state);
+    final limit = _effectiveEnrichmentLimit(
+      state.results.length,
+      state.request.pageSize,
+    );
+    if (limit == 0 || cancellation.isCancelled) return;
+
+    // Missing searchable fields take precedence over display-only updates.
+    final candidates = <_SearchProjection>[];
+    if (state.pendingDetails.length < limit) {
+      for (final entry in state.results.entries) {
+        if (sourceIds != null && !sourceIds.contains(entry.value.sourceId)) {
+          continue;
+        }
+        if (state.attemptedDetails.contains(entry.key)) continue;
+        final candidate = state.project(entry.value);
+        if ((candidate.matches || candidate.couldMatchWithDetails) &&
+            _needsSearchEnrichment(candidate.result) &&
+            _canEnrichSearchResult(candidate.result)) {
+          candidates.add(candidate);
+        }
+      }
+      candidates.sort((a, b) {
+        if (a.matches != b.matches) return a.matches ? 1 : -1;
+        return _compareProjections(a, b, SearchSort.relevance);
+      });
+    }
+    for (final candidate in candidates) {
+      if (state.pendingDetails.length >= limit) break;
+      final result = candidate.result;
+      final key = _searchResultKey(result);
+      state.attemptedDetails.add(key);
+      state.pendingDetails[key] = _PendingSearchDetails(
+        _detailsForSearchResult(result),
       );
     }
 
-    if (jobs.isEmpty) {
-      return results;
+    final pending = [
+      for (final entry in state.pendingDetails.entries)
+        if (sourceIds == null ||
+            sourceIds.contains(state.results[entry.key]?.sourceId))
+          entry.value.future,
+    ];
+    if (pending.isEmpty || _searchEnrichmentTimeout <= Duration.zero) {
+      return;
     }
-
-    final wait = Future.wait<void>(jobs, eagerError: false);
-    if (_searchEnrichmentTimeout <= Duration.zero) {
-      unawaited(wait.then<void>((_) {}));
-      return _applyEnrichedResults(results, enrichedByIndex);
-    }
-
     try {
-      final bounded = wait.timeout(_searchEnrichmentTimeout);
-      await (cancellation?.wait(bounded) ?? bounded);
+      await cancellation.wait(
+        Future.wait<void>(pending).timeout(_searchEnrichmentTimeout),
+      );
     } on TimeoutException {
-      unawaited(wait.then<void>((_) {}));
+      // Keep unfinished futures in this query's continuation. A successful
+      // response arriving after this deadline can still produce a match.
     } on SourceSearchCancelled {
-      // Shared detail requests may also serve an opened book or a newer
-      // search. Do not abort their cache load for a single consumer.
+      // Do not cancel shared cache work used by a different consumer.
     }
-    return _applyEnrichedResults(results, enrichedByIndex);
+    _applySettledSearchDetails(state);
   }
 
   bool _canEnrichSearchResult(BookSearchResult result) {
@@ -541,10 +570,10 @@ class SourceCatalogService {
       return Future.value(null);
     }
 
-    final key = _detailsCacheKey(result.ref);
-    return _searchDetailsCache
-        .getOrLoad(key, () => connector.getBookDetails(result.ref))
-        .catchError((Object _) => null);
+    return loadBookDetails(result.ref).then<BookVersionDetails?>(
+      (details) => details,
+      onError: (Object _) => null,
+    );
   }
 
   BookSearchResult _mergeSearchDetails(
@@ -596,6 +625,7 @@ class SourceCatalogService {
   Future<List<BookSearchResult>> findOtherNarrations(
     SourceBookSnapshot snapshot, {
     int limit = 12,
+    SourceSearchCancellation? cancellation,
   }) async {
     final details = snapshot.details;
     final version = details.version;
@@ -623,31 +653,25 @@ class SourceCatalogService {
     ]);
     final query = _normalizeSearchText(rawQuery);
     final tokens = _queryTokens(query);
-    if (tokens.isNotEmpty) {
-      final response = await _registry.search(
-        SearchRequest(
-          query: query,
-          kinds: const {SearchKind.title},
-          pageSize: limit < 20 ? 20 : limit * 2,
-        ),
-      );
+    if (tokens.isNotEmpty && cancellation?.isCancelled != true) {
+      Future<SourceSearchResponse> searchTitle(String value) =>
+          _registry.search(
+            SearchRequest(
+              query: value,
+              kinds: const {SearchKind.title},
+              pageSize: limit < 20 ? 20 : limit * 2,
+            ),
+            cancellation: cancellation,
+          );
+      final response = await searchTitle(query);
       var filtered = _filteredSortedResults(response.results, const {
         SearchKind.title,
       }, tokens);
-      if (filtered.isEmpty && tokens.length > 1) {
+      if (filtered.isEmpty &&
+          tokens.length > 1 &&
+          cancellation?.isCancelled != true) {
         final fallbackResponses = await Future.wait(
-          tokens
-              .toSet()
-              .take(3)
-              .map(
-                (token) => _registry.search(
-                  SearchRequest(
-                    query: token,
-                    kinds: const {SearchKind.title},
-                    pageSize: limit < 20 ? 20 : limit * 2,
-                  ),
-                ),
-              ),
+          tokens.toSet().take(3).map(searchTitle),
         );
         final fallbackResults = <BookSearchResult>[
           for (final response in fallbackResponses) ...response.results,
@@ -672,6 +696,100 @@ class SourceCatalogService {
     return List.unmodifiable(alternatives.take(limit));
   }
 
+  /// Metadata can be rendered before chapter parsing or media resolution.
+  Future<BookVersionDetails> loadBookDetails(SourceBookRef ref) =>
+      _bookDetailsCache.getOrLoad(_detailsCacheKey(ref), () {
+        return _registry.connectorById(ref.sourceId).getBookDetails(ref);
+      });
+
+  Future<List<Chapter>> _loadChapterDescriptors(SourceBookRef ref) =>
+      _chapterDescriptorsCache.getOrLoad(_detailsCacheKey(ref), () async {
+        final chapters = await _registry
+            .connectorById(ref.sourceId)
+            .getChapters(ref);
+        return List.unmodifiable(chapters);
+      });
+
+  /// A browseable playlist: no connector media resolution takes place here.
+  Future<SourceBookSnapshot> loadBookPreview(
+    SourceBookRef ref, {
+    bool forceRefresh = false,
+  }) async {
+    if (forceRefresh) _invalidateBook(ref);
+    final details = await loadBookDetails(ref);
+    final chapters = await _loadChapterDescriptors(ref);
+    return _snapshot(ref, details, chapters, [
+      for (final chapter in chapters) _playbackChapter(chapter, null),
+    ]);
+  }
+
+  /// Resolves the selected chapter, not the entire playlist. Retrying must not
+  /// fall back to a different chapter simply because it took the same index.
+  Future<AudioPlaybackChapter> resolvePlaybackChapter(
+    AudioPlaybackBook book,
+    AudioPlaybackChapter chapter, {
+    bool forceRefresh = false,
+    MediaResolvePurpose purpose = MediaResolvePurpose.playback,
+  }) async {
+    final existing = chapter.mediaSource;
+    if (existing != null && existing.type != AudioMediaSourceType.url) {
+      return chapter;
+    }
+    if (existing != null &&
+        !forceRefresh &&
+        purpose == MediaResolvePurpose.playback) {
+      return chapter;
+    }
+    final sourceBookId = book.sourceBookId;
+    if (sourceBookId == null || sourceBookId.isEmpty) {
+      if (existing != null && !forceRefresh) return chapter;
+      throw _chapterNotFound(book.sourceId);
+    }
+    final ref = SourceBookRef(
+      sourceId: book.sourceId,
+      sourceBookId: sourceBookId,
+    );
+    final connector = _registry.connectorById(ref.sourceId);
+    final descriptors = await (forceRefresh
+        ? _refreshChapterDescriptors(ref)
+        : _loadChapterDescriptors(ref));
+    final identity = chapter.storageIdentity;
+    final mediaReference = chapter.storageMediaReference;
+    final matches = descriptors.where((descriptor) {
+      if (identity != null) return descriptor.storageIdentity == identity;
+      if (descriptor.id != chapter.id) return false;
+      return mediaReference == null ||
+          _chapterMediaReference(descriptor) == mediaReference;
+    }).iterator;
+    // A new playlist must not silently substitute an item with the same ordinal.
+    if (!matches.moveNext()) throw _chapterNotFound(book.sourceId);
+    final descriptor = matches.current;
+    if (matches.moveNext()) throw _chapterNotFound(book.sourceId);
+    final resolved = await connector.resolveMedia(descriptor, purpose);
+    return chapter.copyWith(mediaSource: resolved.mediaSource);
+  }
+
+  Future<List<Chapter>> _refreshChapterDescriptors(SourceBookRef ref) {
+    final key = _detailsCacheKey(ref);
+    final pending = _chapterDescriptorRefreshes[key];
+    if (pending != null) return pending;
+    _invalidateBook(ref);
+    late final Future<List<Chapter>> refresh;
+    refresh = _loadChapterDescriptors(ref).whenComplete(() {
+      if (identical(_chapterDescriptorRefreshes[key], refresh)) {
+        _chapterDescriptorRefreshes.remove(key);
+      }
+    });
+    _chapterDescriptorRefreshes[key] = refresh;
+    return refresh;
+  }
+
+  static SourceException _chapterNotFound(String sourceId) => SourceException(
+    sourceId: sourceId,
+    kind: SourceErrorKind.notFound,
+    message: 'The requested source chapter could not be matched.',
+  );
+
   Future<SourceBookSnapshot> loadBook(
     SourceBookRef ref, {
     bool forceRefresh = false,
@@ -681,17 +799,22 @@ class SourceCatalogService {
     final key = '${_detailsCacheKey(ref)}:${purpose.name}';
     final pending = _bookRefreshes[key];
     if (pending != null) return pending;
-    final connector = _registry.connectorById(ref.sourceId);
-    if (connector is SourceCacheInvalidator) {
-      (connector as SourceCacheInvalidator).invalidateBook(ref);
-    }
-    _searchDetailsCache.remove(_detailsCacheKey(ref));
+    _invalidateBook(ref);
     late final Future<SourceBookSnapshot> future;
     future = _loadBook(ref, purpose).whenComplete(() {
       if (identical(_bookRefreshes[key], future)) _bookRefreshes.remove(key);
     });
     _bookRefreshes[key] = future;
     return future;
+  }
+
+  void _invalidateBook(SourceBookRef ref) {
+    final connector = _registry.connectorById(ref.sourceId);
+    if (connector is SourceCacheInvalidator) {
+      (connector as SourceCacheInvalidator).invalidateBook(ref);
+    }
+    _bookDetailsCache.remove(_detailsCacheKey(ref));
+    _chapterDescriptorsCache.remove(_detailsCacheKey(ref));
   }
 
   /// Refreshes original remote media, not a local-file overlay. DownloadManager
@@ -728,13 +851,22 @@ class SourceCatalogService {
     MediaResolvePurpose purpose,
   ) async {
     final connector = _registry.connectorById(ref.sourceId);
-    final details = await connector.getBookDetails(ref);
-    final chapters = await connector.getChapters(ref);
+    final details = await loadBookDetails(ref);
+    final chapters = await _loadChapterDescriptors(ref);
     final playbackChapters = await Future.wait([
       for (final chapter in chapters)
         _resolvePlaybackChapter(connector, chapter, purpose),
     ]);
 
+    return _snapshot(ref, details, chapters, playbackChapters);
+  }
+
+  SourceBookSnapshot _snapshot(
+    SourceBookRef ref,
+    BookVersionDetails details,
+    List<Chapter> chapters,
+    List<AudioPlaybackChapter> playbackChapters,
+  ) {
     final audioBook = audioBookForDetails(details, chapters.length);
     final playbackBook = _playbackBook(
       details,
@@ -846,7 +978,7 @@ class SourceCatalogService {
 
   AudioPlaybackChapter _playbackChapter(
     Chapter chapter,
-    ResolvedMedia resolved,
+    ResolvedMedia? resolved,
   ) {
     return AudioPlaybackChapter(
       id: chapter.id,
@@ -854,9 +986,16 @@ class SourceCatalogService {
       title: chapter.title,
       duration: Duration(milliseconds: chapter.durationMs ?? 0),
       isDownloaded: chapter.downloadStatus == ChapterDownloadStatus.completed,
-      mediaSource: resolved.mediaSource,
+      storageIdentity: chapter.storageIdentity,
+      storageMediaReference: _chapterMediaReference(chapter),
+      mediaSource: resolved?.mediaSource,
     );
   }
+
+  static String? _chapterMediaReference(Chapter chapter) =>
+      SourceParserHelpers.mediaReferenceIdentity(
+        chapter.streamRef ?? chapter.cachedStreamUrl,
+      );
 
   static String _sourceName(String sourceId) {
     return switch (sourceId) {
@@ -878,19 +1017,6 @@ class SourceCatalogService {
       return 0;
     }
     return requested > resultCount ? resultCount : requested;
-  }
-
-  static List<BookSearchResult> _applyEnrichedResults(
-    List<BookSearchResult> results,
-    Map<int, BookSearchResult> enrichedByIndex,
-  ) {
-    if (enrichedByIndex.isEmpty) {
-      return results;
-    }
-    return [
-      for (var index = 0; index < results.length; index++)
-        enrichedByIndex[index] ?? results[index],
-    ];
   }
 
   static String _detailsCacheKey(SourceBookRef ref) {
@@ -1052,12 +1178,15 @@ class SourceCatalogService {
     List<String> tokens,
   ) {
     final haystacks = _haystacks(result, kinds);
+    final joinedTokens = tokens.join(' ');
     var score = 0;
     for (final haystack in haystacks) {
       final words = _queryTokens(haystack);
-      if (haystack == tokens.join(' ')) score += 8;
+      if (haystack == joinedTokens) score += 8;
       if (tokens.length > 1 &&
-          tokens.every((token) => _containsTokenPrefix(haystack, token))) {
+          tokens.every(
+            (token) => SourceSearchText.containsToken(words, token),
+          )) {
         score += 4;
       }
       for (final token in tokens) {
@@ -1069,10 +1198,6 @@ class SourceCatalogService {
       }
     }
     return score;
-  }
-
-  static int _compareInt(int right, int left) {
-    return right.compareTo(left);
   }
 
   static int _compareNullableInt(int? right, int? left) {
@@ -1103,10 +1228,6 @@ class SourceCatalogService {
 
   static int _compareNullableDuration(Duration? right, Duration? left) {
     return _compareNullableInt(right?.inMilliseconds, left?.inMilliseconds);
-  }
-
-  static int _compareNormalizedTitle(String left, String right) {
-    return _normalizeSearchText(left).compareTo(_normalizeSearchText(right));
   }
 
   static List<String> _haystacks(
@@ -1309,8 +1430,12 @@ class _SearchLane {
   int? nextPage;
   SourceSearchPageCursor? cursor;
   final Set<String> seenPages;
+  int? retryPage;
+  SourceFailure? failure;
 
-  _SearchLane copy() => _SearchLane(query, nextPage, {...seenPages}, cursor);
+  _SearchLane copy() => _SearchLane(query, nextPage, {...seenPages}, cursor)
+    ..retryPage = retryPage
+    ..failure = failure;
 }
 
 class _SourceSearchState {
@@ -1318,26 +1443,61 @@ class _SourceSearchState {
     this.connector,
     this.lanes, {
     this.plannedAlternatives = false,
-    this.failure,
-    this.retryingTimeout = false,
     this.limited = false,
   });
 
   final SourceConnector connector;
   final List<_SearchLane> lanes;
   bool plannedAlternatives;
-  SourceFailure? failure;
-  bool retryingTimeout;
   bool limited;
+
+  SourceFailure? get failure {
+    for (final lane in lanes) {
+      if (lane.failure != null) return lane.failure;
+    }
+    return null;
+  }
 
   _SourceSearchState copy() => _SourceSearchState(
     connector,
     [for (final lane in lanes) lane.copy()],
     plannedAlternatives: plannedAlternatives,
-    failure: failure,
-    retryingTimeout: retryingTimeout,
     limited: limited,
   );
+}
+
+class _SearchProjection {
+  _SearchProjection(this.result, this.kinds, this.tokens);
+
+  final BookSearchResult result;
+  final Set<SearchKind> kinds;
+  final List<String> tokens;
+  late final bool matches = SourceCatalogService._matchesRequest(
+    result,
+    kinds,
+    tokens,
+  );
+  late final bool couldMatchWithDetails =
+      SourceCatalogService._couldMatchWithDetails(result, kinds, tokens);
+  late final String normalizedTitle = SourceCatalogService._normalizeSearchText(
+    result.title,
+  );
+  late final int score = SourceCatalogService._sortScore(result, kinds, tokens);
+}
+
+class _PendingSearchDetails {
+  _PendingSearchDetails(Future<BookVersionDetails?> load) {
+    future = load
+        .timeout(const Duration(seconds: 15), onTimeout: () => null)
+        .then((value) {
+          details = value;
+          completed = true;
+        });
+  }
+
+  late final Future<void> future;
+  bool completed = false;
+  BookVersionDetails? details;
 }
 
 class _CatalogSearchContinuation implements SourceSearchContinuation {
@@ -1347,16 +1507,48 @@ class _CatalogSearchContinuation implements SourceSearchContinuation {
     required this.sources,
     Map<String, BookSearchResult>? results,
     Set<String>? attemptedDetails,
+    Map<String, _PendingSearchDetails>? pendingDetails,
+    Expando<_SearchProjection>? projections,
+    this.retryFailuresOnly = false,
   }) : results = results ?? <String, BookSearchResult>{},
-       attemptedDetails = attemptedDetails ?? <String>{};
+       attemptedDetails = attemptedDetails ?? <String>{},
+       pendingDetails = pendingDetails ?? <String, _PendingSearchDetails>{},
+       _projections = projections ?? Expando<_SearchProjection>();
 
   final SourceCatalogService owner;
   final SearchRequest request;
   final Map<String, _SourceSearchState> sources;
   final Map<String, BookSearchResult> results;
   final Set<String> attemptedDetails;
+  final Map<String, _PendingSearchDetails> pendingDetails;
+  final Expando<_SearchProjection> _projections;
+  final bool retryFailuresOnly;
   final Set<String> incompleteMetadataSourceIds = {};
   bool metadataHasMore = false;
+  List<BookSearchResult>? _sortedMatches;
+  late final Set<SearchKind> _kinds = request.effectiveKinds;
+  late final List<String> _tokens = SourceCatalogService._queryTokens(
+    request.query,
+  ).toSet().toList();
+
+  _SearchProjection project(BookSearchResult result) =>
+      _projections[result] ??= _SearchProjection(result, _kinds, _tokens);
+
+  List<BookSearchResult> get sortedMatches =>
+      _sortedMatches ??= SourceCatalogService._sortedProjections(
+        results.values.map(project).where((projection) => projection.matches),
+        request.sort,
+      );
+
+  void setResult(String key, BookSearchResult result) {
+    if (identical(results[key], result)) return;
+    results[key] = result;
+    _sortedMatches = null;
+  }
+
+  bool get hasRetryableLane => sources.values.any(
+    (source) => source.lanes.any((lane) => lane.retryPage != null),
+  );
 
   bool get hasMore =>
       metadataHasMore ||
@@ -1376,7 +1568,7 @@ class _CatalogSearchContinuation implements SourceSearchContinuation {
         sameSet(request.sourceIds, incoming.sourceIds);
   }
 
-  _CatalogSearchContinuation copy() =>
+  _CatalogSearchContinuation copy({required bool retryFailuresOnly}) =>
       _CatalogSearchContinuation(
           owner: owner,
           request: request,
@@ -1385,7 +1577,11 @@ class _CatalogSearchContinuation implements SourceSearchContinuation {
           },
           results: {...results},
           attemptedDetails: {...attemptedDetails},
+          pendingDetails: {...pendingDetails},
+          projections: _projections,
+          retryFailuresOnly: retryFailuresOnly,
         )
+        .._sortedMatches = _sortedMatches
         ..incompleteMetadataSourceIds.addAll(incompleteMetadataSourceIds)
         ..metadataHasMore = metadataHasMore;
 }

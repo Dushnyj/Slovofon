@@ -13,17 +13,29 @@ abstract interface class DownloadPersistenceStore {
   Future<void> updateChapter(DownloadChapterUpdate update);
 }
 
+abstract interface class AtomicDownloadPersistenceStore
+    implements DownloadPersistenceStore {
+  Future<void> saveTaskAndChapter(
+    DownloadTask task,
+    DownloadChapterUpdate update,
+  );
+}
+
 class DownloadChapterUpdate {
   const DownloadChapterUpdate({
     required this.chapterId,
     required this.status,
     required this.progress,
     required this.updatedAt,
+    this.sourceId,
+    this.bookVersionId,
     this.localPath,
     this.fileSizeBytes,
   });
 
   final String chapterId;
+  final String? sourceId;
+  final String? bookVersionId;
   final DownloadTaskStatus status;
   final double progress;
   final String? localPath;
@@ -31,12 +43,21 @@ class DownloadChapterUpdate {
   final DateTime updatedAt;
 }
 
-class DriftDownloadPersistenceStore implements DownloadPersistenceStore {
+class DriftDownloadPersistenceStore implements AtomicDownloadPersistenceStore {
   DriftDownloadPersistenceStore(this._db, {DateTime Function()? clock})
     : _clock = clock ?? DateTime.now;
 
   final AppDatabase _db;
   final DateTime Function() _clock;
+
+  @override
+  Future<void> saveTaskAndChapter(
+    DownloadTask task,
+    DownloadChapterUpdate update,
+  ) => _db.transaction(() async {
+    await saveTask(task);
+    await updateChapter(update);
+  });
 
   @override
   Future<void> deleteTask(String id) async {
@@ -106,17 +127,27 @@ class DriftDownloadPersistenceStore implements DownloadPersistenceStore {
 
   @override
   Future<void> updateChapter(DownloadChapterUpdate update) async {
-    await (_db.update(
-      _db.chapters,
-    )..where((row) => row.id.equals(update.chapterId))).write(
-      ChaptersCompanion(
-        localPath: Value(update.localPath),
-        fileSizeBytes: Value(update.fileSizeBytes),
-        downloadStatus: Value(_chapterStatus(update.status)),
-        downloadProgress: Value(update.progress),
-        updatedAt: Value(update.updatedAt),
-      ),
-    );
+    final sourceId = update.sourceId;
+    final versionId = update.bookVersionId;
+    await (_db.update(_db.chapters)..where(
+          (row) =>
+              row.id.equals(update.chapterId) &
+              (sourceId == null
+                  ? const Constant(true)
+                  : row.sourceId.equals(sourceId)) &
+              (versionId == null
+                  ? const Constant(true)
+                  : row.bookVersionId.equals(versionId)),
+        ))
+        .write(
+          ChaptersCompanion(
+            localPath: Value(update.localPath),
+            fileSizeBytes: Value(update.fileSizeBytes),
+            downloadStatus: Value(_chapterStatus(update.status)),
+            downloadProgress: Value(update.progress),
+            updatedAt: Value(update.updatedAt),
+          ),
+        );
   }
 
   DownloadTask _taskFromRow(DownloadTaskRow row) {

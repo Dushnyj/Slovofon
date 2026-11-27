@@ -77,35 +77,43 @@ List<LibraryShelfEntry> projectLibraryShelves({
     add(entry.book, entry.updatedAt, LibraryShelf.later);
   }
 
+  final savedBySourceVersion = <String, AudioBook>{};
+  final savedByLegacyId = <String, AudioBook>{};
+  for (final saved in [...favorites, ...later]) {
+    final book = saved.book;
+    savedBySourceVersion.putIfAbsent(
+      '${book.sourceId}-${book.sourceBookId ?? book.id}',
+      () => book,
+    );
+    savedByLegacyId.putIfAbsent(book.id, () => book);
+  }
+
   AudioPlaybackBook? resolve(String versionId, String bookId) {
     final exact = books[versionId];
     if (exact != null) return exact;
     // Favorites written before playback retain canonical source/version IDs.
-    for (final saved in [...favorites, ...later]) {
-      final b = saved.book;
-      final expected = '${b.sourceId}-${b.sourceBookId ?? b.id}';
-      if (versionId == expected || (versionId == b.id && bookId == b.id)) {
-        return AudioPlaybackBook(
-          id: bookId,
-          versionId: versionId,
-          sourceId: b.sourceId,
-          sourceBookId: b.sourceBookId,
-          title: b.title,
-          author: b.author,
-          narrator: b.narrator,
-          sourceName: b.sourceName,
-          coverUrl: b.coverUrl,
-          description: b.description,
-          chapters: const [],
-          seriesTitle: b.seriesTitle,
-          seriesNumber: b.seriesNumber,
-          ratingValue: b.ratingValue,
-          ratingCount: b.ratingCount,
-          publishedYear: b.year,
-        );
-      }
-    }
-    return null;
+    final b =
+        savedBySourceVersion[versionId] ??
+        (versionId == bookId ? savedByLegacyId[bookId] : null);
+    if (b == null) return null;
+    return AudioPlaybackBook(
+      id: bookId,
+      versionId: versionId,
+      sourceId: b.sourceId,
+      sourceBookId: b.sourceBookId,
+      title: b.title,
+      author: b.author,
+      narrator: b.narrator,
+      sourceName: b.sourceName,
+      coverUrl: b.coverUrl,
+      description: b.description,
+      chapters: const [],
+      seriesTitle: b.seriesTitle,
+      seriesNumber: b.seriesNumber,
+      ratingValue: b.ratingValue,
+      ratingCount: b.ratingCount,
+      publishedYear: b.year,
+    );
   }
 
   for (final snapshot in progress) {

@@ -258,13 +258,20 @@ class _MemoryHistory extends SearchHistoryStore {
   @override
   Future<List<SearchHistoryEntry>> load() async => List.unmodifiable(_entries);
   @override
-  Future<List<SearchHistoryEntry>> record(String query, SearchKind kind) async {
+  Future<List<SearchHistoryEntry>> record(
+    String query,
+    SearchKind kind, {
+    Set<SearchKind> kinds = const {},
+    SearchSort sort = SearchSort.relevance,
+  }) async {
     _entries.removeWhere((entry) => entry.query == query && entry.kind == kind);
     _entries.insert(
       0,
       SearchHistoryEntry(
         query: query,
         kind: kind,
+        kinds: kinds,
+        sort: sort,
         lastUsedAt: DateTime(2026, 9, 8),
         usageCount: 1,
       ),
@@ -273,7 +280,12 @@ class _MemoryHistory extends SearchHistoryStore {
   }
 
   @override
-  Future<List<SearchHistoryEntry>> delete(String query, SearchKind kind) async {
+  Future<List<SearchHistoryEntry>> delete(
+    String query,
+    SearchKind kind, {
+    Set<SearchKind> kinds = const {},
+    SearchSort sort = SearchSort.relevance,
+  }) async {
     _entries.removeWhere((entry) => entry.query == query && entry.kind == kind);
     return load();
   }

@@ -11,6 +11,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../app/localization/app_strings.dart';
 import '../../data/mock/stage3_mock_data.dart';
+import '../../domain/models/playback_session.dart' show SleepTimerMode;
 import '../../services/audio/audio_state.dart';
 import '../../services/audio/playback_controller.dart';
 import '../../services/audio/playback_controller_provider.dart';
@@ -809,6 +810,7 @@ class _TelevisionPlayerIdentity extends StatelessWidget {
               key: const ValueKey('tv-player-artwork'),
               title: book.title,
               imageUrl: book.coverUrl,
+              sourceId: book.sourceId,
               width: 88,
               height: 126,
               showProgressPercent: false,
@@ -966,6 +968,7 @@ class _WindowsPlayerBookPanel extends StatelessWidget {
               child: BookCover(
                 title: book.title,
                 imageUrl: book.coverUrl,
+                sourceId: book.sourceId,
                 width: 190,
                 height: 258,
                 showProgressPercent: false,
@@ -1528,6 +1531,7 @@ class _NowPlayingPage extends StatelessWidget {
                 title: book.title,
                 progress: state.bookProgress,
                 imageUrl: book.coverUrl,
+                sourceId: book.sourceId,
                 width: coverWidth,
                 height: coverHeight,
               ),
@@ -2686,10 +2690,13 @@ class _PlayerChromeState extends State<_PlayerChrome> {
           onToggleMute: () => unawaited(service.toggleMute()),
           onVolumeChanged: (value) => unawaited(service.setVolume(value)),
         ),
-        if ((state.sleepTimerRemaining ?? Duration.zero) > Duration.zero)
+        if ((state.sleepTimerRemaining ?? Duration.zero) > Duration.zero ||
+            state.sleepTimerMode == SleepTimerMode.stopAtChapterEnd)
           _SleepTimerPill(
             key: const ValueKey('sleep-timer-pill'),
-            label: _formatPlaybackDuration(state.sleepTimerRemaining!),
+            label: state.sleepTimerRemaining == null
+                ? strings.sleepTimerUntilChapterEnd
+                : _formatPlaybackDuration(state.sleepTimerRemaining!),
           ),
         _ControlIcon(
           tooltip: strings.sleepTimer,
@@ -2850,6 +2857,7 @@ class _PlayerChromeState extends State<_PlayerChrome> {
               position: state.position,
               duration: currentChapter?.duration ?? Duration.zero,
               sleepTimerRemaining: state.sleepTimerRemaining,
+              sleepTimerMode: state.sleepTimerMode,
             ),
             const SizedBox(height: 10),
             Row(
@@ -3116,11 +3124,13 @@ class _PlayerTimeLabels extends StatelessWidget {
     required this.position,
     required this.duration,
     required this.sleepTimerRemaining,
+    required this.sleepTimerMode,
   });
 
   final Duration position;
   final Duration duration;
   final Duration? sleepTimerRemaining;
+  final SleepTimerMode sleepTimerMode;
 
   @override
   Widget build(BuildContext context) {
@@ -3130,6 +3140,8 @@ class _PlayerTimeLabels extends StatelessWidget {
     final remaining = sleepTimerRemaining;
     final timerText = remaining != null && remaining > Duration.zero
         ? _formatPlaybackDuration(remaining)
+        : sleepTimerMode == SleepTimerMode.stopAtChapterEnd
+        ? context.strings.sleepTimerUntilChapterEnd
         : null;
     final timer = timerText == null
         ? null

@@ -14,6 +14,7 @@ import '../../services/audio/playback_controller_provider.dart';
 import '../../services/audio/audio_state.dart';
 import '../../services/downloads/download_manager.dart';
 import '../../services/downloads/download_manager_provider.dart';
+import '../../services/downloads/download_storage.dart';
 import '../../services/home/home_listening_visibility_store.dart';
 import '../../services/library/library_store.dart';
 import '../../services/sources/source_book_cache.dart';
@@ -106,6 +107,13 @@ class DownloadsScreen extends ConsumerWidget {
           SectionHeader(
             title: strings.downloads,
             subtitle: strings.downloadsQueueSubtitle,
+          ),
+        if (queued.isNotEmpty &&
+            manager.networkGate == DownloadNetworkGate.wifiRequired)
+          Padding(
+            key: const ValueKey('downloads-waiting-for-wifi'),
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            child: Text(strings.downloadWaitingForWifi),
           ),
         if (desktop && groups.isNotEmpty)
           _DesktopDownloadSummary(
@@ -428,6 +436,7 @@ class _DownloadBookTile extends ConsumerWidget {
               title: displayTitle,
               progress: listeningProgress,
               imageUrl: playbackBook.coverUrl,
+              sourceId: playbackBook.sourceId,
               width: 58,
               height: 82,
             ),
@@ -664,6 +673,7 @@ class _TelevisionDownloadBookTile extends StatelessWidget {
     Widget cover() => BookCover(
       title: book.title,
       imageUrl: book.coverUrl,
+      sourceId: book.sourceId,
       width: 48,
       height: 72,
       showProgressPercent: false,
@@ -785,6 +795,7 @@ class _DesktopDownloadBookTile extends StatelessWidget {
               ? book.title
               : strings.downloadMetadataUnavailableTitle,
           imageUrl: book.coverUrl,
+          sourceId: book.sourceId,
           width: condensed ? 56 : coverWidth,
           height: (condensed ? 56 : coverWidth) * 1.43,
           // The listening percentage belongs to the metadata at desktop text
@@ -1616,8 +1627,14 @@ Future<void> _playBookFromDownloads(
   AudioPlaybackChapter? chapter,
 }) async {
   final manager = ref.read(downloadManagerProvider);
+  final storage = ref.read(downloadStorageProvider);
   final playbackController = ref.read(playbackControllerProvider);
   final strings = context.strings;
+  int? selection;
+  bool isLatest() =>
+      context.mounted &&
+      (selection == null ||
+          playbackController.isPlaybackSelectionCurrent(selection));
 
   try {
     final currentBook = playbackController.state.book;
@@ -1626,24 +1643,29 @@ Future<void> _playBookFromDownloads(
         await playbackController.togglePlayPause();
       } else {
         await playbackController.toggleChapterPlayPause(
-          _chapterIndex(currentBook!, chapter),
+          _chapterIndex(storage, currentBook!, chapter),
         );
       }
       return;
     }
 
-    final freshBook = await _freshBookForDownloads(ref, group, chapter);
+    selection = playbackController.beginPlaybackSelection();
+    final freshBook = group.playbackBook.chapters.isNotEmpty
+        ? group.playbackBook
+        : await _freshBookForDownloads(ref, group);
+    if (!isLatest()) return;
     final playbackBook = await manager.offlinePlaybackBook(freshBook);
-    if (playbackBook.chapters.isEmpty) {
+    if (!isLatest() || playbackBook.chapters.isEmpty) {
       return;
     }
 
-    if (_playbackMatchesBook(playbackController.state.book, playbackBook)) {
+    final latestBook = playbackController.state.book;
+    if (_playbackMatchesBook(latestBook, playbackBook)) {
       if (chapter == null) {
         await playbackController.togglePlayPause();
       } else {
         await playbackController.toggleChapterPlayPause(
-          _chapterIndex(playbackBook, chapter),
+          _chapterIndex(storage, latestBook!, chapter),
         );
       }
       return;
@@ -1652,10 +1674,11 @@ Future<void> _playBookFromDownloads(
     final snapshots =
         await ref.read(playbackPersistenceStoreProvider)?.loadProgress() ??
         const <PlaybackProgressSnapshot>[];
+    if (!isLatest()) return;
     final resumePoint = playbackResumePointForBook(playbackBook, snapshots);
     final targetChapterIndex = chapter == null
         ? resumePoint.chapterIndex
-        : _chapterIndex(playbackBook, chapter);
+        : _chapterIndex(storage, playbackBook, chapter);
     final targetPosition =
         chapter != null && targetChapterIndex != resumePoint.chapterIndex
         ? Duration.zero
@@ -1667,16 +1690,18 @@ Future<void> _playBookFromDownloads(
       position: targetPosition,
       autoPlay: true,
       replayChapterAtEnd: chapter != null,
+      playbackSelection: selection,
     );
+    if (!isLatest()) return;
     await ref
         .read(homeListeningVisibilityStoreProvider)
         .show(homeListeningBookKeyFor(playbackBook));
-    ref.invalidate(playbackProgressSnapshotsProvider);
-  } catch (error) {
-    if (context.mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showMotionSnackBar(SnackBar(content: Text('${strings.play}: $error')));
+    if (isLatest()) ref.invalidate(playbackProgressSnapshotsProvider);
+  } catch (_) {
+    if (context.mounted && isLatest()) {
+      ScaffoldMessenger.of(context).showMotionSnackBar(
+        SnackBar(content: Text(strings.savedBookPlaybackError)),
+      );
     }
   }
 }
@@ -1684,7 +1709,6 @@ Future<void> _playBookFromDownloads(
 Future<AudioPlaybackBook> _freshBookForDownloads(
   WidgetRef ref,
   _DownloadBookGroup group,
-  AudioPlaybackChapter? chapter,
 ) async {
   final book = group.playbackBook;
   final sourceBookId = book.sourceBookId;
@@ -1692,16 +1716,10 @@ Future<AudioPlaybackBook> _freshBookForDownloads(
     return book;
   }
 
-  final task = chapter == null ? null : group.taskForChapter(chapter);
-  if (task?.status == DownloadTaskStatus.completed ||
-      group.displayStatus == DownloadTaskStatus.completed) {
-    return book;
-  }
-
   try {
     final snapshot = await ref
         .read(sourceCatalogServiceProvider)
-        .loadBook(
+        .loadBookPreview(
           SourceBookRef(sourceId: book.sourceId, sourceBookId: sourceBookId),
         );
     unawaited(
@@ -1710,7 +1728,7 @@ Future<AudioPlaybackBook> _freshBookForDownloads(
         downloadManager: ref.read(downloadManagerProvider),
         libraryStore: ref.read(libraryStoreProvider),
       ).refresh(snapshot).catchError((Object error, StackTrace stackTrace) {
-        debugPrint('Failed to cache source book metadata: $error');
+        debugPrint('Failed to cache source book metadata.');
         return snapshot;
       }),
     );
@@ -1720,12 +1738,21 @@ Future<AudioPlaybackBook> _freshBookForDownloads(
   }
 }
 
-int _chapterIndex(AudioPlaybackBook book, AudioPlaybackChapter chapter) {
-  final byId = book.chapters.indexWhere((item) => item.id == chapter.id);
-  if (byId >= 0) {
-    return byId;
+int _chapterIndex(
+  FileDownloadStorage storage,
+  AudioPlaybackBook book,
+  AudioPlaybackChapter chapter,
+) {
+  var index = -1;
+  for (final (position, candidate) in book.chapters.indexed) {
+    if (identical(candidate, chapter) ||
+        storage.sameTrack(book.sourceId, chapter, candidate)) {
+      if (index >= 0) throw StateError('The chapter identity is ambiguous.');
+      index = position;
+    }
   }
-  return (chapter.index - 1).clamp(0, book.chapters.length - 1);
+  if (index < 0) throw StateError('The saved chapter is unavailable.');
+  return index;
 }
 
 void _openSourceBook(BuildContext context, AudioPlaybackBook book) {
@@ -1748,9 +1775,7 @@ bool _playbackMatchesBook(
   if (activeBook == null || activeBook.sourceId != book.sourceId) {
     return false;
   }
-  return activeBook.sourceBookId == book.sourceBookId ||
-      activeBook.versionId == book.versionId ||
-      activeBook.id == book.id;
+  return activeBook.versionId == book.versionId;
 }
 
 double _progressForBook(

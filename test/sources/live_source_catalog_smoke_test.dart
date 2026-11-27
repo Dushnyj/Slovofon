@@ -24,20 +24,31 @@ void main() {
           final response = await service.search(
             const SearchRequest(query: 'дыхание зоны', kind: SearchKind.title),
           );
-          expect(response.results, isNotEmpty);
+          expect(
+            response.results,
+            isNotEmpty,
+            reason: response.failures
+                .map(
+                  (failure) => failure.message.contains('interstitial')
+                      ? '${failure.kind.name}: upstream interstitial'
+                      : failure.kind.name,
+                )
+                .join(', '),
+          );
 
           final result = response.results.firstWhere(
             (item) => item.title.toLowerCase().contains('дыхание зоны'),
             orElse: () => response.results.first,
           );
-          final snapshot = await service.loadBook(result.ref);
+          final snapshot = await service.loadBookPreview(result.ref);
 
           expect(snapshot.audioBook.title, isNotEmpty);
           expect(snapshot.playbackBook.chapters, isNotEmpty);
-          expect(
-            snapshot.playbackBook.chapters.first.mediaSource?.uri,
-            isNotNull,
+          final selected = await service.resolvePlaybackChapter(
+            snapshot.playbackBook,
+            snapshot.playbackBook.chapters.first,
           );
+          expect(selected.mediaSource?.uri, isNotNull);
         },
         skip: runLive ? false : 'Set SLOVOFON_LIVE_SOURCE_TESTS=1 to run.',
         timeout: const Timeout(Duration(seconds: 90)),

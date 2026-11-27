@@ -19,12 +19,14 @@ import '../../services/library/library_metadata.dart';
 import '../../services/sources/source_catalog_provider.dart';
 import '../../services/sources/source_access_policy.dart';
 import '../../services/sources/source_access_policy_provider.dart';
+import '../../sources/source_models.dart';
 import '../../ui/adaptive/desktop_layout.dart';
 import '../../ui/adaptive/television_layout.dart';
 import '../../ui/components/book_card.dart';
 import '../../ui/components/active_listenable_builder.dart';
 import '../../ui/components/responsive_tile_grid.dart';
 import '../../ui/components/section_header.dart';
+import '../../ui/components/state_placeholder.dart';
 import '../../ui/icons/app_icons.dart';
 import '../shared/download_ui_state.dart';
 import '../shared/playback_resume.dart';
@@ -108,7 +110,24 @@ class HomeScreen extends ConsumerWidget {
                 },
               );
               if (entries.isEmpty) {
-                final prompt = _SourceSearchCard(strings: strings);
+                final prompt = history.hasError
+                    ? Column(
+                        children: [
+                          StatePlaceholder.error(
+                            title: strings.libraryActionError,
+                          ),
+                          OutlinedButton(
+                            onPressed: () {
+                              ref.invalidate(playbackProgressSnapshotsProvider);
+                              ref.invalidate(_homeListeningHistoryProvider);
+                            },
+                            child: Text(strings.retry),
+                          ),
+                        ],
+                      )
+                    : history.isLoading
+                    ? StatePlaceholder.loading(title: strings.loading)
+                    : _SourceSearchCard(strings: strings);
                 return SliverToBoxAdapter(
                   child: Column(
                     children: [
@@ -288,11 +307,20 @@ class _HistoryBookCard extends ConsumerWidget {
           }
         },
         onPlay: () async {
+          int? selection;
+          bool isLatest() =>
+              context.mounted &&
+              (selection == null ||
+                  playbackController.isPlaybackSelectionCurrent(selection));
           try {
             if (entry.isCurrent) {
-              await playbackController.togglePlayPause();
+              final action = playbackController.togglePlayPause();
+              selection = playbackController.playbackSelectionRevision;
+              await action;
             } else {
+              selection = playbackController.beginPlaybackSelection();
               final playbackBook = await _resolveBook(ref, forDownload: false);
+              if (!isLatest()) return;
               final resumePoint = playbackResumePointForBook(
                 playbackBook,
                 progressSnapshots,
@@ -302,15 +330,18 @@ class _HistoryBookCard extends ConsumerWidget {
                 chapterIndex: resumePoint.chapterIndex,
                 position: resumePoint.position,
                 autoPlay: true,
+                playbackSelection: selection,
               );
+              if (!isLatest()) return;
               await visibilityStore.show(entry.key);
+              if (!isLatest()) return;
               onProgressChanged();
             }
-            if (context.mounted) {
+            if (context.mounted && isLatest()) {
               await context.push('/player');
             }
           } catch (_) {
-            if (context.mounted) {
+            if (context.mounted && isLatest()) {
               _showActionError(context);
             }
           }
@@ -325,15 +356,10 @@ class _HistoryBookCard extends ConsumerWidget {
     required bool forDownload,
   }) async {
     final offline = await downloadManager.offlinePlaybackBook(entry.book);
-    final point = offline.chapters.isEmpty
-        ? null
-        : playbackResumePointForBook(offline, progressSnapshots);
-    final missing =
-        offline.chapters.isEmpty ||
-        (forDownload
-            ? offline.chapters.any((chapter) => chapter.mediaSource == null)
-            : offline.chapters[point!.chapterIndex].mediaSource == null);
-    if (!missing) {
+    final sourceBookId = offline.sourceBookId;
+    if (offline.chapters.isNotEmpty ||
+        sourceBookId == null ||
+        sourceBookId.isEmpty) {
       return offline;
     }
     await ref
@@ -344,11 +370,12 @@ class _HistoryBookCard extends ConsumerWidget {
               ? SourceAccessOperation.download
               : SourceAccessOperation.streaming,
         );
-    final catalog = ref.read(sourceCatalogServiceProvider);
-    final refreshed = forDownload
-        ? await catalog.refreshBookForDownloads(offline)
-        : await catalog.refreshBookForPlayback(offline);
-    return downloadManager.offlinePlaybackBook(refreshed);
+    final preview = await ref
+        .read(sourceCatalogServiceProvider)
+        .loadBookPreview(
+          SourceBookRef(sourceId: offline.sourceId, sourceBookId: sourceBookId),
+        );
+    return downloadManager.offlinePlaybackBook(preview.playbackBook);
   }
 
   void _showActionError(BuildContext context) {

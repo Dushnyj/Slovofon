@@ -530,12 +530,12 @@ class _Catalog extends SourceCatalogService {
   Future<List<BookSearchResult>> findOtherNarrations(
     SourceBookSnapshot snapshot, {
     int limit = 12,
+    SourceSearchCancellation? cancellation,
   }) async => [];
   @override
-  Future<SourceBookSnapshot> loadBook(
+  Future<SourceBookSnapshot> loadBookPreview(
     SourceBookRef ref, {
     bool forceRefresh = false,
-    MediaResolvePurpose purpose = MediaResolvePurpose.playback,
   }) async => SourceBookSnapshot(
     details: BookVersionDetails(
       ref: ref,

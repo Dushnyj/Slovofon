@@ -1,5 +1,6 @@
 import '../../ui/motion/motion_tooltip.dart';
 import 'dart:math' as math;
+import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -16,6 +17,7 @@ import '../../domain/models/app_settings.dart';
 import '../../services/downloads/download_manager_provider.dart';
 import '../../services/downloads/download_storage.dart';
 import '../../services/settings/app_settings_store.dart';
+import '../../services/settings/android_download_network.dart';
 import '../../services/sources/source_settings_store.dart';
 import '../../services/updates/update_prompt.dart';
 import '../../ui/components/app_bar_text.dart';
@@ -27,6 +29,7 @@ import '../../ui/icons/app_icons.dart';
 import '../../ui/motion/app_motion.dart';
 import '../../ui/motion/motion_controls.dart';
 import 'language_flag.dart';
+import 'local_data_report_actions.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -83,6 +86,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         ? AppThemeMode.dark
         : appSettings.themeMode;
     _cacheStatsFuture ??= downloadStorage.cardCacheStats();
+    final downloadNetwork = Platform.isAndroid
+        ? ref.watch(androidDownloadNetworkProvider).asData?.value
+        : null;
 
     final personalizationTiles = <Widget>[
       _SettingsActionTile(
@@ -100,6 +106,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       ),
     ];
     final contentTiles = <Widget>[
+      if (downloadNetwork != null)
+        SwitchListTile(
+          key: const ValueKey('settings-download-wifi-only'),
+          title: Text(strings.downloadWifiOnly),
+          subtitle: Text(strings.downloadWifiOnlyHint),
+          value: downloadNetwork.wifiOnly,
+          onChanged: (value) async {
+            try {
+              await AndroidDownloadNetworkState.setWifiOnly(value);
+            } catch (_) {
+              if (!context.mounted) return;
+              ScaffoldMessenger.of(context).showMotionSnackBar(
+                SnackBar(content: Text(strings.libraryActionError)),
+              );
+            }
+          },
+        ),
       _SettingsActionTile(
         iconAsset: AppIconAssets.bookSource,
         title: strings.sources,
@@ -138,6 +161,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         title: strings.aboutApp,
         subtitle: strings.aboutAppHint,
         onTap: () => _openAboutSheet(context),
+      ),
+      _SettingsActionTile(
+        iconAsset: AppIconAssets.systemShare,
+        title: strings.localProgressExport,
+        subtitle: strings.localProgressExportHint,
+        onTap: () => LocalDataReportActions.exportProgress(context, ref),
+      ),
+      _SettingsActionTile(
+        iconAsset: AppIconAssets.systemInfo,
+        title: strings.localDiagnostics,
+        subtitle: strings.localDiagnosticsHint,
+        onTap: () => LocalDataReportActions.showDiagnostics(context, ref),
       ),
     ];
 

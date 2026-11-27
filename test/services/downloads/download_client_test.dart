@@ -6,6 +6,172 @@ import 'package:slovofon/services/audio/audio_state.dart';
 import 'package:slovofon/services/downloads/download_client.dart';
 
 void main() {
+  test(
+    'strong ETag is scoped to URI and checked on a resumed response',
+    () async {
+      final seen = <(String?, String?)>[];
+      final server = await _server((request) async {
+        final range = request.headers.value(HttpHeaders.rangeHeader);
+        seen.add((range, request.headers.value(HttpHeaders.ifRangeHeader)));
+        request.response.headers.set(HttpHeaders.etagHeader, '"audio-v1"');
+        if (range != null) {
+          request.response
+            ..statusCode = HttpStatus.partialContent
+            ..headers.set(HttpHeaders.contentRangeHeader, 'bytes 3-5/6')
+            ..add([4, 5, 6]);
+        } else {
+          request.response.add([1, 2, 3, 4, 5, 6]);
+        }
+        await request.response.close();
+      });
+      final client = DefaultDownloadClient();
+      addTearDown(client.close);
+      final source = _source(server);
+      final seed = await client.openWithResume(
+        source,
+        startByte: 3,
+        strongEntityTag: 'W/"audio-v1"',
+        representationKey: null,
+        cancellationToken: DownloadCancellationToken(),
+      );
+      expect(seed.shouldAppend, isFalse);
+      expect(await seed.bytes.expand((c) => c).toList(), [1, 2, 3, 4, 5, 6]);
+      final resumed = await client.openWithResume(
+        source,
+        startByte: 3,
+        strongEntityTag: seed.strongEntityTag,
+        representationKey: seed.representationKey,
+        cancellationToken: DownloadCancellationToken(),
+      );
+      expect(resumed.shouldAppend, isTrue);
+      expect(resumed.totalBytes, 6);
+      expect(await resumed.bytes.expand((c) => c).toList(), [4, 5, 6]);
+      final changedUrl = await client.openWithResume(
+        AudioMediaSource.url(source.uri.replace(query: 'edition=2')),
+        startByte: 3,
+        strongEntityTag: seed.strongEntityTag,
+        representationKey: seed.representationKey,
+        cancellationToken: DownloadCancellationToken(),
+      );
+      expect(changedUrl.shouldAppend, isFalse);
+      await changedUrl.bytes.drain<void>();
+      expect(seen, [(null, null), ('bytes=3-', '"audio-v1"'), (null, null)]);
+    },
+  );
+
+  for (final status in [
+    HttpStatus.requestedRangeNotSatisfiable,
+    HttpStatus.partialContent,
+  ]) {
+    test(
+      'verified resume starts clean after 416 or changed ETag ($status)',
+      () async {
+        final seen = <String?>[];
+        var initial = true;
+        final server = await _server((request) async {
+          final range = request.headers.value(HttpHeaders.rangeHeader);
+          seen.add(range);
+          request.response.headers.set(
+            HttpHeaders.etagHeader,
+            initial ? '"old"' : '"new"',
+          );
+          if (range != null) {
+            request.response.statusCode = status;
+            request.response.headers.set(
+              HttpHeaders.contentRangeHeader,
+              status == HttpStatus.partialContent ? 'bytes 3-5/6' : 'bytes */6',
+            );
+            request.response.add([4, 5, 6]);
+          } else {
+            request.response.add(
+              initial ? [1, 2, 3, 4, 5, 6] : [10, 11, 12, 13, 14, 15],
+            );
+          }
+          await request.response.close();
+        });
+        final client = DefaultDownloadClient();
+        addTearDown(client.close);
+        final source = _source(server);
+        final seed = await client.openWithResume(
+          source,
+          startByte: 0,
+          strongEntityTag: null,
+          representationKey: null,
+          cancellationToken: DownloadCancellationToken(),
+        );
+        await seed.bytes.drain<void>();
+        initial = false;
+        final resumed = await client.openWithResume(
+          source,
+          startByte: 3,
+          strongEntityTag: seed.strongEntityTag,
+          representationKey: seed.representationKey,
+          cancellationToken: DownloadCancellationToken(),
+        );
+        expect(resumed.shouldAppend, isFalse);
+        expect(resumed.strongEntityTag, '"new"');
+        expect(await resumed.bytes.expand((c) => c).toList(), [
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+        ]);
+        expect(seen, [null, 'bytes=3-', null]);
+      },
+    );
+  }
+
+  test('redirects stay within the supplied request policy', () async {
+    var otherOriginRequests = 0;
+    final other = await _server((request) async {
+      otherOriginRequests++;
+      await request.response.close();
+    });
+    final server = await _server((request) async {
+      if (request.uri.path == '/allowed') {
+        request.response.add([7]);
+        await request.response.close();
+        return;
+      }
+      await request.response.redirect(
+        request.uri.queryParameters['cross'] == 'yes'
+            ? Uri.parse('http://127.0.0.1:${other.port}/unexpected')
+            : Uri.parse('/allowed'),
+      );
+    });
+    final client = DefaultDownloadClient();
+    addTearDown(client.close);
+    final source = _source(server);
+    final allowed = await client.openWithResume(
+      source,
+      startByte: 0,
+      strongEntityTag: null,
+      representationKey: null,
+      cancellationToken: DownloadCancellationToken(),
+    );
+    expect(await allowed.bytes.expand((c) => c).toList(), [7]);
+    final cross = AudioMediaSource.url(source.uri.replace(query: 'cross=yes'));
+    await expectLater(
+      client.openWithResume(
+        cross,
+        startByte: 0,
+        strongEntityTag: null,
+        representationKey: null,
+        cancellationToken: DownloadCancellationToken(),
+      ),
+      throwsA(
+        isA<DownloadClientException>().having(
+          (e) => e.code,
+          'code',
+          'media_redirect_denied',
+        ),
+      ),
+    );
+    expect(otherOriginRequests, 0);
+  });
+
   test('cancel interrupts a pending open and aborts a late request', () async {
     final http = _DeferredHttpClient();
     final client = DefaultDownloadClient(httpClient: http);

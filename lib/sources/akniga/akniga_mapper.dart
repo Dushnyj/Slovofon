@@ -138,6 +138,10 @@ class AknigaMapper {
             sourceId: sourceId,
             sourceBookId: slug,
             sourceChapterId: _trackId(trackItems[index], index),
+            storageIdentity: SourceParserHelpers.providerTrackIdentity([
+              _string(trackItems[index]['id']),
+              _string(trackItems[index]['chapterId']),
+            ], mediaReference: mediaUrl),
             index: index + 1,
             title: _trackTitle(trackItems[index], index),
             normalizedTitle: SourceParserHelpers.normalizeTitle(

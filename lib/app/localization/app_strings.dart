@@ -130,6 +130,12 @@ class AppStrings {
   String get searchBySeries => _text('searchBySeries');
   String get searchByGenre => _text('searchByGenre');
   String get searchScope => _text('searchScope');
+  String get searchOnlyDownloaded => _text('searchOnlyDownloaded');
+  String get searchingDownloads => _text('searchingDownloads');
+  String get searchEveryEdition => _text('searchEveryEdition');
+  String get searchFullEditions => _text('searchFullEditions');
+  String get searchFragmentEditions => _text('searchFragmentEditions');
+  String get searchGroupEditions => _text('searchGroupEditions');
   String get sourceFilter => _text('sourceFilter');
   String get allSources => _text('allSources');
   String get apply => _text('apply');
@@ -208,6 +214,9 @@ class AppStrings {
   String get emptyHistoryShelfMessage => _text('emptyHistoryShelfMessage');
   String get libraryLoadError => _text('libraryLoadError');
   String get libraryActionError => _text('libraryActionError');
+  String get downloadWifiOnly => _text('downloadWifiOnly');
+  String get downloadWifiOnlyHint => _text('downloadWifiOnlyHint');
+  String get downloadWaitingForWifi => _text('downloadWaitingForWifi');
   String get bookmarkUnavailable => _text('bookmarkUnavailable');
   String get emptyDownloads => _text('emptyDownloads');
   String get emptyDownloadsMessage => _text('emptyDownloadsMessage');
@@ -367,6 +376,15 @@ class AppStrings {
 
   String get aboutApp => _text('aboutApp');
   String get aboutAppHint => _text('aboutAppHint');
+  String get localProgressExport => _text('localProgressExport');
+  String get localProgressExportHint => _text('localProgressExportHint');
+  String get localProgressExportConfirmation =>
+      _text('localProgressExportConfirmation');
+  String get localDiagnostics => _text('localDiagnostics');
+  String get localDiagnosticsHint => _text('localDiagnosticsHint');
+  String get localCopyJson => _text('localCopyJson');
+  String get localJsonCopied => _text('localJsonCopied');
+  String get localExportTooLarge => _text('localExportTooLarge');
   String get appVersion => _text('appVersion');
   String get buildNumber => _text('buildNumber');
   String get projectWebsite => _text('projectWebsite');

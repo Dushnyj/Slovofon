@@ -1,9 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 
+import '../../core/network/media_request_policy.dart';
 import '../audio/audio_state.dart';
 
 abstract interface class DownloadClient {
@@ -14,6 +17,28 @@ abstract interface class DownloadClient {
   });
 }
 
+/// A download transport that verifies the identity of a resumed representation.
+/// The simple interface also supports local/fake sources with stable bytes.
+abstract interface class ResumeAwareDownloadClient implements DownloadClient {
+  Future<DownloadClientResponse> openWithResume(
+    AudioMediaSource source, {
+    required int startByte,
+    required String? strongEntityTag,
+    required String? representationKey,
+    required DownloadCancellationToken cancellationToken,
+  });
+}
+
+String? strongDownloadEntityTag(String? header) {
+  final value = header?.trim();
+  // RFC 9110 entity-tag: reject weak tags and multiple values.
+  return value != null &&
+          value.length <= 1024 &&
+          RegExp(r'^"[\x21\x23-\x7e\x80-\xff]*"$').hasMatch(value)
+      ? value
+      : null;
+}
+
 class DownloadClientResponse {
   const DownloadClientResponse({
     required this.bytes,
@@ -22,6 +47,9 @@ class DownloadClientResponse {
     required this.supportsResume,
     required this.shouldAppend,
     required this.fileExtension,
+    this.strongEntityTag,
+    this.representationKey,
+    this.validateMedia = false,
   });
 
   final Stream<List<int>> bytes;
@@ -30,6 +58,9 @@ class DownloadClientResponse {
   final bool supportsResume;
   final bool shouldAppend;
   final String fileExtension;
+  final String? strongEntityTag;
+  final String? representationKey;
+  final bool validateMedia;
 }
 
 class DownloadCancellationToken {
@@ -192,7 +223,7 @@ class DownloadClientException implements Exception {
   }
 }
 
-class DefaultDownloadClient implements DownloadClient {
+class DefaultDownloadClient implements ResumeAwareDownloadClient {
   DefaultDownloadClient({
     HttpClient? httpClient,
     this.connectionTimeout = const Duration(seconds: 30),
@@ -218,6 +249,32 @@ class DefaultDownloadClient implements DownloadClient {
     AudioMediaSource source, {
     required int startByte,
     required DownloadCancellationToken cancellationToken,
+  }) =>
+      _open(source, startByte: startByte, cancellationToken: cancellationToken);
+
+  @override
+  Future<DownloadClientResponse> openWithResume(
+    AudioMediaSource source, {
+    required int startByte,
+    required String? strongEntityTag,
+    required String? representationKey,
+    required DownloadCancellationToken cancellationToken,
+  }) => _open(
+    source,
+    startByte: startByte,
+    strongEntityTag: strongDownloadEntityTag(strongEntityTag),
+    representationKey: representationKey,
+    verifiedDownload: true,
+    cancellationToken: cancellationToken,
+  );
+
+  Future<DownloadClientResponse> _open(
+    AudioMediaSource source, {
+    required int startByte,
+    required DownloadCancellationToken cancellationToken,
+    String? strongEntityTag,
+    String? representationKey,
+    bool verifiedDownload = false,
   }) async {
     if (_closed) {
       throw const DownloadClientException('Download client is closed.');
@@ -232,6 +289,9 @@ class DefaultDownloadClient implements DownloadClient {
           source,
           startByte: startByte,
           cancellationToken: cancellationToken,
+          strongEntityTag: strongEntityTag,
+          representationKey: representationKey,
+          verifiedDownload: verifiedDownload,
         );
       case AudioMediaSourceType.file:
         return _openFile(source, startByte: startByte);
@@ -244,11 +304,17 @@ class DefaultDownloadClient implements DownloadClient {
     AudioMediaSource source, {
     required int startByte,
     required DownloadCancellationToken cancellationToken,
+    required String? strongEntityTag,
+    required String? representationKey,
+    required bool verifiedDownload,
   }) async {
     // Each production request owns its client so cancellation also interrupts
     // DNS/connect/TLS, before getUrl has produced an abortable request.
     final client = _httpClient ?? HttpClient();
     client.connectionTimeout = connectionTimeout;
+    if (verifiedDownload || _httpClient == null) {
+      client.autoUncompress = false;
+    }
     if (_httpClient == null) {
       _activeClients.add(client);
     }
@@ -271,29 +337,146 @@ class DefaultDownloadClient implements DownloadClient {
     removeListener = cancellationToken.addListener(release);
 
     try {
-      final activeRequest = await cancellationToken.waitFor<HttpClientRequest>(
-        client.getUrl(source.uri).timeout(connectionTimeout),
-        onCanceledValue: (lateRequest) => lateRequest.abort(),
-      );
-      request = activeRequest;
-      source.headers.forEach(activeRequest.headers.add);
-      // Byte offsets must refer to the actual bytes written to the part file.
-      activeRequest.headers.set(HttpHeaders.acceptEncodingHeader, 'identity');
-      if (startByte > 0) {
-        activeRequest.headers.set(HttpHeaders.rangeHeader, 'bytes=$startByte-');
+      final policy =
+          source.requestPolicy ?? MediaRequestPolicy.sameOrigin(source.uri);
+      if (!policy.allows(source.uri)) {
+        throw const DownloadClientException(
+          'Media address is not permitted.',
+          code: 'media_host_denied',
+        );
+      }
+      Future<({HttpClientResponse response, Uri uri, int offset, String key})>
+      fetch({required bool allowRange}) async {
+        var uri = source.uri;
+        for (var hop = 0; hop <= 5; hop++) {
+          // Bind a validator to the effective representation, not the first
+          // host, a newly issued signed URL, or any CDN that happens to return
+          // the same ETag. Only the digest goes to disk.
+          final hopHeaders = policy.headersForHop(
+            source.uri,
+            uri,
+            source.headers,
+          );
+          final representations = hopHeaders.entries.toList()
+            ..sort(
+              (left, right) =>
+                  left.key.toLowerCase().compareTo(right.key.toLowerCase()),
+            );
+          final key = sha256
+              .convert(
+                utf8.encode(
+                  jsonEncode([
+                    uri.toString(),
+                    for (final header in representations)
+                      [header.key.toLowerCase(), header.value],
+                  ]),
+                ),
+              )
+              .toString();
+          final offset =
+              allowRange &&
+                  (!verifiedDownload ||
+                      (strongEntityTag != null && representationKey == key))
+              ? startByte
+              : 0;
+          final activeRequest = await cancellationToken
+              .waitFor<HttpClientRequest>(
+                client.getUrl(uri).timeout(connectionTimeout),
+                onCanceledValue: (lateRequest) => lateRequest.abort(),
+              );
+          request = activeRequest;
+          activeRequest.followRedirects = false;
+          hopHeaders.forEach(activeRequest.headers.add);
+          // Byte offsets must refer to the actual bytes written to the part.
+          activeRequest.headers.set(
+            HttpHeaders.acceptEncodingHeader,
+            'identity',
+          );
+          activeRequest.headers.removeAll(HttpHeaders.ifRangeHeader);
+          activeRequest.headers.removeAll(HttpHeaders.rangeHeader);
+          if (offset > 0) {
+            activeRequest.headers.set(
+              HttpHeaders.rangeHeader,
+              'bytes=$offset-',
+            );
+            if (verifiedDownload && strongEntityTag != null) {
+              activeRequest.headers.set(
+                HttpHeaders.ifRangeHeader,
+                strongEntityTag,
+              );
+            }
+          }
+          final response = await cancellationToken.waitFor(
+            activeRequest.close().timeout(connectionTimeout),
+          );
+          if (!_isRedirect(response.statusCode)) {
+            return (response: response, uri: uri, offset: offset, key: key);
+          }
+          final locations = response.headers[HttpHeaders.locationHeader];
+          final next = policy.resolveRedirect(
+            uri,
+            locations != null && locations.length == 1
+                ? locations.single
+                : null,
+          );
+          _discardResponse(response);
+          if (next == null || hop == 5) {
+            throw const DownloadClientException(
+              'Media redirect is not permitted.',
+              code: 'media_redirect_denied',
+            );
+          }
+          uri = next;
+        }
+        throw StateError('Unreachable media redirect loop.');
       }
 
-      final response = await cancellationToken.waitFor(
-        activeRequest.close().timeout(connectionTimeout),
-      );
+      var transfer = await fetch(allowRange: startByte > 0);
+      final rangedTag = _responseStrongTag(transfer.response);
+      if (verifiedDownload &&
+          transfer.offset > 0 &&
+          (transfer.response.statusCode ==
+                  HttpStatus.requestedRangeNotSatisfiable ||
+              (transfer.response.statusCode == HttpStatus.partialContent &&
+                  rangedTag != strongEntityTag))) {
+        _discardResponse(transfer.response);
+        transfer = await fetch(allowRange: false);
+      }
+      final response = transfer.response;
+      final offset = transfer.offset;
       final isPartial = response.statusCode == HttpStatus.partialContent;
       if (response.statusCode != HttpStatus.ok && !isPartial) {
+        _discardResponse(response);
         throw DownloadClientException(
           'Media request failed.',
           statusCode: response.statusCode,
         );
       }
-      final shouldAppend = startByte > 0 && isPartial;
+      final encoding = response.headers.value(
+        HttpHeaders.contentEncodingHeader,
+      );
+      if (encoding != null && encoding.trim().toLowerCase() != 'identity') {
+        _discardResponse(response);
+        throw const DownloadClientException(
+          'Unsupported encoding for media transfer.',
+          code: 'invalid_media_response',
+        );
+      }
+      final mime = response.headers.contentType?.mimeType.toLowerCase();
+      if (verifiedDownload &&
+          (mime == 'text/html' ||
+              mime == 'application/json' ||
+              mime == 'application/xml' ||
+              (mime?.endsWith('+json') ?? false) ||
+              (mime?.endsWith('+xml') ?? false))) {
+        _discardResponse(response);
+        throw const DownloadClientException(
+          'Response is not audio.',
+          code: 'invalid_media_response',
+        );
+      }
+      final shouldAppend = offset > 0 && isPartial;
+      int? rangeBodyLength;
       if (isPartial) {
         final range = response.headers.value(HttpHeaders.contentRangeHeader);
         final match = range == null
@@ -302,14 +485,17 @@ class DefaultDownloadClient implements DownloadClient {
         final rangeStart = match == null ? null : int.tryParse(match.group(1)!);
         final rangeEnd = match == null ? null : int.tryParse(match.group(2)!);
         final rangeTotal = match == null ? null : int.tryParse(match.group(3)!);
-        if (rangeStart != startByte ||
+        if (rangeStart != offset ||
             rangeEnd == null ||
-            rangeEnd < startByte ||
+            rangeEnd < offset ||
+            (verifiedDownload && rangeTotal == null) ||
             (rangeTotal != null && rangeEnd >= rangeTotal) ||
             (response.contentLength >= 0 &&
-                response.contentLength != rangeEnd - startByte + 1)) {
+                response.contentLength != rangeEnd - offset + 1)) {
+          _discardResponse(response);
           throw const DownloadClientException('Invalid media byte range.');
         }
+        rangeBodyLength = rangeEnd - offset + 1;
       }
 
       return DownloadClientResponse(
@@ -318,16 +504,16 @@ class DefaultDownloadClient implements DownloadClient {
           idleTimeout: readTimeout,
           onRelease: release,
         ),
-        totalBytes: _totalBytes(
-          response,
-          startByte: shouldAppend ? startByte : 0,
-        ),
+        totalBytes: _totalBytes(response, startByte: shouldAppend ? offset : 0),
         contentLength: response.contentLength < 0
-            ? null
+            ? rangeBodyLength
             : response.contentLength,
         supportsResume: _supportsResume(response),
         shouldAppend: shouldAppend,
-        fileExtension: _extensionFromPath(source.uri.path),
+        fileExtension: _extensionFromPath(transfer.uri.path),
+        strongEntityTag: _responseStrongTag(response),
+        representationKey: transfer.key,
+        validateMedia: verifiedDownload,
       );
     } on TimeoutException {
       release();
@@ -336,6 +522,26 @@ class DefaultDownloadClient implements DownloadClient {
       release();
       rethrow;
     }
+  }
+
+  static bool _isRedirect(int status) => switch (status) {
+    HttpStatus.movedPermanently ||
+    HttpStatus.found ||
+    HttpStatus.seeOther ||
+    HttpStatus.temporaryRedirect ||
+    HttpStatus.permanentRedirect => true,
+    _ => false,
+  };
+
+  static void _discardResponse(HttpClientResponse response) {
+    final subscription = response.listen((_) {}, onError: (Object _) {});
+    unawaited(subscription.cancel().catchError((Object _) {}));
+  }
+
+  static String? _responseStrongTag(HttpClientResponse response) {
+    final values = response.headers[HttpHeaders.etagHeader];
+    if (values == null || values.length != 1) return null;
+    return strongDownloadEntityTag(values.single);
   }
 
   Future<DownloadClientResponse> _openFile(
@@ -397,7 +603,9 @@ class DefaultDownloadClient implements DownloadClient {
   }
 
   int? _totalBytes(HttpClientResponse response, {required int startByte}) {
-    final contentRange = response.headers.value(HttpHeaders.contentRangeHeader);
+    final contentRange = response.statusCode == HttpStatus.partialContent
+        ? response.headers.value(HttpHeaders.contentRangeHeader)
+        : null;
     if (contentRange != null) {
       final match = RegExp(r'/(\d+)$').firstMatch(contentRange);
       if (match != null) {

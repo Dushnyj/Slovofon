@@ -478,6 +478,99 @@ void main() {
     });
 
     test(
+      'preview shares metadata and resolves only a chosen chapter',
+      () async {
+        final connector = _LazyChaptersConnector();
+        final catalog = SourceCatalogService(
+          registry: SourceRegistry([connector]),
+        );
+        const ref = SourceBookRef(
+          sourceId: 'baza_knig',
+          sourceBookId: 'period',
+        );
+        final metadata = await catalog.loadBookDetails(ref);
+        final preview = await catalog.loadBookPreview(ref);
+        expect(preview.details, same(metadata));
+        expect(connector.detailLoads, 1);
+        expect(connector.chapterLoads, 1);
+        expect(connector.resolutions, isEmpty);
+        expect(preview.playbackBook.chapters, hasLength(3));
+        expect(
+          preview.playbackBook.chapters.map((chapter) => chapter.mediaSource),
+          everyElement(isNull),
+        );
+
+        final chosen = preview.playbackBook.chapters.last;
+        final resolved = await catalog.resolvePlaybackChapter(
+          preview.playbackBook,
+          chosen,
+        );
+        expect(resolved.id, chosen.id);
+        expect(resolved.index, chosen.index);
+        expect(resolved.storageIdentity, 'id:track-3');
+        expect(resolved.mediaSource?.uri.path, endsWith('/2.mp3'));
+        expect(connector.resolutions, [
+          (chosen.id, MediaResolvePurpose.playback),
+        ]);
+
+        await catalog.resolvePlaybackChapter(
+          preview.playbackBook,
+          chosen,
+          purpose: MediaResolvePurpose.download,
+        );
+        expect(connector.resolutions.last, (
+          chosen.id,
+          MediaResolvePurpose.download,
+        ));
+        expect(connector.chapterLoads, 1);
+        final local = chosen.copyWith(
+          mediaSource: AudioMediaSource.file('offline.mp3'),
+        );
+        expect(
+          await catalog.resolvePlaybackChapter(
+            preview.playbackBook,
+            local,
+            forceRefresh: true,
+          ),
+          same(local),
+        );
+        expect(connector.resolutions, hasLength(2));
+      },
+    );
+
+    test(
+      'selected refresh does not substitute a revised chapter at the same index',
+      () async {
+        final connector = _LazyChaptersConnector();
+        final catalog = SourceCatalogService(
+          registry: SourceRegistry([connector]),
+        );
+        const ref = SourceBookRef(
+          sourceId: 'baza_knig',
+          sourceBookId: 'period',
+        );
+        final preview = await catalog.loadBookPreview(ref);
+        connector.revised = true;
+        await expectLater(
+          catalog.resolvePlaybackChapter(
+            preview.playbackBook,
+            preview.playbackBook.chapters.last,
+            forceRefresh: true,
+          ),
+          throwsA(
+            isA<SourceException>().having(
+              (error) => error.kind,
+              'kind',
+              SourceErrorKind.notFound,
+            ),
+          ),
+        );
+        expect(connector.chapterLoads, 2);
+        expect(connector.resolutions, isEmpty);
+      },
+    );
+
+    test(
       'uses total book duration when source chapters have no durations',
       () async {
         final service = SourceCatalogService(
@@ -892,6 +985,51 @@ class _ZeroChapterDurationConnector implements SourceConnector {
   @override
   Future<SourceHealth> checkHealth() async {
     return SourceHealth.working(sourceId: id);
+  }
+}
+
+class _LazyChaptersConnector extends _ZeroChapterDurationConnector {
+  int detailLoads = 0;
+  int chapterLoads = 0;
+  bool revised = false;
+  final resolutions = <(String, MediaResolvePurpose)>[];
+
+  @override
+  Future<BookVersionDetails> getBookDetails(SourceBookRef ref) async {
+    detailLoads++;
+    return super.getBookDetails(ref);
+  }
+
+  @override
+  Future<List<Chapter>> getChapters(SourceBookRef ref) async {
+    chapterLoads++;
+    return [
+      for (final chapter in await super.getChapters(ref))
+        Chapter(
+          id: chapter.id,
+          bookVersionId: chapter.bookVersionId,
+          sourceId: chapter.sourceId,
+          sourceBookId: ref.sourceBookId,
+          storageIdentity: revised && chapter.index == 3
+              ? 'id:replacement'
+              : 'id:track-${chapter.index}',
+          index: chapter.index,
+          title: chapter.title,
+          normalizedTitle: chapter.normalizedTitle,
+          streamRef: chapter.streamRef,
+          createdAt: chapter.createdAt,
+          updatedAt: chapter.updatedAt,
+        ),
+    ];
+  }
+
+  @override
+  Future<ResolvedMedia> resolveMedia(
+    Chapter chapter,
+    MediaResolvePurpose purpose,
+  ) {
+    resolutions.add((chapter.id, purpose));
+    return super.resolveMedia(chapter, purpose);
   }
 }
 

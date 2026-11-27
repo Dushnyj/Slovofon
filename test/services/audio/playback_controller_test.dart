@@ -9,6 +9,193 @@ import 'package:slovofon/services/audio/playback_controller.dart';
 
 void main() {
   group('PlaybackController', () {
+    test(
+      'a superseded load does not leave a spinner if new lookup fails',
+      () async {
+        final engine = RecordingAudioEngine();
+        final entered = Completer<void>();
+        final slow = Completer<AudioPlaybackChapter>();
+        final service = PlaybackController(
+          engine: engine,
+          playbackChapterResolver: (_, _) {
+            entered.complete();
+            return slow.future;
+          },
+        );
+        addTearDown(service.dispose);
+        final first = service.loadBook(_book, autoPlay: true);
+        await entered.future;
+        expect(service.state.status, AudioPlaybackStatus.loading);
+        service.beginPlaybackSelection();
+        expect(service.state.status, AudioPlaybackStatus.paused);
+        slow.complete(
+          _book.chapters.first.copyWith(
+            mediaSource: AudioMediaSource.asset('first.mp3'),
+          ),
+        );
+        await first;
+        expect(service.state.status, AudioPlaybackStatus.paused);
+        expect(engine.loadedChapterIds, isEmpty);
+      },
+    );
+
+    test(
+      'offline-selected book does not resolve missing media or retry online',
+      () async {
+        final engine = RecordingAudioEngine();
+        var chapterResolutions = 0;
+        var remoteRetries = 0;
+        final service = PlaybackController(
+          engine: engine,
+          playbackChapterResolver: (_, chapter) async {
+            chapterResolutions++;
+            return chapter;
+          },
+          playbackErrorBookResolver: (book) async {
+            remoteRetries++;
+            return book;
+          },
+          // Even a replacement representation that forgets the runtime flag
+          // cannot widen the currently selected transport.
+          playbackBookResolver: (_) async => _book,
+        );
+        addTearDown(service.dispose);
+        await service.loadBook(
+          _book.copyWith(offlineOnly: true),
+          autoPlay: true,
+        );
+        await service.play();
+        expect(service.state.status, AudioPlaybackStatus.error);
+        expect(chapterResolutions, 0);
+        expect(remoteRetries, 0);
+        expect(engine.playCount, 0);
+      },
+    );
+
+    test(
+      'a later selection is not blocked by earlier lazy resolution',
+      () async {
+        final engine = RecordingAudioEngine();
+        final entered = Completer<void>();
+        final slow = Completer<AudioPlaybackChapter>();
+        final resolutions = <String>[];
+        final service = PlaybackController(
+          engine: engine,
+          playbackChapterResolver: (book, chapter) async {
+            resolutions.add(chapter.id);
+            if (chapter.id == 'chapter-1') {
+              entered.complete();
+              return slow.future;
+            }
+            return chapter.copyWith(
+              mediaSource: AudioMediaSource.asset('second.mp3'),
+            );
+          },
+        );
+        addTearDown(service.dispose);
+        final first = service.loadBook(_book, autoPlay: true);
+        await entered.future;
+        final ticket = service.beginPlaybackSelection();
+        await service.loadBook(
+          _book,
+          chapterIndex: 1,
+          autoPlay: true,
+          playbackSelection: ticket,
+        );
+        slow.complete(
+          _book.chapters.first.copyWith(
+            mediaSource: AudioMediaSource.asset('first.mp3'),
+          ),
+        );
+        await first;
+        expect(resolutions, ['chapter-1', 'chapter-2']);
+        expect(engine.loadedChapterIds, ['chapter-2']);
+        expect(engine.playCount, 1);
+      },
+    );
+
+    test(
+      'restored paused metadata does not resolve or load media until Play',
+      () async {
+        final engine = RecordingAudioEngine();
+        final resolved = <String>[];
+        final service = PlaybackController(
+          engine: engine,
+          playbackChapterResolver: (_, chapter) async {
+            resolved.add(chapter.id);
+            return chapter.copyWith(
+              mediaSource: AudioMediaSource.asset('book.mp3'),
+            );
+          },
+        );
+        addTearDown(service.dispose);
+        await service.restoreSession(
+          _book,
+          PlaybackSession(
+            id: 'active',
+            activeChapterId: 'chapter-2',
+            positionMs: 3000,
+            updatedAt: DateTime.utc(2026),
+          ),
+          loadMedia: false,
+        );
+        expect(resolved, isEmpty);
+        expect(engine.loadedChapterIds, isEmpty);
+        expect(service.state.status, AudioPlaybackStatus.paused);
+        expect(service.state.position, const Duration(seconds: 3));
+        await service.play();
+        expect(resolved, ['chapter-2']);
+        expect(engine.loadedChapterIds, ['chapter-2']);
+      },
+    );
+
+    test(
+      'sleep timer charges elapsed playing time even with delayed polls',
+      () async {
+        var elapsed = Duration.zero;
+        final engine = RecordingAudioEngine();
+        final service = PlaybackController(
+          engine: engine,
+          elapsedClock: () => elapsed,
+        );
+        addTearDown(service.dispose);
+        await service.loadBook(_book, autoPlay: true);
+        service.setSleepTimer(const Duration(seconds: 20));
+        elapsed += const Duration(seconds: 8);
+        await service.pause();
+        elapsed += const Duration(minutes: 1);
+        await service.pollSleepTimer();
+        expect(service.state.sleepTimerRemaining, const Duration(seconds: 12));
+        await service.play();
+        elapsed += const Duration(seconds: 13);
+        await service.pollSleepTimer();
+        expect(service.state.sleepTimerRemaining, isNull);
+        expect(service.state.status, AudioPlaybackStatus.paused);
+      },
+    );
+
+    test('chapter-end timer works before the decoder knows duration', () async {
+      final engine = StreamingAudioEngine();
+      final service = PlaybackController(engine: engine);
+      addTearDown(service.dispose);
+      await service.loadBook(_unknownDurationBook, autoPlay: true);
+      service.setSleepTimerToChapterEnd();
+      expect(service.state.sleepTimerMode, SleepTimerMode.stopAtChapterEnd);
+      expect(service.state.sleepTimerRemaining, isNull);
+      engine.emit(
+        const AudioEngineSnapshot(
+          position: Duration(seconds: 18),
+          duration: Duration(seconds: 18),
+          processingState: AudioEngineProcessingState.completed,
+          isPlaying: true,
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(service.state.sleepTimerMode, SleepTimerMode.off);
+      expect(service.state.status, AudioPlaybackStatus.paused);
+      expect(engine.loadedChapterIds, ['chapter-1']);
+    });
+
     test('loads a book and controls engine playback', () async {
       final engine = RecordingAudioEngine();
       final service = PlaybackController(engine: engine);

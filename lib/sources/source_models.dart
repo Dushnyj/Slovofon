@@ -394,12 +394,16 @@ class SourceSearchResponse {
     required this.results,
     this.failures = const [],
     this.continuation,
+    this.retryContinuation,
     this.limitedSourceIds = const {},
   });
 
   final List<BookSearchResult> results;
   final List<SourceFailure> failures;
   final SourceSearchContinuation? continuation;
+
+  /// Resumes only failed source lanes without discarding previously found cards.
+  final SourceSearchContinuation? retryContinuation;
   final Set<String> limitedSourceIds;
 
   bool get hasPartialFailures => results.isNotEmpty && failures.isNotEmpty;

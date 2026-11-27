@@ -16,29 +16,43 @@ class AtomicJsonFile {
 
   File get _backup => File('${file.path}.bak');
 
-  Future<Object?> read() => _serialized(() async {
+  Future<Object?> read() => _serialized(_readLocked);
+
+  Future<Object?> _readLocked() async {
     final primary = await _read(file);
     if (primary != null) {
       return primary.value;
     }
     return (await _read(_backup))?.value;
+  }
+
+  /// Updates the same last-good snapshot without releasing the file queue
+  /// between the read and write, even across distinct AtomicJsonFile instances.
+  Future<T> update<T>(
+    ({Object? value, T result}) Function(Object? current) change,
+  ) => _serialized(() async {
+    final next = change(await _readLocked());
+    await _writeLocked(jsonEncode(next.value));
+    return next.result;
   });
 
   Future<void> write(Object? value) {
     // Encode before entering the queue so caller mutations cannot change a
     // pending write, and non-JSON values fail before touching existing files.
     final encoded = jsonEncode(value);
-    return _serialized(() async {
-      await file.parent.create(recursive: true);
-      final current = await _read(file);
-      if (current != null) {
-        await _replace(_backup, current.raw);
-      } else if (await file.exists()) {
-        // Preserve the original; do not replace a last-good backup with it.
-        await file.copy('${file.path}.corrupt.${_suffix()}');
-      }
-      await _replace(file, encoded);
-    });
+    return _serialized(() => _writeLocked(encoded));
+  }
+
+  Future<void> _writeLocked(String encoded) async {
+    await file.parent.create(recursive: true);
+    final current = await _read(file);
+    if (current != null) {
+      await _replace(_backup, current.raw);
+    } else if (await file.exists()) {
+      // Preserve the original; do not replace a last-good backup with it.
+      await file.copy('${file.path}.corrupt.${_suffix()}');
+    }
+    await _replace(file, encoded);
   }
 
   Future<T> _serialized<T>(Future<T> Function() operation) {

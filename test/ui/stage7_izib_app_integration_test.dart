@@ -152,9 +152,6 @@ void main() {
   testWidgets('search opens an Izib book and starts playback with chapters', (
     tester,
   ) async {
-    final playbackController = PlaybackController(
-      engine: InMemoryAudioEngine(),
-    );
     final ordinalFixture = _fixtureText('izib_book_response.json')
         .replaceAll('"index": 1', '"index": 0')
         .replaceAll('"index": 2', '"index": 8');
@@ -166,6 +163,11 @@ void main() {
     final sourceRegistry = SourceRegistry([
       IzibSourceConnector(client: IzibGraphQlClient(transport: transport)),
     ]);
+    final catalog = SourceCatalogService(registry: sourceRegistry);
+    final playbackController = PlaybackController(
+      engine: InMemoryAudioEngine(),
+      playbackChapterResolver: catalog.resolvePlaybackChapter,
+    );
 
     appRouter.go('/search');
     tester.view.physicalSize = const Size(430, 932);
@@ -179,6 +181,7 @@ void main() {
         overrides: [
           downloadStorageProvider.overrideWith((ref) => _MemoryBookStorage()),
           sourceRegistryProvider.overrideWith((ref) => sourceRegistry),
+          sourceCatalogServiceProvider.overrideWithValue(catalog),
           playbackControllerProvider.overrideWith((ref) => playbackController),
           searchHistoryStoreProvider.overrideWith(
             (ref) => MemorySearchHistoryStore(),
@@ -258,10 +261,18 @@ void main() {
     )..createSync(recursive: true);
     final now = DateTime(2026, 5, 26, 16);
     final persistence = MemoryDownloadPersistenceStore();
+    final seededDownloadManager = DownloadManager(
+      client: _NoopDownloadClient(),
+      storage: FileDownloadStorage(rootDirectory: downloadDirectory),
+      persistence: persistence,
+    );
     for (final chapter in snapshot.playbackBook.chapters) {
       await persistence.saveTask(
         DownloadTask(
-          id: 'chapter:${snapshot.playbackBook.sourceId}:${snapshot.playbackBook.versionId}:${chapter.id}',
+          id: seededDownloadManager.taskIdForBookChapter(
+            snapshot.playbackBook,
+            chapter,
+          ),
           bookId: snapshot.playbackBook.id,
           bookVersionId: snapshot.playbackBook.versionId,
           chapterId: chapter.id,
@@ -275,11 +286,6 @@ void main() {
         ),
       );
     }
-    final seededDownloadManager = DownloadManager(
-      client: _NoopDownloadClient(),
-      storage: FileDownloadStorage(rootDirectory: downloadDirectory),
-      persistence: persistence,
-    );
     await tester.runAsync(
       () => seededDownloadManager.loadPersistedTasks(recoverInterrupted: false),
     );
@@ -1165,12 +1171,23 @@ void main() {
     expect(find.text('Chapter 006'), findsNothing);
     expect(find.text('Chapter 007'), findsNothing);
 
-    await tester.tap(find.text('Show 2 more chapters'));
+    final scrollable = find
+        .descendant(
+          of: find.byType(SourceBookDetailsScreen),
+          matching: find.byType(Scrollable),
+        )
+        .first;
+    final expand = find.text('Show 2 more chapters');
+    await tester.scrollUntilVisible(expand, 160, scrollable: scrollable);
+    await tester.tap(expand);
     await _pumpFrames(tester);
+
+    final collapse = find.text('Collapse chapters');
+    await tester.scrollUntilVisible(collapse, 160, scrollable: scrollable);
 
     expect(find.text('Chapter 006'), findsOneWidget);
     expect(find.text('Chapter 007'), findsOneWidget);
-    expect(find.text('Collapse chapters'), findsOneWidget);
+    expect(collapse, findsOneWidget);
   });
 
   testWidgets(

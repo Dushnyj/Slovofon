@@ -47,6 +47,7 @@ void main() {
           final editor = find.byKey(const ValueKey('tv-search-editor'));
           final kinds = find.byKey(const ValueKey('tv-search-kinds'));
           final sort = find.byKey(const ValueKey('tv-search-sort'));
+          final options = find.byKey(const ValueKey('search-options'));
           final editorRect = tester.getRect(editor);
           final kindsRect = tester.getRect(kinds);
           final submit = tester.widget<IconButton>(
@@ -72,10 +73,13 @@ void main() {
           if (textScale == 1) {
             expect(kindsRect.left, greaterThan(editorRect.right));
             expect(kindsRect.center.dy, closeTo(editorRect.center.dy, 16));
+            expect(tester.getRect(sort).center.dy, kindsRect.center.dy);
+            expect(tester.getRect(options).center.dy, kindsRect.center.dy);
           } else {
             expect(kindsRect.top, greaterThanOrEqualTo(editorRect.bottom));
           }
           expect(sort.hitTestable(), findsOneWidget);
+          expect(options.hitTestable(), findsOneWidget);
           final card = find.byType(TelevisionBookCard);
           expect(card, findsOneWidget);
           expect(
@@ -99,6 +103,32 @@ void main() {
       }
     }
   }
+
+  testWidgets('TV search filters open using the remote', (tester) async {
+    await _pumpSearch(tester, initialQuery: 'White nights');
+    final editor = tester.widget<TextField>(
+      find.byKey(const ValueKey('tv-search-editor')),
+    );
+    final sort = find.byKey(const ValueKey('tv-search-sort'));
+    final options = find.byKey(const ValueKey('search-options'));
+    editor.focusNode!.requestFocus();
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pumpAndSettle();
+    expect(_focusedWithin(sort), isTrue);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pumpAndSettle();
+    expect(_focusedWithin(options), isTrue);
+    await tester.sendKeyEvent(LogicalKeyboardKey.select);
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('search-only-downloaded')),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('scoped narrator search matches its visible chip and resubmit', (
     tester,

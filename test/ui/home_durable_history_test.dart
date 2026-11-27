@@ -33,10 +33,13 @@ void main() {
         addTearDown(tester.view.resetPhysicalSize);
         addTearDown(tester.view.resetDevicePixelRatio);
         final engine = InMemoryAudioEngine();
-        final controller = PlaybackController(engine: engine);
+        final catalog = _Catalog();
+        final controller = PlaybackController(
+          engine: engine,
+          playbackChapterResolver: catalog.resolvePlaybackChapter,
+        );
         addTearDown(controller.dispose);
         addTearDown(engine.dispose);
-        final catalog = _Catalog();
         final router = GoRouter(
           routes: [
             GoRoute(
@@ -131,18 +134,17 @@ class _Catalog extends SourceCatalogService {
   _Catalog() : super(registry: SourceRegistry(const []));
   int refreshes = 0;
   @override
-  Future<AudioPlaybackBook> refreshBookForPlayback(
+  Future<AudioPlaybackChapter> resolvePlaybackChapter(
     AudioPlaybackBook book,
-  ) async {
+    AudioPlaybackChapter chapter, {
+    bool forceRefresh = false,
+    MediaResolvePurpose purpose = MediaResolvePurpose.playback,
+  }) async {
     refreshes++;
-    return book.copyWith(
-      chapters: [
-        book.chapters.single.copyWith(
-          mediaSource: AudioMediaSource.url(
-            Uri.parse('https://fixture.test/chapter.mp3'),
-          ),
-        ),
-      ],
+    return chapter.copyWith(
+      mediaSource: AudioMediaSource.url(
+        Uri.parse('https://fixture.test/chapter.mp3'),
+      ),
     );
   }
 }

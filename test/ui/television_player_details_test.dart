@@ -702,9 +702,8 @@ class _PendingCatalog extends SourceCatalogService {
   _PendingCatalog() : super(registry: SourceRegistry([]));
   final result = Completer<SourceBookSnapshot>();
   @override
-  Future<SourceBookSnapshot> loadBook(
+  Future<SourceBookSnapshot> loadBookPreview(
     SourceBookRef ref, {
     bool forceRefresh = false,
-    MediaResolvePurpose purpose = MediaResolvePurpose.playback,
   }) => result.future;
 }

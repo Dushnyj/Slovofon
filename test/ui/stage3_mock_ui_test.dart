@@ -1083,9 +1083,16 @@ Future<DownloadManager> _seededDownloadManager(WidgetTester tester) async {
   });
 
   final persistence = MemoryDownloadPersistenceStore();
+  final manager = DownloadManager(
+    client: _NoopDownloadClient(),
+    storage: FileDownloadStorage(rootDirectory: directory),
+    persistence: persistence,
+  );
+  addTearDown(manager.dispose);
   final now = DateTime(2026, 5, 26);
   final seeds = [
     _seedTask(
+      manager: manager,
       book: stage3MockBooks[2],
       status: DownloadTaskStatus.completed,
       progress: 1,
@@ -1094,6 +1101,7 @@ Future<DownloadManager> _seededDownloadManager(WidgetTester tester) async {
       now: now,
     ),
     _seedTask(
+      manager: manager,
       book: stage3MockBooks[0],
       status: DownloadTaskStatus.queued,
       progress: 0,
@@ -1102,6 +1110,7 @@ Future<DownloadManager> _seededDownloadManager(WidgetTester tester) async {
       now: now,
     ),
     _seedTask(
+      manager: manager,
       book: stage3MockBooks[3],
       status: DownloadTaskStatus.failed,
       progress: 0.31,
@@ -1114,12 +1123,9 @@ Future<DownloadManager> _seededDownloadManager(WidgetTester tester) async {
     await persistence.saveTask(task);
   }
 
-  final manager = DownloadManager(
-    client: _NoopDownloadClient(),
-    storage: FileDownloadStorage(rootDirectory: directory),
-    persistence: persistence,
+  await tester.runAsync(
+    () => manager.loadPersistedTasks(recoverInterrupted: false),
   );
-  await tester.runAsync(manager.loadPersistedTasks);
   // Production never guesses metadata from fixture ids. Attach the books that
   // these synthetic download tasks were explicitly seeded from.
   for (final book in [
@@ -1137,6 +1143,7 @@ Future<DownloadManager> _seededDownloadManager(WidgetTester tester) async {
 }
 
 DownloadTask _seedTask({
+  required DownloadManager manager,
   required MockBook book,
   required DownloadTaskStatus status,
   required double progress,
@@ -1147,7 +1154,7 @@ DownloadTask _seedTask({
   final playbackBook = mockAudioPlaybackBook(book);
   final chapter = playbackBook.chapters.first;
   return DownloadTask(
-    id: 'chapter:${playbackBook.sourceId}:${playbackBook.versionId}:${chapter.id}',
+    id: manager.taskIdForBookChapter(playbackBook, chapter),
     bookId: playbackBook.id,
     bookVersionId: playbackBook.versionId,
     chapterId: chapter.id,

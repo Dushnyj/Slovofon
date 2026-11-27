@@ -15,6 +15,7 @@ class Chapter {
     required this.sourceId,
     this.sourceBookId,
     this.sourceChapterId,
+    this.storageIdentity,
     required this.index,
     required this.title,
     required this.normalizedTitle,
@@ -41,6 +42,10 @@ class Chapter {
   final String sourceId;
   final String? sourceBookId;
   final String? sourceChapterId;
+
+  /// Provider track identity independent of playlist order. Never an index or
+  /// a raw authenticated media URL.
+  final String? storageIdentity;
   final int index;
   final String title;
   final String normalizedTitle;

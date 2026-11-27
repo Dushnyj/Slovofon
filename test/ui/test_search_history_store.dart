@@ -10,27 +10,36 @@ class MemorySearchHistoryStore extends SearchHistoryStore {
   }
 
   @override
-  Future<List<SearchHistoryEntry>> record(String query, SearchKind kind) async {
+  Future<List<SearchHistoryEntry>> record(
+    String query,
+    SearchKind kind, {
+    Set<SearchKind> kinds = const {},
+    SearchSort sort = SearchSort.relevance,
+  }) async {
     final normalizedQuery = query.trim();
     if (normalizedQuery.isEmpty) {
       return load();
     }
 
-    final key = _key(normalizedQuery, kind);
+    final key = _key(normalizedQuery, kind, kinds, sort);
     var usageCount = 1;
     for (final entry in _entries) {
-      if (_key(entry.query, entry.kind) == key) {
+      if (_key(entry.query, entry.kind, entry.kinds, entry.sort) == key) {
         usageCount = entry.usageCount + 1;
         break;
       }
     }
 
-    _entries.removeWhere((entry) => _key(entry.query, entry.kind) == key);
+    _entries.removeWhere(
+      (entry) => _key(entry.query, entry.kind, entry.kinds, entry.sort) == key,
+    );
     _entries.insert(
       0,
       SearchHistoryEntry(
         query: normalizedQuery,
         kind: kind,
+        kinds: kinds,
+        sort: sort,
         lastUsedAt: DateTime.now(),
         usageCount: usageCount,
       ),
@@ -42,14 +51,31 @@ class MemorySearchHistoryStore extends SearchHistoryStore {
   }
 
   @override
-  Future<List<SearchHistoryEntry>> delete(String query, SearchKind kind) async {
+  Future<List<SearchHistoryEntry>> delete(
+    String query,
+    SearchKind kind, {
+    Set<SearchKind> kinds = const {},
+    SearchSort sort = SearchSort.relevance,
+  }) async {
     _entries.removeWhere(
-      (entry) => _key(entry.query, entry.kind) == _key(query, kind),
+      (entry) =>
+          _key(entry.query, entry.kind, entry.kinds, entry.sort) ==
+          _key(query, kind, kinds, sort),
     );
     return load();
   }
 
-  String _key(String query, SearchKind kind) {
-    return '${kind.name}:${query.trim().toLowerCase()}';
+  String _key(
+    String query,
+    SearchKind kind,
+    Set<SearchKind> kinds,
+    SearchSort sort,
+  ) {
+    final selected = SearchRequest(
+      query: query,
+      kind: kind,
+      kinds: kinds,
+    ).effectiveKinds.map((value) => value.name).toList()..sort();
+    return '${selected.join(',')}:${sort.name}:${query.trim().toLowerCase()}';
   }
 }

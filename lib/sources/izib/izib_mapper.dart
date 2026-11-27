@@ -139,6 +139,9 @@ class IzibMapper {
           sourceId: sourceId,
           sourceBookId: bookId,
           sourceChapterId: _fileId(files[i], i),
+          storageIdentity: SourceParserHelpers.providerTrackIdentity([
+            _string(files[i]['id']),
+          ], mediaReference: _string(files[i]['url'])),
           index: _fileIndex(files[i], i),
           title: _fileTitle(files[i], i),
           normalizedTitle: SourceParserHelpers.normalizeTitle(

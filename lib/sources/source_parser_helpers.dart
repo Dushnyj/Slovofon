@@ -1,4 +1,35 @@
+import 'dart:convert';
+
+import 'package:crypto/crypto.dart';
+
 class SourceParserHelpers {
+  /// Keep provider-issued track identity distinct from a generated ordinal.
+  static String? providerTrackIdentity(
+    Iterable<String> candidates, {
+    String? mediaReference,
+  }) {
+    for (final candidate in candidates) {
+      final value = candidate.trim();
+      if (value.isNotEmpty) return 'id:$value';
+    }
+    return mediaReferenceIdentity(mediaReference);
+  }
+
+  /// Do not persist signed URLs. The query participates in the digest since
+  /// distinct tracks may use the same pathname, even on a file-shaped URL.
+  static String? mediaReferenceIdentity(String? reference) {
+    if (reference == null || reference.trim().isEmpty) return null;
+    final uri = Uri.tryParse(reference.trim());
+    if (uri == null ||
+        (uri.hasScheme && uri.scheme != 'http' && uri.scheme != 'https') ||
+        uri.pathSegments.isEmpty ||
+        uri.pathSegments.last.isEmpty) {
+      return null;
+    }
+    final stable = uri.removeFragment().toString();
+    return 'ref:${sha256.convert(utf8.encode(stable))}';
+  }
+
   const SourceParserHelpers._();
 
   static String normalizeWhitespace(String input) {

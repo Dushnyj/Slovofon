@@ -7,6 +7,52 @@ import 'package:slovofon/sources/sources.dart';
 
 void main() {
   test(
+    'late details survive an otherwise exhausted search continuation',
+    () async {
+      final pending = Completer<BookVersionDetails>();
+      final card = _book('one');
+      var searchCalls = 0;
+      var detailCalls = 0;
+      final service = SourceCatalogService(
+        registry: SourceRegistry([
+          _Connector(
+            'one',
+            (_) async {
+              searchCalls++;
+              return [card];
+            },
+            details: (_) {
+              detailCalls++;
+              return pending.future;
+            },
+          ),
+        ]),
+        searchEnrichmentTimeout: const Duration(milliseconds: 5),
+      );
+      const query = SearchRequest(
+        query: 'Кузнецов Сергей',
+        kind: SearchKind.narrator,
+      );
+      final partial = await service.search(query);
+      expect(partial.results, isEmpty);
+      expect(partial.hasMore, isTrue);
+      expect(partial.limitedSourceIds, {'one'});
+      final priorSearchCalls = searchCalls;
+      pending.complete(_details(card, narrators: ['Сергей Кузнецов']));
+      await Future<void>.delayed(Duration.zero);
+
+      final complete = await service.search(
+        query.copyWith(continuation: partial.continuation),
+      );
+      expect(complete.results.single.narrator, 'Сергей Кузнецов');
+      expect(complete.hasMore, isFalse);
+      expect(complete.limitedSourceIds, isEmpty);
+      expect(detailCalls, 1);
+      expect(searchCalls, priorSearchCalls);
+    },
+  );
+
+  test(
     'fast source is published before slow source, with final failures',
     () async {
       final slow = Completer<List<BookSearchResult>>();
@@ -296,7 +342,10 @@ BookSearchResult _book(String sourceId, {String title = 'Book'}) =>
       title: title,
     );
 
-BookVersionDetails _details(BookSearchResult book) => BookVersionDetails(
+BookVersionDetails _details(
+  BookSearchResult book, {
+  List<String> narrators = const [],
+}) => BookVersionDetails(
   ref: book.ref,
   version: BookVersion(
     id: 'version',
@@ -305,6 +354,7 @@ BookVersionDetails _details(BookSearchResult book) => BookVersionDetails(
     sourceBookId: book.sourceBookId,
     title: book.title,
     normalizedTitle: 'book',
+    narrators: narrators,
     durationMs: const Duration(hours: 2).inMilliseconds,
     createdAt: DateTime.utc(2026),
     updatedAt: DateTime.utc(2026),

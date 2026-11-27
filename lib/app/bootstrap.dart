@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -7,7 +8,6 @@ import '../data/database/app_database.dart';
 import '../core/platform/app_device_profile.dart';
 import '../data/database/database_connection.dart';
 import '../services/audio/audio_persistence.dart';
-import '../services/audio/audio_state.dart';
 import '../services/audio/playback_controller.dart';
 import '../services/audio/playback_controller_provider.dart';
 import '../services/downloads/download_manager_provider.dart';
@@ -23,6 +23,7 @@ import '../services/library/library_metadata.dart';
 import '../services/bookmarks/bookmark_store.dart';
 import '../services/bookmarks/bookmark_drift_persistence.dart';
 import '../services/settings/app_settings_store.dart';
+import '../services/settings/android_download_network.dart';
 import '../services/sources/source_catalog_provider.dart';
 import '../services/sources/source_catalog_service.dart';
 import '../services/sources/source_settings_store.dart';
@@ -62,17 +63,20 @@ Future<void> bootstrap() async {
     playbackAccessGuard: (book, chapter) =>
         ensurePlaybackAllowedByPolicy(accessPolicy, book, chapter),
     playbackBookResolver: downloadStorage.offlinePlaybackBook,
+    playbackChapterResolver: sourceCatalogService.resolvePlaybackChapter,
     playbackErrorBookResolver: (book) async {
       await ensureRemotePlaybackAllowedByPolicy(accessPolicy, book.sourceId);
-      final refreshed = await sourceCatalogService.refreshBookForPlayback(book);
-      return downloadStorage.offlinePlaybackBook(refreshed);
+      final sourceBookId = book.sourceBookId;
+      if (sourceBookId == null || sourceBookId.isEmpty) return book;
+      final refreshed = await sourceCatalogService.loadBookPreview(
+        SourceBookRef(sourceId: book.sourceId, sourceBookId: sourceBookId),
+        forceRefresh: true,
+      );
+      return downloadStorage.offlinePlaybackBook(refreshed.playbackBook);
     },
   );
   final sleepTimerTicker = Timer.periodic(const Duration(seconds: 1), (_) {
-    if (playbackController.state.isPlaying &&
-        playbackController.state.sleepTimerRemaining != null) {
-      unawaited(playbackController.tick(const Duration(seconds: 1)));
-    }
+    unawaited(playbackController.pollSleepTimer());
   });
   Future<void>? databaseClose;
   ProviderContainer? providerContainer;
@@ -146,6 +150,10 @@ Future<void> bootstrap() async {
             return playbackController;
           }),
           downloadStorageProvider.overrideWith((ref) => downloadStorage),
+          if (Platform.isAndroid)
+            downloadInitialNetworkGateProvider.overrideWithValue(
+              DownloadNetworkGate.offline,
+            ),
           homeListeningVisibilityStoreProvider.overrideWith((ref) {
             return homeVisibilityStore;
           }),
@@ -184,6 +192,9 @@ Future<void> bootstrap() async {
               context,
               listen: false,
             );
+            if (Platform.isAndroid) {
+              providerContainer!.read(androidDownloadNetworkBindingProvider);
+            }
             return SlovofonApp(deepLinks: PluginAppDeepLinkSource());
           },
         ),
@@ -191,16 +202,15 @@ Future<void> bootstrap() async {
     ),
   );
 
+  final restoreRevision = playbackController.playbackSelectionRevision;
   unawaited(
     _restoreSavedPlaybackSession(
       persistence: playbackPersistence,
       metadataStore: metadataStore,
-      downloadStorage: downloadStorage,
       playbackController: playbackController,
-      sourceRegistry: sourceRegistry,
-      sourceCatalogService: sourceCatalogService,
-      accessPolicy: accessPolicy,
-      shouldRestore: () => !exitRequested,
+      shouldRestore: () =>
+          !exitRequested &&
+          playbackController.isPlaybackSelectionCurrent(restoreRevision),
     ),
   );
 }
@@ -208,11 +218,7 @@ Future<void> bootstrap() async {
 Future<void> _restoreSavedPlaybackSession({
   required PlaybackPersistenceStore persistence,
   required PlaybackBookMetadataStore metadataStore,
-  required FileDownloadStorage downloadStorage,
   required PlaybackController playbackController,
-  required SourceRegistry sourceRegistry,
-  required SourceCatalogService sourceCatalogService,
-  required SourceAccessPolicy accessPolicy,
   required bool Function() shouldRestore,
 }) async {
   try {
@@ -224,64 +230,18 @@ Future<void> _restoreSavedPlaybackSession({
       return;
     }
 
-    var savedBook = await metadataStore.loadBook(
+    final savedBook = await metadataStore.loadBook(
       sourceId: savedSourceId,
       versionId: savedVersionId,
     );
-    if (!shouldRestore()) return;
-    if (savedBook == null) {
+    if (!shouldRestore() ||
+        playbackController.state.hasBook ||
+        savedBook == null ||
+        savedBook.chapters.isEmpty) {
       return;
     }
-
-    final sourceBookId = savedBook.sourceBookId;
-    savedBook = await downloadStorage.offlinePlaybackBook(savedBook);
-    if (!shouldRestore()) return;
-    final savedChapter = savedBook.chapters
-        .where((chapter) => chapter.id == savedSession?.activeChapterId)
-        .firstOrNull;
-    final hasLocalChapter =
-        savedChapter?.mediaSource?.type == AudioMediaSourceType.file ||
-        savedChapter?.mediaSource?.type == AudioMediaSourceType.asset;
-    var hasTemporaryUrls = false;
-    try {
-      hasTemporaryUrls = sourceRegistry
-          .connectorById(savedSourceId)
-          .capabilities
-          .hasTemporaryUrls;
-    } on Object {
-      hasTemporaryUrls = false;
-    }
-
-    final missingMedia =
-        savedBook.chapters.isEmpty ||
-        savedBook.chapters.any((chapter) => chapter.mediaSource == null);
-    if (sourceBookId != null &&
-        sourceBookId.isNotEmpty &&
-        !hasLocalChapter &&
-        (hasTemporaryUrls || missingMedia)) {
-      try {
-        await ensureRemotePlaybackAllowedByPolicy(accessPolicy, savedSourceId);
-        if (!shouldRestore()) return;
-        savedBook = (await sourceCatalogService.loadBook(
-          SourceBookRef(sourceId: savedSourceId, sourceBookId: sourceBookId),
-        )).playbackBook;
-      } on Object {
-        // Keep the cached metadata usable for offline files or non-expired URLs.
-      }
-    }
-
-    final cachedOrFreshBook = savedBook;
-    if (!shouldRestore() || cachedOrFreshBook == null) {
-      return;
-    }
-    final bookToRestore = await downloadStorage.offlinePlaybackBook(
-      cachedOrFreshBook,
-    );
-    if (!shouldRestore() || playbackController.state.hasBook) {
-      // User selection wins over a late startup metadata/network response.
-      return;
-    }
-    await playbackController.loadSavedSession(bookToRestore);
+    // Network refresh and the filesystem overlay run only when the user plays.
+    await playbackController.loadSavedSession(savedBook, loadMedia: false);
   } catch (error, stackTrace) {
     if (!shouldRestore()) return;
     FlutterError.reportError(

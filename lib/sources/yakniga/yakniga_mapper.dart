@@ -210,6 +210,9 @@ class YaknigaMapper {
       sourceId: sourceId,
       sourceBookId: bookId,
       sourceChapterId: sourceChapterId,
+      storageIdentity: SourceParserHelpers.providerTrackIdentity([
+        _string(item['id']),
+      ], mediaReference: streamRef),
       index: (_intValue(item['pos']) ?? fallbackIndex) + 1,
       title: title,
       normalizedTitle: SourceParserHelpers.normalizeTitle(title),

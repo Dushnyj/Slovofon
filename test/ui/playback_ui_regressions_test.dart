@@ -323,7 +323,8 @@ class _Fixture {
       storage: storage,
       persistence: downloads,
     );
-    await manager.loadPersistedTasks();
+    // The in-memory fixture has no physical chapter file to reconcile.
+    await manager.loadPersistedTasks(recoverInterrupted: false);
     return _Fixture(book, storage, persistence, engine, controller, manager);
   }
 
@@ -417,6 +418,12 @@ class _ProgressStore implements PlaybackPersistenceStore {
 class _NoNetworkCatalog extends SourceCatalogService {
   _NoNetworkCatalog() : super(registry: SourceRegistry([]));
   int loads = 0;
+  @override
+  Future<SourceBookSnapshot> loadBookPreview(
+    SourceBookRef ref, {
+    bool forceRefresh = false,
+  }) => loadBook(ref, forceRefresh: forceRefresh);
+
   @override
   Future<SourceBookSnapshot> loadBook(
     SourceBookRef ref, {

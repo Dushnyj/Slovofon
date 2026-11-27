@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -11,16 +12,41 @@ import 'package:slovofon/features/search/search_screen.dart';
 import 'package:slovofon/ui/components/book_card.dart';
 import 'package:slovofon/domain/models/download_task.dart';
 import 'package:slovofon/services/audio/audio_engine.dart';
+import 'package:slovofon/services/audio/audio_state.dart';
 import 'package:slovofon/services/audio/playback_controller.dart';
 import 'package:slovofon/services/audio/playback_controller_provider.dart';
 import 'package:slovofon/services/downloads/download_manager.dart';
 import 'package:slovofon/services/downloads/download_manager_provider.dart';
+import 'package:slovofon/services/downloads/download_storage.dart';
 import 'package:slovofon/services/search/search_history_store.dart';
 import 'package:slovofon/services/sources/source_catalog_provider.dart';
 import 'package:slovofon/services/sources/source_catalog_service.dart';
 import 'package:slovofon/sources/sources.dart';
 
 void main() {
+  testWidgets(
+    'Downloaded only can browse local storage without source requests',
+    (tester) async {
+      final storage = _EmptyDownloadedStorage();
+      final fixture = await _pump(
+        tester,
+        TargetPlatform.android,
+        overrideStorage: storage,
+      );
+      await tester.tap(find.byKey(const ValueKey('search-options')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('search-only-downloaded')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Done'));
+      await tester.pumpAndSettle();
+      expect(storage.scans, 1);
+      expect(fixture.catalog.requests, isEmpty);
+      expect(fixture.history.pending, isEmpty);
+      expect(find.text('No results'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('search starts in all fields and keeps results on paging retry', (
     tester,
   ) async {
@@ -101,8 +127,8 @@ void main() {
     final old = streaming.calls.single;
     await _submit(tester, 'replacement query');
     expect(old.cancellation!.isCancelled, isTrue);
-    // Cancellation finishes while recording the newer query still awaits I/O.
-    // FutureBuilder observes that old error before its future is replaced.
+    // The new request starts before its history write, and a late cancelled
+    // future must not hide its results.
     old.completer.completeError(const SourceSearchCancelled());
     await tester.pump();
     fixture.history.pending[1].complete([]);
@@ -222,12 +248,22 @@ void main() {
       await _submit(tester, 'older query');
       await _submit(tester, 'newer query');
       expect(fixture.history.pending, hasLength(2));
+      expect(fixture.catalog.requests.map((r) => r.query), [
+        'older query',
+        'newer query',
+      ]);
       fixture.history.pending[1].complete([]);
       await tester.pumpAndSettle();
-      expect(fixture.catalog.requests.map((r) => r.query), ['newer query']);
+      expect(fixture.catalog.requests.map((r) => r.query), [
+        'older query',
+        'newer query',
+      ]);
       fixture.history.pending[0].complete([]);
       await tester.pumpAndSettle();
-      expect(fixture.catalog.requests.map((r) => r.query), ['newer query']);
+      expect(fixture.catalog.requests.map((r) => r.query), [
+        'older query',
+        'newer query',
+      ]);
       expect(tester.takeException(), isNull);
     });
 
@@ -239,7 +275,7 @@ void main() {
       await _submit(tester, '');
       fixture.history.pending.single.complete([]);
       await tester.pumpAndSettle();
-      expect(fixture.catalog.requests, isEmpty);
+      expect(fixture.catalog.requests.map((r) => r.query), ['older query']);
       expect(find.byType(TextField), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
@@ -253,7 +289,7 @@ void main() {
       await tester.pumpAndSettle();
       fixture.history.pending.single.complete([]);
       await tester.pumpAndSettle();
-      expect(fixture.catalog.requests, isEmpty);
+      expect(fixture.catalog.requests.map((r) => r.query), ['older query']);
       expect(
         tester.widget<TextField>(find.byType(TextField)).controller!.text,
         isEmpty,
@@ -277,6 +313,10 @@ void main() {
 }
 
 Future<void> _submit(WidgetTester tester, String query) async {
+  if (find.byType(TextField).evaluate().isEmpty) {
+    await tester.tap(find.byTooltip('Back'));
+    await tester.pumpAndSettle();
+  }
   await tester.enterText(find.byType(TextField), query);
   await tester.testTextInput.receiveAction(TextInputAction.search);
   await tester.pump();
@@ -289,6 +329,7 @@ _pump(
   WidgetTester tester,
   TargetPlatform platform, {
   _Catalog? overrideCatalog,
+  FileDownloadStorage? overrideStorage,
 }) async {
   tester.view.physicalSize = Size(
     platform == TargetPlatform.windows ? 1267 : 390,
@@ -325,6 +366,8 @@ _pump(
           (ref) => PlaybackController(engine: InMemoryAudioEngine()),
         ),
         playbackProgressSnapshotsProvider.overrideWith((ref) async => []),
+        if (overrideStorage != null)
+          downloadStorageProvider.overrideWithValue(overrideStorage),
         downloadManagerProvider.overrideWith((ref) => _EmptyDownloads()),
       ],
       child: MaterialApp.router(
@@ -344,12 +387,28 @@ _pump(
   return (history: history, catalog: catalog, reset: reset);
 }
 
+class _EmptyDownloadedStorage extends FileDownloadStorage {
+  _EmptyDownloadedStorage()
+    : super(rootDirectory: Directory('unused-local-search-test'));
+  int scans = 0;
+  @override
+  Future<List<AudioPlaybackBook>> readDownloadedMetadata() async {
+    scans++;
+    return [];
+  }
+}
+
 class _DeferredHistory extends SearchHistoryStore {
   final pending = <Completer<List<SearchHistoryEntry>>>[];
   @override
   Future<List<SearchHistoryEntry>> load() async => [];
   @override
-  Future<List<SearchHistoryEntry>> record(String query, SearchKind kind) {
+  Future<List<SearchHistoryEntry>> record(
+    String query,
+    SearchKind kind, {
+    Set<SearchKind> kinds = const {},
+    SearchSort sort = SearchSort.relevance,
+  }) {
     final completer = Completer<List<SearchHistoryEntry>>();
     pending.add(completer);
     return completer.future;

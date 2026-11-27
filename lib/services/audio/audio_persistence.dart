@@ -23,6 +23,13 @@ abstract interface class PlaybackBookMetadataStore {
   });
 }
 
+abstract interface class PlaybackCheckpointPersistence {
+  Future<void> saveCheckpoint(
+    PlaybackSession session,
+    PlaybackProgressSnapshot progress,
+  );
+}
+
 class PlaybackProgressSnapshot {
   const PlaybackProgressSnapshot({
     required this.bookId,
@@ -49,10 +56,20 @@ class PlaybackProgressSnapshot {
   final DateTime lastPlayedAt;
 }
 
-class DriftPlaybackPersistenceStore implements PlaybackPersistenceStore {
+class DriftPlaybackPersistenceStore
+    implements PlaybackPersistenceStore, PlaybackCheckpointPersistence {
   DriftPlaybackPersistenceStore(this._db);
 
   final AppDatabase _db;
+
+  @override
+  Future<void> saveCheckpoint(
+    PlaybackSession session,
+    PlaybackProgressSnapshot progress,
+  ) => _db.transaction(() async {
+    await saveSession(session);
+    await saveProgress(progress);
+  });
 
   @override
   Future<PlaybackSession?> loadSession({String id = 'active'}) async {

@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:path/path.dart' as p;
 
+import '../../sources/source_models.dart';
 import '../sources/source_catalog_provider.dart';
 import '../sources/source_access_policy.dart';
 import '../sources/source_access_policy_provider.dart';
@@ -31,12 +32,17 @@ final downloadClientProvider = Provider<DownloadClient>((ref) {
   return DefaultDownloadClient();
 });
 
+final downloadInitialNetworkGateProvider = Provider<DownloadNetworkGate>(
+  (_) => DownloadNetworkGate.allowed,
+);
+
 final downloadManagerProvider = ChangeNotifierProvider<DownloadManager>((ref) {
   final accessPolicy = ref.watch(sourceAccessPolicyProvider);
   final manager = DownloadManager(
     client: ref.watch(downloadClientProvider),
     storage: ref.watch(downloadStorageProvider),
     persistence: ref.watch(downloadPersistenceStoreProvider),
+    initialNetworkGate: ref.watch(downloadInitialNetworkGateProvider),
     ensureDownloadAllowed: (book, chapter) async {
       try {
         if (chapter == null) {
@@ -56,6 +62,14 @@ final downloadManagerProvider = ChangeNotifierProvider<DownloadManager>((ref) {
           .read(sourceCatalogServiceProvider)
           .refreshBookForDownloads(book);
     },
+    resolveChapterForDownload: (book, chapter, {required forceRefresh}) => ref
+        .read(sourceCatalogServiceProvider)
+        .resolvePlaybackChapter(
+          book,
+          chapter,
+          forceRefresh: forceRefresh,
+          purpose: MediaResolvePurpose.download,
+        ),
   );
   unawaited(manager.loadPersistedTasks());
   ref.onDispose(manager.dispose);

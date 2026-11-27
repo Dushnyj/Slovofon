@@ -4,7 +4,7 @@ import '../downloads/download_manager.dart';
 import '../downloads/download_storage.dart';
 import '../library/library_store.dart';
 import 'source_catalog_service.dart';
-import 'source_cover_client.dart';
+import 'source_cover_repository.dart';
 
 typedef CoverBytesLoader = Future<List<int>?> Function(Uri uri);
 
@@ -13,13 +13,13 @@ class SourceBookCache {
     required this.downloadStorage,
     required this.downloadManager,
     required this.libraryStore,
-    this.coverBytesLoader = _loadCoverBytes,
+    this.coverBytesLoader,
   });
 
   final FileDownloadStorage downloadStorage;
   final DownloadManager downloadManager;
   final LibraryStore libraryStore;
-  final CoverBytesLoader coverBytesLoader;
+  final CoverBytesLoader? coverBytesLoader;
 
   Future<SourceBookSnapshot> refresh(SourceBookSnapshot snapshot) =>
       downloadManager.runMetadataOperation((cacheBookMetadata) async {
@@ -50,7 +50,13 @@ class SourceBookCache {
       );
     }
 
-    final bytes = await coverBytesLoader(coverUri);
+    final injectedLoader = coverBytesLoader;
+    final bytes = injectedLoader != null
+        ? await injectedLoader(coverUri)
+        : await SourceCoverRepository.shared.load(
+            snapshot.playbackBook.sourceId,
+            coverUri,
+          );
     if (bytes == null || bytes.isEmpty) {
       return _CachedBookSnapshot(
         audioBook: snapshot.audioBook,
@@ -108,6 +114,3 @@ AudioPlaybackBook _copyPlaybackBook(
     chapters: book.chapters,
   );
 }
-
-Future<List<int>?> _loadCoverBytes(Uri uri) =>
-    const SourceCoverClient().load(uri);

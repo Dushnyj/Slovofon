@@ -12,6 +12,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../app/localization/app_strings.dart';
 import '../../app/localization/duration_label.dart';
+import '../../domain/models/audio_book.dart';
 import '../../domain/models/book_version.dart';
 import '../../services/audio/audio_persistence.dart';
 import '../../services/audio/audio_state.dart';
@@ -46,10 +47,19 @@ import '../shared/download_ui_state.dart';
 import '../shared/playback_resume.dart';
 import 'source_book_error_text.dart';
 
+bool _sameBookRef(SourceBookRef? left, SourceBookRef right) =>
+    left?.sourceId == right.sourceId &&
+    left?.sourceBookId == right.sourceBookId;
+
 class SourceBookDetailsScreen extends ConsumerStatefulWidget {
-  const SourceBookDetailsScreen({required this.ref, super.key});
+  const SourceBookDetailsScreen({
+    required this.ref,
+    this.initialResult,
+    super.key,
+  });
 
   final SourceBookRef ref;
+  final BookSearchResult? initialResult;
 
   @override
   ConsumerState<SourceBookDetailsScreen> createState() {
@@ -60,35 +70,34 @@ class SourceBookDetailsScreen extends ConsumerStatefulWidget {
 class _SourceBookDetailsScreenState
     extends ConsumerState<SourceBookDetailsScreen> {
   late Future<SourceBookSnapshot> _snapshotFuture;
+  late Future<BookVersionDetails> _detailsFuture;
 
   @override
   void initState() {
     super.initState();
-    _snapshotFuture = _loadSnapshot();
+    _loadSnapshot();
   }
 
   @override
   void didUpdateWidget(SourceBookDetailsScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.ref != widget.ref) {
-      _snapshotFuture = _loadSnapshot();
+    if (!_sameBookRef(oldWidget.ref, widget.ref)) {
+      _loadSnapshot();
     }
   }
 
-  Future<SourceBookSnapshot> _loadSnapshot() {
-    final future = ref.read(sourceCatalogServiceProvider).loadBook(widget.ref);
+  void _loadSnapshot({bool forceRefresh = false}) {
+    final catalog = ref.read(sourceCatalogServiceProvider);
     // A retry can fail before the next frame subscribes its FutureBuilder.
-    // Observe errors immediately, but return the original future so the error
-    // screen still receives them (including after a route change or disposal).
-    future.ignore();
-    return future;
+    // Keep the original futures so the UI can still render their states.
+    _snapshotFuture = catalog.loadBookPreview(
+      widget.ref,
+      forceRefresh: forceRefresh,
+    )..ignore();
+    _detailsFuture = catalog.loadBookDetails(widget.ref)..ignore();
   }
 
-  void _retrySnapshot() {
-    setState(() {
-      _snapshotFuture = _loadSnapshot();
-    });
-  }
+  void _retrySnapshot() => setState(() => _loadSnapshot(forceRefresh: true));
 
   @override
   Widget build(BuildContext context) {
@@ -98,10 +107,29 @@ class _SourceBookDetailsScreenState
     final body = SafeArea(
       top: false,
       child: FutureBuilder<SourceBookSnapshot>(
+        key: ValueKey((widget.ref.sourceId, widget.ref.sourceBookId)),
         future: _snapshotFuture,
         builder: (context, snapshot) {
           if (snapshot.connectionState != ConnectionState.done) {
-            return const Center(child: AppCircularProgressIndicator());
+            final seed = widget.initialResult;
+            final catalog = ref.read(sourceCatalogServiceProvider);
+            return FutureBuilder<BookVersionDetails>(
+              future: _detailsFuture,
+              builder: (context, details) {
+                final value = details.data;
+                final initial = _sameBookRef(seed?.ref, widget.ref)
+                    ? seed
+                    : null;
+                final book = value != null
+                    ? catalog.audioBookForDetails(value, 0)
+                    : initial == null
+                    ? null
+                    : catalog.audioBookForSearchResult(initial);
+                return book == null
+                    ? const Center(child: AppCircularProgressIndicator())
+                    : _SourceBookLoadingSummary(book: book);
+              },
+            );
           }
 
           if (snapshot.hasError) {
@@ -163,6 +191,56 @@ class _SourceBookDetailsScreenState
   }
 }
 
+class _SourceBookLoadingSummary extends StatelessWidget {
+  const _SourceBookLoadingSummary({required this.book});
+
+  final AudioBook book;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final credits = [
+      book.author,
+      book.narrator,
+    ].where((value) => value.trim().isNotEmpty).join(' · ');
+    return ListView(
+      key: const ValueKey('source-details-loading-summary'),
+      padding: const EdgeInsets.all(12),
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            BookCover(
+              title: book.title,
+              sourceId: book.sourceId,
+              imageUrl: book.coverUrl,
+              width: 116,
+              height: 166,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(book.title, style: theme.textTheme.titleLarge),
+                  if (credits.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(credits, style: theme.textTheme.bodyMedium),
+                  ],
+                  const SizedBox(height: 8),
+                  SourceBadge(sourceId: book.sourceId),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 20),
+        const Center(child: AppCircularProgressIndicator()),
+      ],
+    );
+  }
+}
+
 class _SourceBookDetailsBody extends ConsumerStatefulWidget {
   const _SourceBookDetailsBody({required this.snapshot});
 
@@ -181,15 +259,15 @@ class _SourceBookDetailsBodyState
   bool _showAllChapters = false;
   bool _showFullDescription = false;
   bool _isResolvingPlay = false;
+  int? _resolvingChapterIndex;
+  int _playInvocation = 0;
   String? _cachedSnapshotKey;
-  late Future<List<BookSearchResult>> _otherNarrationsFuture;
+  Future<List<BookSearchResult>>? _otherNarrationsFuture;
+  SourceSearchCancellation? _otherNarrationsCancellation;
 
   @override
   void initState() {
     super.initState();
-    _otherNarrationsFuture = ref
-        .read(sourceCatalogServiceProvider)
-        .findOtherNarrations(widget.snapshot);
     _cacheFreshSnapshot(widget.snapshot);
   }
 
@@ -200,12 +278,43 @@ class _SourceBookDetailsBodyState
             widget.snapshot.details.ref.sourceId ||
         oldWidget.snapshot.details.ref.sourceBookId !=
             widget.snapshot.details.ref.sourceBookId) {
-      _otherNarrationsFuture = ref
-          .read(sourceCatalogServiceProvider)
-          .findOtherNarrations(widget.snapshot);
+      _otherNarrationsCancellation?.cancel();
+      _otherNarrationsCancellation = null;
+      _otherNarrationsFuture = null;
       _cacheFreshSnapshot(widget.snapshot);
     }
   }
+
+  @override
+  void dispose() {
+    _otherNarrationsCancellation?.cancel();
+    super.dispose();
+  }
+
+  void _searchOtherNarrations() {
+    final cancellation = SourceSearchCancellation();
+    _otherNarrationsCancellation?.cancel();
+    _otherNarrationsCancellation = cancellation;
+    final catalog = ref.read(sourceCatalogServiceProvider);
+    final snapshot = widget.snapshot;
+    final timer = Timer(const Duration(seconds: 12), cancellation.cancel);
+    final future = catalog
+        .findOtherNarrations(snapshot, cancellation: cancellation)
+        .whenComplete(timer.cancel);
+    future.ignore();
+    setState(() {
+      _otherNarrationsFuture = future;
+    });
+  }
+
+  Widget _otherNarrationsSection() => _OtherNarrationsSection(
+    initialAlternatives: widget.snapshot.details.alternatives.where(
+      (alternative) =>
+          !_sameBookRef(alternative.ref, widget.snapshot.details.ref),
+    ),
+    future: _otherNarrationsFuture,
+    onSearch: _searchOtherNarrations,
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -481,6 +590,11 @@ class _SourceBookDetailsBodyState
                           .clamp(0, 1)
                           .toDouble()
                     : 0.0;
+                final activeChapter = playbackState.currentChapter;
+                final isCurrentChapter =
+                    isCurrentBook &&
+                    activeChapter != null &&
+                    _sameChapter(audioChapter, activeChapter);
                 return ChapterTile(
                   key: ValueKey('source-details-chapter-$index'),
                   index: index + 1,
@@ -488,7 +602,7 @@ class _SourceBookDetailsBodyState
                   durationLabel: context.strings.formatDuration(
                     Duration(milliseconds: sourceChapter.durationMs ?? 0),
                   ),
-                  progress: isCurrentBook && playbackState.chapterIndex == index
+                  progress: isCurrentChapter
                       ? playbackState.chapterProgress
                       : chapterProgress,
                   isDownloaded: isChapterDownloaded(
@@ -503,11 +617,13 @@ class _SourceBookDetailsBodyState
                     downloadManager,
                     audioChapter,
                   ),
-                  isCurrent:
-                      isCurrentBook && playbackState.chapterIndex == index,
+                  isCurrent: isCurrentChapter,
                   onTap: () {
-                    if (isCurrentBook) {
-                      unawaited(playbackController.playChapterAt(index));
+                    final activeIndex = isCurrentBook
+                        ? _chapterIndexIn(playbackState.book!, audioChapter)
+                        : null;
+                    if (activeIndex != null) {
+                      unawaited(playbackController.playChapterAt(activeIndex));
                       return;
                     }
                     unawaited(_play(context, ref, index));
@@ -542,9 +658,9 @@ class _SourceBookDetailsBodyState
         ];
         final bodyChildren = <Widget>[
           ...informationChildren,
+          _otherNarrationsSection(),
           const SizedBox(height: 20),
           ...chapterChildren,
-          _OtherNarrationsSection(future: _otherNarrationsFuture),
         ];
         if (desktop || television) {
           return DesktopBookDetailsLayout(
@@ -552,6 +668,7 @@ class _SourceBookDetailsBodyState
             summary: DesktopBookSummary(
               coverBuilder: (width) => BookCover(
                 title: version.title,
+                sourceId: version.sourceId,
                 progress: effectiveProgress,
                 imageUrl: version.coverUrl,
                 width: width,
@@ -594,7 +711,7 @@ class _SourceBookDetailsBodyState
                     children: [
                       ...informationChildren,
                       const SizedBox(height: 12),
-                      _OtherNarrationsSection(future: _otherNarrationsFuture),
+                      _otherNarrationsSection(),
                     ],
                   ),
                 ],
@@ -616,6 +733,7 @@ class _SourceBookDetailsBodyState
                     children: [
                       BookCover(
                         title: version.title,
+                        sourceId: version.sourceId,
                         progress: effectiveProgress,
                         imageUrl: version.coverUrl,
                         width: coverWidth,
@@ -668,44 +786,72 @@ class _SourceBookDetailsBodyState
     WidgetRef ref,
     int? chapterIndex,
   ) async {
-    if (_isResolvingPlay) {
+    if (_isResolvingPlay && _resolvingChapterIndex == chapterIndex) {
       return;
     }
-    setState(() => _isResolvingPlay = true);
+    final invocation = ++_playInvocation;
+    setState(() {
+      _isResolvingPlay = true;
+      _resolvingChapterIndex = chapterIndex;
+    });
     final playback = ref.read(playbackControllerProvider);
+    final selection = playback.beginPlaybackSelection();
+    final snapshot = widget.snapshot;
+    final requestedBook = snapshot.playbackBook;
+    final requestedChapter = chapterIndex == null
+        ? null
+        : requestedBook.chapters[chapterIndex];
     try {
-      var targetChapterIndex = chapterIndex ?? 0;
-      var targetPosition = Duration.zero;
       final playbackBook = await ref
           .read(downloadManagerProvider)
-          .offlinePlaybackBook(widget.snapshot.playbackBook);
+          .offlinePlaybackBook(requestedBook);
+      if (!mounted || !playback.isPlaybackSelectionCurrent(selection)) return;
       final progressSnapshots =
           await ref.read(playbackPersistenceStoreProvider)?.loadProgress() ??
           const [];
+      if (!mounted || !playback.isPlaybackSelectionCurrent(selection)) return;
       final resumePoint = playbackResumePointForBook(
         playbackBook,
         progressSnapshots,
+        fallbackVersionId: snapshot.details.ref.sourceBookId,
       );
-      if (chapterIndex == null) {
-        targetChapterIndex = resumePoint.chapterIndex;
-        targetPosition = resumePoint.position;
-      } else if (resumePoint.chapterIndex == chapterIndex) {
-        targetPosition = resumePoint.position;
+      final targetChapterIndex = requestedChapter == null
+          ? resumePoint.chapterIndex
+          : _chapterIndexIn(playbackBook, requestedChapter);
+      if (targetChapterIndex == null) {
+        throw StateError('The selected chapter is no longer available.');
       }
+      final targetPosition = resumePoint.chapterIndex == targetChapterIndex
+          ? resumePoint.position
+          : Duration.zero;
       await playback.loadBook(
         playbackBook,
         chapterIndex: targetChapterIndex,
         position: targetPosition,
         autoPlay: true,
         replayChapterAtEnd: chapterIndex != null,
+        playbackSelection: selection,
       );
+      if (!mounted || !playback.isPlaybackSelectionCurrent(selection)) return;
       await ref
           .read(homeListeningVisibilityStoreProvider)
           .show(homeListeningBookKeyFor(playbackBook));
+      if (!mounted || !playback.isPlaybackSelectionCurrent(selection)) return;
       ref.invalidate(playbackProgressSnapshotsProvider);
+    } catch (_) {
+      if (mounted &&
+          context.mounted &&
+          playback.isPlaybackSelectionCurrent(selection)) {
+        ScaffoldMessenger.of(context).showMotionSnackBar(
+          SnackBar(content: Text(context.strings.savedBookPlaybackError)),
+        );
+      }
     } finally {
-      if (mounted) {
-        setState(() => _isResolvingPlay = false);
+      if (mounted && invocation == _playInvocation) {
+        setState(() {
+          _isResolvingPlay = false;
+          _resolvingChapterIndex = null;
+        });
       }
     }
   }
@@ -816,29 +962,48 @@ class _SourceBookDetailsBodyState
 }
 
 class _OtherNarrationsSection extends StatelessWidget {
-  const _OtherNarrationsSection({required this.future});
+  const _OtherNarrationsSection({
+    required this.initialAlternatives,
+    required this.future,
+    required this.onSearch,
+  });
 
-  final Future<List<BookSearchResult>> future;
+  final Iterable<BookSearchResult> initialAlternatives;
+  final Future<List<BookSearchResult>>? future;
+  final VoidCallback onSearch;
 
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<List<BookSearchResult>>(
       future: future,
       builder: (context, snapshot) {
-        final alternatives = snapshot.data ?? const <BookSearchResult>[];
-        if (alternatives.isEmpty) {
-          return const SizedBox.shrink();
-        }
+        final alternatives = snapshot.data ?? initialAlternatives;
+        final loading = snapshot.connectionState == ConnectionState.waiting;
 
         return Padding(
           padding: const EdgeInsets.only(top: 16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              SectionHeader(title: context.strings.otherNarrations),
-              const SizedBox(height: 6),
+              if (alternatives.isNotEmpty) ...[
+                SectionHeader(title: context.strings.otherNarrations),
+                const SizedBox(height: 6),
+              ],
               for (final alternative in alternatives)
                 _OtherNarrationTile(alternative: alternative),
+              if (loading)
+                const Padding(
+                  padding: EdgeInsets.all(8),
+                  child: AppCircularProgressIndicator(),
+                )
+              else if (future == null || snapshot.hasError)
+                OutlinedButton(
+                  key: const ValueKey('source-details-find-other-narrations'),
+                  onPressed: onSearch,
+                  child: Text(context.strings.otherNarrations),
+                )
+              else if (alternatives.isEmpty)
+                Text(context.strings.noSearchResults),
             ],
           ),
         );
@@ -874,6 +1039,7 @@ class _OtherNarrationTile extends StatelessWidget {
           unawaited(
             context.push(
               '/source-book/${alternative.sourceId}/${Uri.encodeComponent(alternative.sourceBookId)}',
+              extra: alternative,
             ),
           );
         },
@@ -1572,6 +1738,24 @@ bool _playbackMatchesBook(
   return activeBook.sourceBookId == book.sourceBookId ||
       activeBook.versionId == book.versionId ||
       activeBook.id == book.id;
+}
+
+bool _sameChapter(AudioPlaybackChapter requested, AudioPlaybackChapter active) {
+  final identity = requested.storageIdentity;
+  if (identity != null) return active.storageIdentity == identity;
+  final reference = requested.storageMediaReference;
+  return active.id == requested.id &&
+      (reference == null || active.storageMediaReference == reference);
+}
+
+int? _chapterIndexIn(AudioPlaybackBook active, AudioPlaybackChapter requested) {
+  int? result;
+  for (final (index, chapter) in active.chapters.indexed) {
+    if (!_sameChapter(requested, chapter)) continue;
+    if (result != null) return null;
+    result = index;
+  }
+  return result;
 }
 
 String? _trimOrNull(String? value) {

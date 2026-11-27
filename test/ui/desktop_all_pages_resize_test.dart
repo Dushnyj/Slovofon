@@ -586,13 +586,13 @@ class _ResizeCatalog extends SourceCatalogService {
   Future<List<BookSearchResult>> findOtherNarrations(
     SourceBookSnapshot snapshot, {
     int limit = 12,
+    SourceSearchCancellation? cancellation,
   }) async => const [];
 
   @override
-  Future<SourceBookSnapshot> loadBook(
+  Future<SourceBookSnapshot> loadBookPreview(
     SourceBookRef ref, {
     bool forceRefresh = false,
-    MediaResolvePurpose purpose = MediaResolvePurpose.playback,
   }) async {
     detailRequests++;
     if (failDetails) {

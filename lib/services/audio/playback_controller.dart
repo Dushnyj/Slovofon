@@ -10,6 +10,11 @@ import 'audio_state.dart';
 
 typedef PlaybackBookResolver =
     Future<AudioPlaybackBook> Function(AudioPlaybackBook book);
+typedef PlaybackChapterResolver =
+    Future<AudioPlaybackChapter> Function(
+      AudioPlaybackBook book,
+      AudioPlaybackChapter chapter,
+    );
 typedef PlaybackAccessGuard =
     FutureOr<void> Function(
       AudioPlaybackBook book,
@@ -25,16 +30,20 @@ class PlaybackController extends ChangeNotifier {
     PlaybackBookMetadataStore? bookMetadataStore,
     PlaybackBookResolver? playbackBookResolver,
     PlaybackBookResolver? playbackErrorBookResolver,
+    PlaybackChapterResolver? playbackChapterResolver,
     PlaybackAccessGuard? playbackAccessGuard,
     DateTime Function()? clock,
+    Duration Function()? elapsedClock,
     Duration persistenceInterval = const Duration(seconds: 5),
   }) : _engine = engine,
        _persistence = persistence,
        _bookMetadataStore = bookMetadataStore,
        _playbackBookResolver = playbackBookResolver,
        _playbackErrorBookResolver = playbackErrorBookResolver,
+       _playbackChapterResolver = playbackChapterResolver,
        _playbackAccessGuard = playbackAccessGuard,
        _clock = clock ?? DateTime.now,
+       _elapsedClock = elapsedClock ?? _startElapsedClock(),
        _persistenceInterval = persistenceInterval {
     _engineSubscription = _engine.snapshots.listen(_handleEngineSnapshot);
     if (_engine case final AudioInterruptionSource source) {
@@ -60,15 +69,47 @@ class PlaybackController extends ChangeNotifier {
   final PlaybackBookMetadataStore? _bookMetadataStore;
   final PlaybackBookResolver? _playbackBookResolver;
   final PlaybackBookResolver? _playbackErrorBookResolver;
+  final PlaybackChapterResolver? _playbackChapterResolver;
   final PlaybackAccessGuard? _playbackAccessGuard;
   final DateTime Function() _clock;
+  final Duration Function() _elapsedClock;
   final Duration _persistenceInterval;
   late final StreamSubscription<AudioEngineSnapshot> _engineSubscription;
   StreamSubscription<AudioFocusEvent>? _audioFocusSubscription;
   _AudioFocusPause? _audioFocusPause;
   bool _transientAudioFocusLoss = false;
 
-  AudioPlaybackState _state = AudioPlaybackState.idle;
+  AudioPlaybackState _stateValue = AudioPlaybackState.idle;
+  Duration? _sleepMeasuredAt;
+  Duration _sleepElapsedPending = Duration.zero;
+
+  AudioPlaybackState get _state => _stateValue;
+  set _state(AudioPlaybackState value) {
+    _measureSleepElapsed();
+    _stateValue = value;
+    if (value.sleepTimerMode != SleepTimerMode.stopAfterDuration) {
+      _sleepMeasuredAt = null;
+      _sleepElapsedPending = Duration.zero;
+    }
+  }
+
+  static Duration Function() _startElapsedClock() {
+    final stopwatch = Stopwatch()..start();
+    return () => stopwatch.elapsed;
+  }
+
+  void _measureSleepElapsed() {
+    final now = _elapsedClock();
+    final previous = _sleepMeasuredAt;
+    _sleepMeasuredAt = now;
+    if (previous != null &&
+        now > previous &&
+        _stateValue.isPlaying &&
+        _stateValue.sleepTimerMode == SleepTimerMode.stopAfterDuration) {
+      _sleepElapsedPending += now - previous;
+    }
+  }
+
   DateTime? _lastPersistedAt;
   int _maxReachedGlobalPositionMs = 0;
   bool _handlingEngineCompletion = false;
@@ -76,6 +117,8 @@ class PlaybackController extends ChangeNotifier {
   int _engineLoadDepth = 0;
   String? _loadedChapterIdentity;
   int _operationGeneration = 0;
+  int _playbackSelectionGeneration = 0;
+  int _operationSelection = 0;
   bool _disposed = false;
   bool _shuttingDown = false;
   bool _notifierDisposed = false;
@@ -102,12 +145,45 @@ class PlaybackController extends ChangeNotifier {
   bool get _unavailable => _disposed || _shuttingDown || _notifierDisposed;
 
   bool _isCurrent(int generation) =>
-      !_unavailable && generation == _operationGeneration;
+      !_unavailable &&
+      generation == _operationGeneration &&
+      _operationSelection == _playbackSelectionGeneration;
 
-  Future<bool> loadSavedSession(AudioPlaybackBook book) async {
+  int _beginOperation() {
+    _operationSelection = _playbackSelectionGeneration;
+    return ++_operationGeneration;
+  }
+
+  /// Reserve a user Play intent before metadata, disk or network preparation.
+  int beginPlaybackSelection() {
+    final superseded = _playbackSelectionGeneration;
+    final selection = ++_playbackSelectionGeneration;
+    if (!_unavailable &&
+        _operationSelection == superseded &&
+        _state.status == AudioPlaybackStatus.loading &&
+        !_pendingPlayRequest) {
+      // If the new screen's preparation fails, the superseded operation will
+      // not be around to clear its spinner. Leave a retryable paused book.
+      _state = _state.copyWith(status: AudioPlaybackStatus.paused);
+      notifyListeners();
+    }
+    return selection;
+  }
+
+  int get playbackSelectionRevision => _playbackSelectionGeneration;
+
+  bool isPlaybackSelectionCurrent(int selection) =>
+      !_unavailable && selection == _playbackSelectionGeneration;
+
+  Future<bool> loadSavedSession(
+    AudioPlaybackBook book, {
+    bool loadMedia = true,
+  }) async {
     final generation = _operationGeneration;
+    final selection = _playbackSelectionGeneration;
     final session = await _persistence?.loadSession();
     if (!_isCurrent(generation) ||
+        !isPlaybackSelectionCurrent(selection) ||
         session == null ||
         session.activeBookId != book.id ||
         session.activeBookVersionId != book.versionId) {
@@ -131,6 +207,7 @@ class PlaybackController extends ChangeNotifier {
         sleepTimerMode: session.sleepTimerMode,
         updatedAt: session.updatedAt,
       ),
+      loadMedia: loadMedia,
     );
     return true;
   }
@@ -141,9 +218,16 @@ class PlaybackController extends ChangeNotifier {
     Duration position = Duration.zero,
     bool autoPlay = false,
     bool replayChapterAtEnd = false,
+    int? playbackSelection,
   }) async {
-    if (_unavailable) return;
-    final generation = ++_operationGeneration;
+    if (_unavailable ||
+        book.chapters.isEmpty ||
+        (playbackSelection != null &&
+            !isPlaybackSelectionCurrent(playbackSelection))) {
+      return;
+    }
+    if (playbackSelection == null) beginPlaybackSelection();
+    final generation = _beginOperation();
     unawaited(_persistPlayback(force: true));
     _pendingPlayRequest = false;
     _loadedChapterIdentity = null;
@@ -213,10 +297,11 @@ class PlaybackController extends ChangeNotifier {
 
   Future<void> restoreSession(
     AudioPlaybackBook book,
-    PlaybackSession session,
-  ) async {
-    if (_unavailable) return;
-    final generation = ++_operationGeneration;
+    PlaybackSession session, {
+    bool loadMedia = true,
+  }) async {
+    if (_unavailable || book.chapters.isEmpty) return;
+    final generation = _beginOperation();
     unawaited(_persistPlayback(force: true));
     _pendingPlayRequest = false;
     _loadedChapterIdentity = null;
@@ -238,7 +323,9 @@ class PlaybackController extends ChangeNotifier {
     final restoredVolume = _normalizeVolume(session.volume);
     _state = AudioPlaybackState(
       book: book,
-      status: AudioPlaybackStatus.loading,
+      status: loadMedia || session.isPlaying
+          ? AudioPlaybackStatus.loading
+          : AudioPlaybackStatus.paused,
       chapterIndex: normalizedIndex,
       position: _clampPosition(position, book.chapters[normalizedIndex]),
       speed: _normalizeSpeed(session.speed),
@@ -260,6 +347,11 @@ class PlaybackController extends ChangeNotifier {
     ).inMilliseconds;
     _rememberCurrentChapterPosition();
     notifyListeners();
+
+    if (!loadMedia && !session.isPlaying) {
+      _refreshChapterEndTimer();
+      return;
+    }
 
     final loaded = await _loadEngineChapter(
       book,
@@ -320,12 +412,15 @@ class PlaybackController extends ChangeNotifier {
     );
   }
 
-  Future<void> play() => _play();
+  Future<void> play() {
+    beginPlaybackSelection();
+    return _play();
+  }
 
   Future<void> _play({bool replayChapterAtEnd = false}) async {
     if (_unavailable || !_state.hasBook) return;
     _audioFocusPause = null;
-    final generation = ++_operationGeneration;
+    final generation = _beginOperation();
     if (!await _preparePositionForPlayback(
       generation,
       replayChapterAtEnd: replayChapterAtEnd,
@@ -352,13 +447,14 @@ class PlaybackController extends ChangeNotifier {
   }
 
   Future<void> pause() async {
+    beginPlaybackSelection();
     if (_unavailable || !_state.hasBook) return;
     _audioFocusPause = null;
     await _pause();
   }
 
   Future<void> _pause() async {
-    final generation = ++_operationGeneration;
+    final generation = _beginOperation();
     _pendingPlayRequest = false;
     _state = _state.copyWith(status: AudioPlaybackStatus.paused);
     notifyListeners();
@@ -448,12 +544,14 @@ class PlaybackController extends ChangeNotifier {
   Future<void> seek(Duration position) async {
     final chapter = _state.currentChapter;
     if (_unavailable || chapter == null) return;
-    final generation = ++_operationGeneration;
+    beginPlaybackSelection();
+    final generation = _beginOperation();
     final normalized = _clampPosition(position, chapter);
-    if (!await _runEngineOperation(generation, () async {
-      await _guardPlaybackAccess(_state.book!, chapter);
-      if (_isCurrent(generation)) await _engine.seek(normalized);
-    })) {
+    if (_loadedChapterIdentity != null &&
+        !await _runEngineOperation(generation, () async {
+          await _guardPlaybackAccess(_state.book!, chapter);
+          if (_isCurrent(generation)) await _engine.seek(normalized);
+        })) {
       return;
     }
     _state = _state.copyWith(position: normalized);
@@ -602,7 +700,8 @@ class PlaybackController extends ChangeNotifier {
   Future<void> nextChapter() async {
     final book = _state.book;
     if (_unavailable || book == null) return;
-    final generation = ++_operationGeneration;
+    beginPlaybackSelection();
+    final generation = _beginOperation();
     final index = _state.chapterIndex + 1;
     if (index >= book.chapters.length) {
       await _stopAtChapterEnd(generation, completed: true);
@@ -619,7 +718,8 @@ class PlaybackController extends ChangeNotifier {
   Future<void> previousChapter() async {
     final book = _state.book;
     if (_unavailable || book == null) return;
-    final generation = ++_operationGeneration;
+    beginPlaybackSelection();
+    final generation = _beginOperation();
     final index = (_state.chapterIndex - 1).clamp(0, book.chapters.length - 1);
     await _loadChapterAt(
       index,
@@ -632,12 +732,13 @@ class PlaybackController extends ChangeNotifier {
   Future<void> playChapterAt(int index) async {
     final book = _state.book;
     if (_unavailable || book == null) return;
+    beginPlaybackSelection();
     final normalized = _clampChapterIndex(book, index);
     if (normalized == _state.chapterIndex) {
       await _play(replayChapterAtEnd: true);
       return;
     }
-    final generation = ++_operationGeneration;
+    final generation = _beginOperation();
     await _loadChapterAt(
       normalized,
       position: _chapterResumePositionFor(book, normalized),
@@ -657,7 +758,8 @@ class PlaybackController extends ChangeNotifier {
   }) async {
     final book = _state.book;
     if (_unavailable || book == null || book.chapters.isEmpty) return;
-    final generation = ++_operationGeneration;
+    beginPlaybackSelection();
+    final generation = _beginOperation();
     await _loadChapterAt(
       _clampChapterIndex(book, index),
       position: position,
@@ -672,18 +774,21 @@ class PlaybackController extends ChangeNotifier {
       sleepTimerRemaining: _nonNegative(duration),
       sleepTimerMode: SleepTimerMode.stopAfterDuration,
     );
+    _sleepElapsedPending = Duration.zero;
+    _sleepMeasuredAt = _elapsedClock();
     notifyListeners();
     unawaited(_persistPlayback(force: true));
   }
 
   void setSleepTimerToChapterEnd() {
-    if (_unavailable) return;
+    if (_unavailable || _state.currentChapter == null) return;
     final remaining = _remainingCurrentChapterDuration();
-    if (remaining == null) return;
-    _state = _state.copyWith(
-      sleepTimerRemaining: remaining,
-      sleepTimerMode: SleepTimerMode.stopAtChapterEnd,
-    );
+    _state = _state
+        .copyWith(clearSleepTimer: true)
+        .copyWith(
+          sleepTimerRemaining: remaining,
+          sleepTimerMode: SleepTimerMode.stopAtChapterEnd,
+        );
     notifyListeners();
     unawaited(_persistPlayback(force: true));
   }
@@ -697,9 +802,12 @@ class PlaybackController extends ChangeNotifier {
 
   void _refreshChapterEndTimer() {
     if (_state.sleepTimerMode == SleepTimerMode.stopAtChapterEnd) {
-      _state = _state.copyWith(
-        sleepTimerRemaining: _remainingCurrentChapterDuration(),
-      );
+      _state = _state
+          .copyWith(clearSleepTimer: true)
+          .copyWith(
+            sleepTimerRemaining: _remainingCurrentChapterDuration(),
+            sleepTimerMode: SleepTimerMode.stopAtChapterEnd,
+          );
     }
   }
 
@@ -723,11 +831,28 @@ class PlaybackController extends ChangeNotifier {
     return normalizedIndex < _state.chapterIndex ? 1 : 0;
   }
 
-  Future<void> tick(Duration elapsed) async {
+  /// Called by any wake/tick cadence; delayed callbacks do not lose time.
+  Future<void> pollSleepTimer() {
+    if (_unavailable ||
+        _state.sleepTimerMode != SleepTimerMode.stopAfterDuration) {
+      return Future<void>.value();
+    }
+    _measureSleepElapsed();
+    final elapsed = _sleepElapsedPending;
+    _sleepElapsedPending = Duration.zero;
+    return _applySleepElapsed(elapsed, accountPausedInterval: true);
+  }
+
+  Future<void> tick(Duration elapsed) => _applySleepElapsed(elapsed);
+
+  Future<void> _applySleepElapsed(
+    Duration elapsed, {
+    bool accountPausedInterval = false,
+  }) async {
     if (_unavailable ||
         elapsed <= Duration.zero ||
-        !_state.isPlaying ||
-        _state.sleepTimerMode == SleepTimerMode.stopAtChapterEnd) {
+        (!accountPausedInterval && !_state.isPlaying) ||
+        _state.sleepTimerMode != SleepTimerMode.stopAfterDuration) {
       return;
     }
     final remaining = _state.sleepTimerRemaining;
@@ -735,7 +860,12 @@ class PlaybackController extends ChangeNotifier {
     final next = _nonNegative(remaining - elapsed);
     if (next == Duration.zero) {
       _state = _state.copyWith(clearSleepTimer: true);
-      await pause();
+      if (_hasPlayIntent) {
+        await pause();
+      } else {
+        notifyListeners();
+        await _persistPlayback(force: true);
+      }
     } else {
       _state = _state.copyWith(sleepTimerRemaining: next);
       notifyListeners();
@@ -884,6 +1014,18 @@ class PlaybackController extends ChangeNotifier {
       _pendingPlayRequest = false;
       _state = _state.copyWith(position: chapter.duration);
       _updateMaxReachedPosition();
+      if (_operationSelection != _playbackSelectionGeneration) {
+        // A new explicit selection is preparing on another screen. Record the
+        // end, but don't let the old automatic transition start its next URL.
+        _state = _state.copyWith(
+          status: AudioPlaybackStatus.paused,
+          clearSleepTimer:
+              _state.sleepTimerMode == SleepTimerMode.stopAtChapterEnd,
+        );
+        notifyListeners();
+        unawaited(_persistPlayback(force: true));
+        return;
+      }
       notifyListeners();
       unawaited(
         _completeEngineChapter(
@@ -930,7 +1072,7 @@ class PlaybackController extends ChangeNotifier {
 
   Future<void> _completeEngineChapter({required bool continuePlayback}) async {
     if (_unavailable || _handlingEngineCompletion) return;
-    final generation = ++_operationGeneration;
+    final generation = _beginOperation();
     _handlingEngineCompletion = true;
     try {
       if (_state.sleepTimerMode == SleepTimerMode.stopAtChapterEnd) {
@@ -1002,6 +1144,7 @@ class PlaybackController extends ChangeNotifier {
       return false;
     }
     if (retry &&
+        !book.offlineOnly &&
         _playbackErrorBookResolver != null &&
         currentChapter.mediaSource?.type != AudioMediaSourceType.file &&
         currentChapter.mediaSource?.type != AudioMediaSourceType.asset) {
@@ -1100,6 +1243,9 @@ class PlaybackController extends ChangeNotifier {
       chapterIndex: normalizedIndex,
       position: normalizedPosition,
       status: AudioPlaybackStatus.loading,
+      clearSleepTimer:
+          _state.sleepTimerMode == SleepTimerMode.stopAtChapterEnd &&
+          _state.currentChapter?.id != chapter.id,
       clearError: true,
     );
     notifyListeners();
@@ -1146,24 +1292,72 @@ class PlaybackController extends ChangeNotifier {
     required int generation,
     bool prepareForPlayback = false,
   }) async {
+    // Resolve only the chosen chapter, outside the decoder operation queue.
+    // A slow source can never block a later selection's engine operations.
+    var resolvedChapter = chapter;
+    var resolvedBook = book;
+    if (book.offlineOnly &&
+        chapter.mediaSource?.type != AudioMediaSourceType.file &&
+        chapter.mediaSource?.type != AudioMediaSourceType.asset) {
+      _setEngineOperationError(
+        generation,
+        const AudioEngineException('Selected chapter is unavailable offline.'),
+      );
+      return false;
+    }
+    final resolver = _playbackChapterResolver;
+    if (resolver != null && chapter.mediaSource == null) {
+      if (!await _runEngineOperation(generation, _engine.pause)) return false;
+      try {
+        await _guardPlaybackAccess(book, chapter);
+        if (!_isCurrent(generation)) return false;
+        resolvedChapter = await resolver(book, chapter);
+        if (!_isCurrent(generation)) return false;
+        if (resolvedChapter.id != chapter.id ||
+            resolvedChapter.index != chapter.index ||
+            resolvedChapter.mediaSource == null) {
+          throw const AudioEngineException('Selected chapter is unavailable.');
+        }
+        final chapters = book.chapters.toList();
+        final index = chapters.indexWhere((value) => value.id == chapter.id);
+        if (index < 0) return false;
+        chapters[index] = resolvedChapter;
+        resolvedBook = book.copyWith(chapters: List.unmodifiable(chapters));
+        _state = _state.copyWith(book: resolvedBook);
+      } catch (error) {
+        _setEngineOperationError(generation, error);
+        return false;
+      }
+    }
     AudioEngineSnapshot? loadedSnapshot;
     final loaded = await _runEngineOperation(generation, () async {
       _engineLoadDepth++;
       _snapshotDuringLoad = null;
       _loadedChapterIdentity = null;
       try {
-        await _guardPlaybackAccess(book, chapter);
+        await _guardPlaybackAccess(resolvedBook, resolvedChapter);
         if (!_isCurrent(generation)) return;
         final engine = _engine;
         if (prepareForPlayback &&
             engine is AudioEngineForegroundPlaybackBinding) {
           await (engine as AudioEngineForegroundPlaybackBinding)
-              .loadForPlayback(chapter, position: position, book: book);
+              .loadForPlayback(
+                resolvedChapter,
+                position: position,
+                book: resolvedBook,
+              );
         } else {
-          await engine.load(chapter, position: position, book: book);
+          await engine.load(
+            resolvedChapter,
+            position: position,
+            book: resolvedBook,
+          );
         }
         if (_isCurrent(generation)) {
-          _loadedChapterIdentity = _chapterLoadIdentity(book, chapter);
+          _loadedChapterIdentity = _chapterLoadIdentity(
+            resolvedBook,
+            resolvedChapter,
+          );
         }
       } finally {
         // Stream wrappers can queue a final pause/position microtask even when
@@ -1245,17 +1439,20 @@ class PlaybackController extends ChangeNotifier {
       await pending;
       return _isCurrent(generation);
     } catch (error) {
-      if (_isCurrent(generation)) {
-        _pendingPlayRequest = false;
-        _loadedChapterIdentity = null;
-        _state = _state.copyWith(
-          status: AudioPlaybackStatus.error,
-          errorMessage: _errorMessage(error),
-        );
-        notifyListeners();
-      }
+      _setEngineOperationError(generation, error);
       return false;
     }
+  }
+
+  void _setEngineOperationError(int generation, Object error) {
+    if (!_isCurrent(generation)) return;
+    _pendingPlayRequest = false;
+    _loadedChapterIdentity = null;
+    _state = _state.copyWith(
+      status: AudioPlaybackStatus.error,
+      errorMessage: _errorMessage(error),
+    );
+    notifyListeners();
   }
 
   Future<AudioPlaybackBook?> _refreshActiveBookForPlayback(
@@ -1270,7 +1467,10 @@ class PlaybackController extends ChangeNotifier {
     if (activeBook == null || resolver == null) return activeBook;
     final AudioPlaybackBook resolvedBook;
     try {
-      resolvedBook = await resolver(activeBook);
+      final resolved = await resolver(activeBook);
+      resolvedBook = activeBook.offlineOnly && !resolved.offlineOnly
+          ? resolved.copyWith(offlineOnly: true)
+          : resolved;
     } catch (error, stackTrace) {
       if (!_isCurrent(generation)) return null;
       if (retryMedia) {
@@ -1293,7 +1493,30 @@ class PlaybackController extends ChangeNotifier {
     }
     if (!_isCurrent(generation)) return null;
     if (!_isSameBookIdentity(activeBook, resolvedBook)) return activeBook;
-    _state = _state.copyWith(book: resolvedBook);
+    final currentChapter = _state.currentChapter;
+    final currentIndex = currentChapter == null
+        ? -1
+        : resolvedBook.chapters.indexWhere((candidate) {
+            final identity = currentChapter.storageIdentity;
+            return identity != null
+                ? candidate.storageIdentity == identity
+                : candidate.id == currentChapter.id;
+          });
+    if (currentChapter != null && currentIndex < 0) {
+      if (retryMedia) {
+        _setEngineOperationError(
+          generation,
+          const AudioEngineException('Selected chapter is unavailable.'),
+        );
+        return null;
+      }
+      return activeBook;
+    }
+    if (retryMedia) _loadedChapterIdentity = null;
+    _state = _state.copyWith(
+      book: resolvedBook,
+      chapterIndex: currentIndex >= 0 ? currentIndex : _state.chapterIndex,
+    );
     _saveMetadata(resolvedBook);
     notifyListeners();
     return resolvedBook;
@@ -1525,8 +1748,15 @@ class PlaybackController extends ChangeNotifier {
     final session = toPlaybackSession(updatedAt: now);
     final progress = _progressSnapshot(now);
     final pending = _persistenceOperations.then((_) async {
-      await persistence.saveSession(session);
-      await persistence.saveProgress(progress);
+      if (persistence is PlaybackCheckpointPersistence) {
+        await (persistence as PlaybackCheckpointPersistence).saveCheckpoint(
+          session,
+          progress,
+        );
+      } else {
+        await persistence.saveSession(session);
+        await persistence.saveProgress(progress);
+      }
       // Active playback already renders live position. Refresh stored history
       // only on discrete saves (book switch/pause/seek), not every 5s tick.
       if (force && !_disposed && !_progressChanges.isClosed) {

@@ -17,8 +17,13 @@ Iterable<DownloadTask> activeTasksForBook(
 BookCardDownloadState downloadStateForBook(
   DownloadManager manager,
   AudioPlaybackBook book,
+) =>
+    downloadStateForBookTasks(activeTasksForBook(manager, book).toList(), book);
+
+BookCardDownloadState downloadStateForBookTasks(
+  List<DownloadTask> tasks,
+  AudioPlaybackBook book,
 ) {
-  final tasks = activeTasksForBook(manager, book).toList();
   if (tasks.isEmpty) {
     return BookCardDownloadState.none;
   }
@@ -74,9 +79,13 @@ BookCardDownloadState downloadStateForTask(DownloadTask? task) {
 double downloadProgressForBook(
   DownloadManager manager,
   AudioPlaybackBook book,
+) => downloadProgressForBookTasks(activeTasksForBook(manager, book), book);
+
+double downloadProgressForBookTasks(
+  Iterable<DownloadTask> tasks,
+  AudioPlaybackBook book,
 ) {
-  final tasks = activeTasksForBook(manager, book).toList();
-  if (tasks.isEmpty) {
+  if (tasks.isEmpty || book.chapters.isEmpty) {
     return 0;
   }
 
@@ -263,6 +272,7 @@ bool _allBookChaptersCompleted(
   List<DownloadTask> tasks,
   AudioPlaybackBook book,
 ) {
+  if (book.chapters.isEmpty) return false;
   final completedChapterIds = {
     for (final task in tasks)
       if (task.status == DownloadTaskStatus.completed && task.chapterId != null)

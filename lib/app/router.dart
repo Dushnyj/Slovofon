@@ -110,6 +110,9 @@ final GoRouter appRouter = GoRouter(
       path: '/source-book/:sourceId/:sourceBookId',
       builder: (context, state) {
         return SourceBookDetailsScreen(
+          initialResult: state.extra is BookSearchResult
+              ? state.extra as BookSearchResult
+              : null,
           ref: SourceBookRef(
             sourceId: state.pathParameters['sourceId']!,
             sourceBookId: Uri.decodeComponent(
