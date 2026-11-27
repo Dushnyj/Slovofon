@@ -169,8 +169,21 @@ class SlovofonMediaSessionService : MediaSessionService() {
     }
 
     private class SlovofonMediaSessionCallback : MediaSession.Callback {
+        private fun isUnidentified(controller: MediaSession.ControllerInfo): Boolean =
+            controller.uid < 0 && controller.packageName == "com.slovofon.unidentified_media_controller"
+
         private fun canControl(controller: MediaSession.ControllerInfo): Boolean =
-            controller.isTrusted || controller.uid == Process.myUid()
+            !isUnidentified(controller) && (controller.isTrusted || controller.uid == Process.myUid())
+
+        override fun onMediaButtonEvent(
+            session: MediaSession,
+            controllerInfo: MediaSession.ControllerInfo,
+            intent: Intent,
+        ): Boolean {
+            // Do not let Media3 relay an unidentified legacy key through its
+            // internal notification controller, which has its own privileges.
+            return isUnidentified(controllerInfo)
+        }
 
         override fun onConnect(
             session: MediaSession,

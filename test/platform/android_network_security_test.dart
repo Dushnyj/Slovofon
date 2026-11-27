@@ -58,6 +58,24 @@ void main() {
     );
   });
 
+  test('Media3 legacy identity guard is scoped and does not grant control', () {
+    final gradle = File('android/app/build.gradle.kts').readAsStringSync();
+    final service = File(
+      'android/app/src/main/kotlin/com/slovofon/app/'
+      'SlovofonMediaSessionService.kt',
+    ).readAsStringSync();
+    const unidentified = 'com.slovofon.unidentified_media_controller';
+
+    expect(gradle, contains(r'MediaSessionManager\$RemoteUserInfo'));
+    expect(gradle, contains('InstrumentationScope.ALL'));
+    expect(gradle, contains('strictly("1.10.1")'));
+    expect(gradle, contains('visitLdcInsn("$unidentified")'));
+    expect(service, contains('controller.uid < 0'));
+    expect(service, contains('controller.packageName == "$unidentified"'));
+    expect(service, contains('!isUnidentified(controller)'));
+    expect(service, contains('return isUnidentified(controllerInfo)'));
+  });
+
   test(
     'Android Media3 notification exposes all compact audiobook controls',
     () {
