@@ -385,6 +385,9 @@ Updater не использует silent install, не завершает при
 Release-подпись нужна отдельно от debug-сборок:
 
 - Android debug APK подписывается временным debug-ключом Flutter/Android SDK автоматически.
+- Android Debug использует отдельный ID `com.slovofon.app.debug` и суффикс
+  версии `-debug`. Обычная сборка остаётся `com.slovofon.app`; её данные не
+  доступны Debug-копии. Перед `adb install` проверьте ID APK (`aapt dump badging`).
 - Android release APK/AAB должен быть подписан release/upload key.
 - Windows debug bundle не подписывается.
 - Windows release installer/MSIX/portable EXE должен быть подписан перед публичным распространением.
@@ -827,7 +830,7 @@ cd android
 ./gradlew.bat :app:assembleDebug :app:assembleDebugAndroidTest
 adb install -r ../build/app/outputs/apk/debug/app-debug.apk
 adb install -r ../build/app/outputs/apk/androidTest/debug/app-debug-androidTest.apk
-adb shell am instrument -w com.slovofon.app.test/com.slovofon.app.SlovofonLifecycleInstrumentation
+adb shell am instrument -w com.slovofon.app.debug.test/com.slovofon.app.SlovofonLifecycleInstrumentation
 ```
 
 Runner проверяет реальный Activity finish/reopen: Dart продолжает выполняться и

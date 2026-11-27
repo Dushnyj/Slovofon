@@ -33,8 +33,11 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        testApplicationId = "com.slovofon.app.debug.test"
         testInstrumentationRunner = "com.slovofon.app.SlovofonLifecycleInstrumentation"
     }
+
+    testBuildType = "debug"
 
     signingConfigs {
         if (hasReleaseSigningConfig) {
@@ -48,6 +51,10 @@ android {
     }
 
     buildTypes {
+        debug {
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+        }
         release {
             if (hasReleaseSigningConfig) {
                 signingConfig = signingConfigs.getByName("release")

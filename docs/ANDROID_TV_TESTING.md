@@ -133,7 +133,7 @@ For a separately authorized device run, after installing the Debug and androidTe
 APKs on a selected test device:
 
 ```text
-adb -s <serial> shell am instrument -w com.slovofon.app.test/com.slovofon.app.SlovofonTvInstrumentation
+adb -s <serial> shell am instrument -w com.slovofon.app.debug.test/com.slovofon.app.SlovofonTvInstrumentation
 ```
 
 Run on a phone and TV separately, then launch the app from each actual launcher.
@@ -158,7 +158,7 @@ duration 0/negative, forward 60 → 90 s, back 90 → 60 s, absolute 120 s and
 negative → 0, then a known 75 s upper bound; speed and paused state remain unchanged.
 
 ```text
-adb -s <serial> shell am instrument -w com.slovofon.app.test/com.slovofon.app.SlovofonMediaSeekInstrumentation
+adb -s <serial> shell am instrument -w com.slovofon.app.debug.test/com.slovofon.app.SlovofonMediaSeekInstrumentation
 ```
 
 ## Historical verification status (2026-09-06)

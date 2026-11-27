@@ -2,6 +2,7 @@ package com.slovofon.app
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -28,6 +29,20 @@ class MainActivity : FlutterActivity() {
             "com.slovofon.app/update_installer",
         ).also { channel ->
             channel.setMethodCallHandler { call, result ->
+                // A side-by-side debug build must never launch the production
+                // APK installer, even on Android versions without per-app consent.
+                if ((applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
+                    when (call.method) {
+                        "canInstallApks" -> result.success(false)
+                        "openInstallSettings", "installApk" -> result.error(
+                            "debug_install_disabled",
+                            "APK installation is disabled in the debug app.",
+                            null,
+                        )
+                        else -> result.notImplemented()
+                    }
+                    return@setMethodCallHandler
+                }
                 when (call.method) {
                     "canInstallApks" -> result.success(canInstallApks())
                     "openInstallSettings" -> {
